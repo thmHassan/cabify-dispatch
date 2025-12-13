@@ -29,16 +29,16 @@ const LostFoundCard = ({ lostfound }) => {
                 </div>
 
                 <div className={
-                    lostfound.status === "Found"
+                    lostfound.status === "Active"
                         ? "bg-[#b1f7d8] border border-green-500 text-green-700 xl:h-12 lg:h-12 md:h-12 h-12 w-28 xl:py-4 lg:py-4.5 md:py-3 py-2 text-center rounded-full"
                         : "bg-[#faadad] border border-red-500 text-red-700 text-center xl:h-12 lg:h-12 md:h-12 h-12 w-28 xl:py-4 lg:py-4 md:py-3 py-2 rounded-full"
                 }>
                     <p className="font-semibold text-sm">{lostfound.status}</p>
                 </div>
 
-                <div className="border border-[#1F41BB]  text-green-700 xl:h-12 lg:h-12 md:h-12 h-12 w-28 xl:py-4 lg:py-4.5 md:py-3 py-2 text-center rounded-full">
+                {/* <div className="border border-[#1F41BB]  text-green-700 xl:h-12 lg:h-12 md:h-12 h-12 w-28 xl:py-4 lg:py-4.5 md:py-3 py-2 text-center rounded-full">
                     <p className="text-xs text-[#1F41BB]">{lostfound.received}</p>
-                </div>
+                </div> */}
             </div>
         </div>
     );

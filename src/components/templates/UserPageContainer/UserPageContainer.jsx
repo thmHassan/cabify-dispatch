@@ -147,19 +147,6 @@ const UserPageContainer = ({ children }) => {
               <SearchBar />
             </div>
           </div>
-          <div className="flex gap-2.5 items-center">
-            <PageSubTitle
-              title="Auto Dispatch System"
-              className="!leading-[22px]"
-              textColor={2}
-            />
-            <PlainSwitch />
-            <PageSubTitle
-              title="Bidding System"
-              className="!leading-[22px]"
-              textColor={2}
-            />
-          </div>
           <div className="flex gap-1.5 sm:gap-3 lg:gap-5 items-center flex-shrink-0">
             <div className="flex min-w-[40px] h-[40px] sm:min-w-[50px] sm:h-[50px] rounded-full bg-[#FFFFFF] justify-center items-center">
               <div className="w-[18px] h-[18px] sm:w-[25px] sm:h-[26px] flex items-center justify-center">

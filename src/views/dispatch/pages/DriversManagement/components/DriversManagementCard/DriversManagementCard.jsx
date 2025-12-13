@@ -88,21 +88,13 @@ const DriverManagementCard = ({ driver, onEdit, onDelete, onStatusChange }) => {
                     <p className="text-black text-center text-[#1F41BB] font-semibold text-sm">{driver.walletBalance}</p>
                 </div>
 
-                <UserDropdown options={statusOptions} itemData={driver}>
-                    <div
-                        className={`${status === "accepted"
-                            ? "bg-[#10B981] text-white"
-                            : status === "rejected"
-                                ? "bg-[#FF4747] text-white"
-                                : "bg-gray-300 text-black"
-                            } text-center xl:h-10 lg:h-10 md:h-10 h-10 w-28 xl:py-3 lg:py-3 md:py-3 py-1 rounded-full flex items-center justify-center cursor-pointer`}
-                    >
-                        <p className="font-semibold text-sm">
-                            {loading ? "Updating..." : status.charAt(0).toUpperCase() + status.slice(1)}
-                        </p>
-                    </div>
-                </UserDropdown>
-                
+                <div className={
+                    driver.status === "Active"
+                        ? "bg-[#10B981] text-white xl:h-10 lg:h-10 md:h-10 h-10 w-24 xl:py-3 lg:py-3 md:py-2 py-2 text-center rounded-full"
+                        : "bg-[#FF4747] text-white xl:h-10 lg:h-10 md:h-10 h-10 w-24 xl:py-3 lg:py-3 md:py-2 py-2 text-center rounded-full"
+                }>
+                    <p className="text-white font-semibold text-sm">{driver.status}</p>
+                </div>
                 <UserDropdown options={actionOptions} itemData={driver}>
                     <Button className="w-10 h-10 bg-[#EFEFEF] rounded-full flex justify-center items-center">
                         <ThreeDotsIcon />
