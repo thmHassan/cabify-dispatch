@@ -1,20 +1,11 @@
 import DashboardIcon from "../../components/svg/DashboardIcon";
-import DispatcherIcon from "../../components/svg/DispatcherIcon";
 import MapsConfigurationIcon from "../../components/svg/MapsConfigurationIcon";
 import GeneralNotificationIcon from "../../components/svg/GeneralNotificationIcon";
-import ReviewsIcon from "../../components/svg/ReviewsIcon";
 import CancellationsIcon from "../../components/svg/CancellationsIcon";
 import UsersIcon from "../../components/svg/UsersIcon";
-import VehicleTypeIcon from "../../components/svg/VehicleTypeIcon";
-import DriversDocumentIcon from "../../components/svg/DriversDocumentIcon";
 import DriverIcon from "../../components/svg/DriverIcon";
 import RidesManagementIcon from "../../components/svg/RidesManagementIcon";
 import AccountIcon from "../../components/svg/AccountIcon";
-import RevenueNstatementsIcon from "../../components/svg/RevenueNstatementsIcon";
-import PlotsIcon from "../../components/svg/PlotsIcon";
-import ManageZonesIcon from "../../components/svg/ManageZonesIcon";
-import SubCompanyIcon from "../../components/svg/SubCompanyIcon";
-import SettingConfigurationIcon from "../../components/svg/SettingConfigurationIcon";
 import TicketsIcon from "../../components/svg/TicketsIcon";
 import SosIcon from "../../components/svg/SosIcon";
 import LostFoundIcon from "../../components/svg/LostFoundIcon";
@@ -123,20 +114,20 @@ const userNavRoutes = [
         subMenu: [],
         isStatic: false,
       },
-      // {
-      //   key: KEY.ACCOUNTS_KEY,
-      //   title: "Accounts",
-      //   icon: {
-      //     active: AccountIcon,
-      //     component: AccountIcon,
-      //     size: 20,
-      //   },
-      //   route: PATH.ACCOUNTS_PATH,
-      //   active: [],
-      //   isSubMenu: false,
-      //   subMenu: [],
-      //   isStatic: false,
-      // },
+      {
+        key: KEY.ACCOUNTS_KEY,
+        title: "Accounts",
+        icon: {
+          active: AccountIcon,
+          component: AccountIcon,
+          size: 20,
+        },
+        route: PATH.ACCOUNTS_PATH,
+        active: [],
+        isSubMenu: false,
+        subMenu: [],
+        isStatic: false,
+      },
       {
         key: KEY.TICKETS_KEY,
         title: "Tickets",

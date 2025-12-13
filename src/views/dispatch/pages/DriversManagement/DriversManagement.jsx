@@ -174,40 +174,6 @@ const DriversManagement = () => {
           </div>
         </div>
       </div>
-      <div className="bg-[#006FFF1A] p-1 rounded-lg mb-6 inline-flex gap-1">
-        <Button
-          type="filled"
-          btnSize="2xl"
-          className={`${activeTab === "accepted" ? "!bg-[#1F41BB] !text-white" : "!bg-transparent !text-black"}`}
-          onClick={() => setActiveTab("accepted")}
-        >
-          Accepted
-        </Button>
-        <Button
-          type="filled"
-          btnSize="2xl"
-          className={`${activeTab === "pending" ? "!bg-[#1F41BB] !text-white" : "!bg-transparent !text-black"}`}
-          onClick={() => setActiveTab("pending")}
-        >
-          Pending
-        </Button>
-        <Button
-          type="filled"
-          btnSize="2xl"
-          className={`${activeTab === "rejected" ? "!bg-[#1F41BB] !text-white" : "!bg-transparent !text-black"}`}
-          onClick={() => setActiveTab("rejected")}
-        >
-          Rejected
-        </Button>
-        <Button
-          type="filled"
-          btnSize="2xl"
-          className={`${activeTab === "cashCollection" ? "!bg-[#1F41BB] !text-white" : "!bg-transparent !text-black"}`}
-          onClick={() => setActiveTab("cashCollection")}
-        >
-          Cash Collection
-        </Button>
-      </div>
       <div>
         <CardContainer className="p-3 sm:p-4 lg:p-5 bg-[#F5F5F5]">
           <div className="flex flex-row items-stretch sm:items-center gap-3 sm:gap-5 justify-between mb-4 sm:mb-0">

@@ -79,6 +79,45 @@ const LostFound = () => {
     setCurrentPage(1);
   };
 
+  const staticData = [
+    {
+      id: "MR12345",
+      name: "Alex Rodriguez",
+      phoneNumber: "+1 (555) 123-4567",
+      carPlateNo: "ABC-1234",
+      DateTime: "2023-08-15 14:30",
+      loction: "Downtown",
+      status: "Active",
+    },
+    {
+      id: "MR12346",
+      name: "Alex Rodriguez",
+      phoneNumber: "+1 (555) 123-4567",
+      carPlateNo: "ABC-1234",
+      DateTime: "2023-08-15 14:30",
+      loction: "Downtown",
+      status: "Inactive",
+    },
+    {
+      id: "MR12347",
+      name: "Alex Rodriguez",
+      phoneNumber: "+1 (555) 123-4567",
+      carPlateNo: "ABC-1234",
+      DateTime: "2023-08-15 14:30",
+      loction: "Downtown",
+      status: "Active",
+    },
+    {
+      id: "MR12347",
+      name: "Alex Rodriguez",
+      phoneNumber: "+1 (555) 123-4567",
+      carPlateNo: "ABC-1234",
+      DateTime: "2023-08-15 14:30",
+      loction: "Downtown",
+      status: "Active",
+    },
+  ];
+
   return (
     <div className="px-4 py-5 sm:p-6 lg:p-10 min-h-[calc(100vh-85px)]">
       <div className="flex flex-col gap-2.5 sm:mb-[30px] mb-6">
@@ -111,7 +150,7 @@ const LostFound = () => {
           </div>
           <Loading loading={tableLoading} type="cover">
             <div className="flex flex-col gap-4 pt-4">
-              {lostFoundData.map((lostfound) => (
+              {staticData.map((lostfound) => (
                 <LostFoundCard key={lostfound.id} lostfound={lostfound} />
               ))}
             </div>

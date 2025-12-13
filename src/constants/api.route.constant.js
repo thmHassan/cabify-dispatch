@@ -1,11 +1,6 @@
 // api for dashboard
 export const GET_DASHBOARD_DETAILS = "/super-admin/dashboard";
 
-//api for dispatcher
-export const CREATE_DISPATCHER = "/company/create-dispatcher";
-export const DELETE_DISPATCHER = "/company/delete-dispatcher";
-export const EDIT_DISPATCHER = "/company/edit-dispatcher";
-
 // api for user
 export const CREATE_USER = "/company/create-user";
 export const GET_USER_LIST = "/company/list-user";
