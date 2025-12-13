@@ -1,0 +1,92 @@
+@import "./styles/css/index.css";
+
+html,
+body {
+  -ms-overflow-style: none;
+  /* IE and Edge */
+  scrollbar-width: none;
+  /* Firefox */
+}
+
+::-webkit-scrollbar,
+::-webkit-scrollbar {
+  display: none;
+  /* Chrome, Safari, Opera */
+}
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Global focus outline for form fields */
+input:not([type="hidden"]):focus,
+input:not([type="hidden"]):focus-visible,
+select:focus,
+select:focus-visible,
+textarea:focus,
+textarea:focus-visible,
+[contenteditable="true"]:focus,
+[contenteditable="true"]:focus-visible {
+  outline: none;
+  /* Inset ring avoids being cut off by overflow-hidden containers */
+  box-shadow: 0 0 0 2px #1f41bb inset;
+  /* Also tint borders for inputs that show border states */
+  border-color: #1f41bb;
+  /* Prevent odd focus animation when switching fields by click */
+  transition: none;
+}
+
+/* Button ripple effect */
+.td-ripple {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  background: rgba(31, 65, 187, 0.3);
+  border-radius: 9999px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  will-change: transform, opacity;
+  animation: td-ripple-anim 280ms ease-out forwards;
+}
+
+.form-selection input:not([type="hidden"]):focus-visible {
+  box-shadow: none !important;
+}
+
+/* Full-button subtle overlay ripple (matches button shape) */
+.td-ripple-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(31, 65, 187, 0.12);
+  border-radius: inherit;
+  pointer-events: none;
+  animation: td-ripple-overlay-anim 260ms ease-out forwards;
+}
+
+@keyframes td-ripple-anim {
+  from {
+    opacity: 0.6;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(12);
+  }
+}
+
+@keyframes td-ripple-overlay-anim {
+  from {
+    opacity: 0.35;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+/* Ensure base state also doesn't animate between fields */
+input:not([type="hidden"]),
+select,
+textarea,
+[contenteditable="true"] {
+  transition: none;
+}

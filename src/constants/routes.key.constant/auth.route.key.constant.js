@@ -1,0 +1,9 @@
+export const USER_SELECTION_KEY = "selection";
+export const CLIENT_SIGN_IN_KEY = "client-sign-in";
+export const DISPATCHER_SIGN_IN_KEY = "dispatcher-sign-in";
+export const SIGN_IN_KEY = "sign-in";
+export const SIGN_UP_KEY = "sign-up";
+export const FORGOT_PASSWORD_KEY = "forgotPassword";
+export const RESET_PASSWORD_KEY = "resetPassword";
+// export const VERIFY_IDENTITY_KEY = "verifyIdentity";
+// export const OTP_VERIFIER = "otpVerifier";
