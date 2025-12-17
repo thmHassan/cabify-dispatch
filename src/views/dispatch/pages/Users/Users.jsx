@@ -15,7 +15,7 @@ import { lockBodyScroll } from "../../../../utils/functions/common.function";
 import Pagination from "../../../../components/ui/Pagination/Pagination";
 import Loading from "../../../../components/shared/Loading/Loading";
 import UserDetails from "./components/UserDetails";
-// import { apiDeleteUser, apiGetUser } from "../../../../services/UserService";
+import { apiDeleteUser, apiGetUser } from "../../../../services/UserService";
 
 const Users = () => {
   const navigate = useNavigate();
@@ -61,38 +61,36 @@ const Users = () => {
     setCurrentPage(1);
   };
 
-  // const getUser = useCallback(async () => {
-  //   try {
-  //     setIsUserLoadnig(true);
-  //     const params = {
-  //       page: currentPage,
-  //       perPage: itemsPerPage,
-  //     };
-  //     if (debouncedSearchQuery && debouncedSearchQuery.trim()) {
-  //       params.search = debouncedSearchQuery.trim();
-  //     }
+  const getUser = useCallback(async () => {
+    try {
+      setIsUserLoadnig(true);
+      const params = {
+        page: currentPage,
+        perPage: itemsPerPage,
+      };
+      if (debouncedSearchQuery && debouncedSearchQuery.trim()) {
+        params.search = debouncedSearchQuery.trim();
+      }
 
-  //     console.log("API Call Params:", params);
+      const result = await apiGetUser(params);
 
-  //     const result = await apiGetUser(params);
+      if (result?.status === 200 && result?.data?.users) {
+        const list = result?.data?.users?.data;
+        const rows = Array.isArray(list) ? list : [];
 
-  //     if (result?.status === 200 && result?.data?.users) {
-  //       const list = result?.data?.users?.data;
-  //       const rows = Array.isArray(list) ? list : [];
-
-  //       setTotalItems(result?.data?.users?.total || 0);
-  //       setTotalPages(result?.data?.users?.last_page || 1);
-  //       setUserListRaw(rows);
-  //       setUserListDisplay(rows);
-  //     }
-  //   } catch (errors) {
-  //     console.log(errors, "err---");
-  //     setUserListRaw([]);
-  //     setUserListDisplay([]);
-  //   } finally {
-  //     setIsUserLoadnig(false);
-  //   }
-  // }, [currentPage, itemsPerPage, debouncedSearchQuery]);
+        setTotalItems(result?.data?.users?.total || 0);
+        setTotalPages(result?.data?.users?.last_page || 1);
+        setUserListRaw(rows);
+        setUserListDisplay(rows);
+      }
+    } catch (errors) {
+      console.log(errors, "err---");
+      setUserListRaw([]);
+      setUserListDisplay([]);
+    } finally {
+      setIsUserLoadnig(false);
+    }
+  }, [currentPage, itemsPerPage, debouncedSearchQuery]);
 
   useEffect(() => {
     const handler = setTimeout(() => {
@@ -109,7 +107,7 @@ const Users = () => {
       hasCalledInitial.current = true;
       return;
     }
-    // getUser();
+    getUser();
   }, [refreshTrigger]);
 
   useEffect(() => {
@@ -134,69 +132,33 @@ const Users = () => {
     setDeleteModalOpen(true);
   };
 
-  // const handleDeleteUser = async () => {
-  //   if (!userToDelete?.id) return;
+  const handleDeleteUser = async () => {
+    if (!userToDelete?.id) return;
 
-  //   setIsDeleting(true);
-  //   try {
-  //     const response = await apiDeleteUser(userToDelete.id);
+    setIsDeleting(true);
+    try {
+      const response = await apiDeleteUser(userToDelete.id);
 
-  //     if (response?.data?.success === 1 || response?.status === 200) {
-  //       setDeleteModalOpen(false);
-  //       setUserToDelete(null);
-  //       setRefreshTrigger(prev => prev + 1);
-  //     } else {
-  //       console.error("Failed to delete user");
-  //     }
-  //   } catch (error) {
-  //     console.error("Error deleting user:", error);
-  //   } finally {
-  //     setIsDeleting(false);
-  //   }
-  // };
-  const staticData = [
-    {
-      rideId: "MR12345",
-      name: "Alex Rodriguez",
-      phoneNumber: "+1 (555) 123-4567",
-      carPlateNo: "ABC-1234",
-      DateTime: "2023-08-15 14:30",
-      loction: "Downtown",
-      status: "Active",
-    },
-    {
-      rideId: "MR12346",
-      name: "Alex Rodriguez",
-      phoneNumber: "+1 (555) 123-4567",
-      carPlateNo: "ABC-1234",
-      DateTime: "2023-08-15 14:30",
-      loction: "Downtown",
-      status: "Inactive",
-    },
-    {
-      rideId: "MR12347",
-      name: "Alex Rodriguez",
-      phoneNumber: "+1 (555) 123-4567",
-      carPlateNo: "ABC-1234",
-      DateTime: "2023-08-15 14:30",
-      loction: "Downtown",
-      status: "Active",
-    },
-    {
-      rideId: "MR12347",
-      name: "Alex Rodriguez",
-      phoneNumber: "+1 (555) 123-4567",
-      carPlateNo: "ABC-1234",
-      DateTime: "2023-08-15 14:30",
-      loction: "Downtown",
-      status: "Active",
-    },
-  ];
+      if (response?.data?.success === 1 || response?.status === 200) {
+        setDeleteModalOpen(false);
+        setUserToDelete(null);
+        setRefreshTrigger(prev => prev + 1);
+      } else {
+        console.error("Failed to delete user");
+      }
+    } catch (error) {
+      console.error("Error deleting user:", error);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
-  const handleEditUser = (user) => {
-    lockBodyScroll();
-    // setSelectedUser(user);
-    setIsUserModalOpen({ isOpen: true, type: "edit" });
+  const handleEdit = (user) => {
+    setIsUserModalOpen({
+      type: "edit",
+      isOpen: true,
+      userData: user,
+    });
   };
 
   return (
@@ -243,18 +205,18 @@ const Users = () => {
 
         <Loading loading={isUserLoadnig} type="cover">
           <div className="flex flex-col gap-4 pt-4">
-            {staticData.map((user) => (
+            {userListDisplay.map((user) => (
               <UserDetails
                 key={user.id}
                 user={user}
-                onEdit={() => handleEditUser(user)}
-              // onDelete={handleDeleteClick}
+                onEdit={handleEdit}
+              onDelete={handleDeleteClick}
               />
             ))}
           </div>
         </Loading>
 
-        {staticData.length > 0 && (
+        {userListDisplay.length > 0 && (
           <div className="mt-4 border-t border-[#E9E9E9] pt-4">
             <Pagination
               currentPage={currentPage}
@@ -271,11 +233,12 @@ const Users = () => {
 
       <Modal isOpen={isUserModalOpen.isOpen} className="p-4 sm:p-6 lg:p-10">
         <AddUserModel
+          initialValue={isUserModalOpen.userData}
           setIsOpen={setIsUserModalOpen}
           onUserCreated={() => setRefreshTrigger(prev => prev + 1)}
         />
       </Modal>
-      {/* 
+      
       <Modal isOpen={deleteModalOpen} className="p-6 sm:p-8 w-full max-w-md">
         <div className="text-center">
           <h2 className="text-xl font-semibold mb-3">Delete User?</h2>
@@ -305,7 +268,7 @@ const Users = () => {
             </Button>
           </div>
         </div>
-      </Modal> */}
+      </Modal>
     </div>
   );
 };

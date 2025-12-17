@@ -19,17 +19,6 @@ const DriverManagementCard = ({ driver, onEdit, onDelete, onStatusChange }) => {
         },
     ];
 
-    const statusOptions = [
-        {
-            label: "Accepted",
-            // onClick: () => handleStatusChange("accepted"),
-        },
-        {
-            label: "Rejected",
-            // onClick: () => handleStatusChange("rejected"),
-        },
-    ];
-
     // const handleStatusChange = async (newStatus) => {
     //     if (newStatus === status) return;
     //     setLoading(true);

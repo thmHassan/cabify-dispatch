@@ -6,6 +6,7 @@ import CancellationsCard from "./CancellationsCard";
 import Pagination from "../../../../components/ui/Pagination/Pagination";
 import { PAGE_SIZE_OPTIONS } from "../../../../constants/selectOptions";
 import { useAppSelector } from "../../../../store";
+import { apiGetCancelledBooking } from "../../../../services/AddBookingServices";
 
 const Cancellations = () => {
   const [_searchQuery, setSearchQuery] = useState("");
@@ -33,36 +34,36 @@ const Cancellations = () => {
     return () => clearTimeout(timer);
   }, [_searchQuery]);
 
-  // const fetchCancellationsBooking = useCallback(async () => {
-  //   setTableLoading(true);
-  //   try {
-  //     const params = {
-  //       page: currentPage,
-  //       perPage: itemsPerPage,
-  //     };
-  //     if (debouncedSearchQuery?.trim()) {
-  //       params.search = debouncedSearchQuery.trim();
-  //     }
+  const fetchCancellationsBooking = useCallback(async () => {
+    setTableLoading(true);
+    try {
+      const params = {
+        page: currentPage,
+        perPage: itemsPerPage,
+      };
+      if (debouncedSearchQuery?.trim()) {
+        params.search = debouncedSearchQuery.trim();
+      }
 
-  //     const response = await apiGetCancelledBooking(params);
+      const response = await apiGetCancelledBooking(params);
 
-  //     if (response?.data?.success === 1) {
-  //       const listData = response?.data?.list;
-  //       setCancellationsData(listData?.data || []);
-  //       setTotalItems(listData?.total || 0);
-  //       setTotalPages(listData?.last_page || 1);
-  //     }
-  //   } catch (error) {
-  //     console.error("Error fetching sub-companies:", error);
-  //     setCancellationsData([]);
-  //   } finally {
-  //     setTableLoading(false);
-  //   }
-  // }, [currentPage, itemsPerPage, debouncedSearchQuery]);
+      if (response?.data?.success === 1) {
+        const listData = response?.data?.list;
+        setCancellationsData(listData?.data || []);
+        setTotalItems(listData?.total || 0);
+        setTotalPages(listData?.last_page || 1);
+      }
+    } catch (error) {
+      console.error("Error fetching sub-companies:", error);
+      setCancellationsData([]);
+    } finally {
+      setTableLoading(false);
+    }
+  }, [currentPage, itemsPerPage, debouncedSearchQuery]);
 
-  // useEffect(() => {
-  //   fetchCancellationsBooking();
-  // }, [currentPage, itemsPerPage, debouncedSearchQuery, fetchCancellationsBooking, refreshTrigger]);
+  useEffect(() => {
+    fetchCancellationsBooking();
+  }, [currentPage, itemsPerPage, debouncedSearchQuery, fetchCancellationsBooking, refreshTrigger]);
 
   const handlePageChange = (pageNumber) => {
     setCurrentPage(pageNumber);
@@ -72,45 +73,6 @@ const Cancellations = () => {
     setItemsPerPage(newItemsPerPage);
     setCurrentPage(1);
   };
-
-  const staticData = [
-    {
-      rideId: "MR12345",
-      name: "Alex Rodriguez",
-      phoneNumber: "+1 (555) 123-4567",
-      carPlateNo: "ABC-1234",
-      DateTime: "2023-08-15 14:30",
-      loction: "Downtown",
-      status: "Active",
-    },
-    {
-      rideId: "MR12346",
-      name: "Alex Rodriguez",
-      phoneNumber: "+1 (555) 123-4567",
-      carPlateNo: "ABC-1234",
-      DateTime: "2023-08-15 14:30",
-      loction: "Downtown",
-      status: "Inactive",
-    },
-    {
-      rideId: "MR12347",
-      name: "Alex Rodriguez",
-      phoneNumber: "+1 (555) 123-4567",
-      carPlateNo: "ABC-1234",
-      DateTime: "2023-08-15 14:30",
-      loction: "Downtown",
-      status: "Active",
-    },
-    {
-      rideId: "MR12347",
-      name: "Alex Rodriguez",
-      phoneNumber: "+1 (555) 123-4567",
-      carPlateNo: "ABC-1234",
-      DateTime: "2023-08-15 14:30",
-      loction: "Downtown",
-      status: "Active",
-    },
-  ];
 
 
   return (
@@ -126,20 +88,20 @@ const Cancellations = () => {
             <div className="md:w-full w-[calc(100%-54px)] sm:flex-1 mb-5">
               <SearchBar
                 value={_searchQuery}
-                // onSearchChange={handleSearchChange}
+                onSearchChange={setSearchQuery}
                 className="w-full md:max-w-[400px] max-w-full"
               />
             </div>
           </div>
           <div className="space-y-4">
-            {staticData?.map((cancellations) => (
+            {cancellationsData?.map((cancellations) => (
               <CancellationsCard
                 key={cancellations.id}
                 cancellations={cancellations}
               />
             ))}
           </div>
-          {/* {Array.isArray(cancellationsData) &&
+          {Array.isArray(cancellationsData) &&
             cancellationsData.length > 0 ? (
             <div className="mt-4 sm:mt-4 border-t border-[#E9E9E9] pt-3 sm:pt-4">
               <Pagination
@@ -152,7 +114,7 @@ const Cancellations = () => {
                 pageKey="cancellations"
               />
             </div>
-          ) : null} */}
+          ) : null}
         </CardContainer>
       </div>
     </div>

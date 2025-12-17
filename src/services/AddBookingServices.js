@@ -1,3 +1,4 @@
+import { CANCELLED_BOOKING } from "../constants/api.route.constant";
 import { METHOD_GET, METHOD_POST } from "../constants/method.constant";
 import { replaceSlash } from "../utils/functions/common.function";
 import ApiService from "./ApiService";
@@ -18,18 +19,18 @@ import ApiService from "./ApiService";
 //     });
 // }
 
-// export async function apiGetCancelledBooking(params) {
-//     try {
-//         return ApiService.fetchData({
-//             url: CANCELLED_BOOKING,
-//             method: METHOD_GET,
-//             params,
-//         });
-//     } catch (error) {
-//         console.log("Error in API call:", error);
-//         throw error;
-//     }
-// }
+export async function apiGetCancelledBooking(params) {
+    try {
+        return ApiService.fetchData({
+            url: CANCELLED_BOOKING,
+            method: METHOD_GET,
+            params,
+        });
+    } catch (error) {
+        console.log("Error in API call:", error);
+        throw error;
+    }
+}
 
 // export async function apiGetSubCompany(params) {
 //     try {

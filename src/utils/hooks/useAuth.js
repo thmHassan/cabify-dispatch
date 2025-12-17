@@ -68,17 +68,24 @@ function useAuth() {
   const adminSignIn = async (values) => {
     try {
       const resp = await apiAdminSignIn(values);
-      // Log response for debugging
       console.log("adminSignIn response:", resp);
 
-      // Try to extract token from common response shapes
       const data = resp?.data || {};
+      const mapErrorMessage = (message) => {
+        if (!message) return "";
+        if (message.includes("Unknown database")) {
+          return "This company does not exist";
+        }
+        if (message === "Database header is missing.") {
+          return "Database header is missing.";
+        }
+        return message;
+      };
       const possibleToken =
         data.access_token || data.token || data.auth_token ||
         data.data?.access_token || data.data?.token || data.data?.auth_token ||
         data.accessToken || data.tokenValue || null;
 
-      // Determine success: prefer explicit success flag, otherwise token presence
       const isSuccess = data.success === 1 || data.success === true || !!possibleToken;
 
       if (isSuccess) {
@@ -106,14 +113,23 @@ function useAuth() {
           );
         }
 
-        // Save tenant id (if returned) to localStorage so BaseService can include it in headers
+        // Save tenant id (database / company id) so BaseService can include it in headers
         try {
-          const tenantId = data.tenant_id || data.tenantId || data.data?.tenant_id || data.data?.tenantId || null;
+          // Prefer explicit tenant fields from backend, otherwise fall back to the company_id used at login
+          const backendTenantId =
+            data.tenant_id ||
+            data.tenantId ||
+            data.data?.tenant_id ||
+            data.data?.tenantId ||
+            null;
+          const loginCompanyId = values.company_id || values.com || null;
+          const tenantId = backendTenantId || loginCompanyId;
+
           if (tenantId) {
             storeTenantId(tenantId);
           }
         } catch (e) {
-          // ignore tenant storage errors
+          // ignore database header errors
         }
 
         // Redirect to home page on success
@@ -128,15 +144,21 @@ function useAuth() {
         };
       }
 
+      const rawMessage = data?.message;
       return {
         status: "failed",
-        message: data?.message || "Login failed",
+        message: mapErrorMessage(rawMessage) || "Login failed",
         data,
       };
     } catch (errors) {
+      const rawMessage = errors?.response?.data?.message || errors.toString();
       return {
         status: "failed",
-        message: errors?.response?.data?.message || errors.toString(),
+        message: (rawMessage && rawMessage.includes("Unknown database"))
+          ? "This company does not exist"
+          : rawMessage === "Database header is missing."
+          ? "Database header is missing."
+          : rawMessage,
       };
     }
   };
