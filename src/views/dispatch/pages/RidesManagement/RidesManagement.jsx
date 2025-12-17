@@ -10,12 +10,13 @@ import CustomSelect from '../../../../components/ui/CustomSelect';
 import Loading from '../../../../components/shared/Loading/Loading';
 import Pagination from '../../../../components/ui/Pagination/Pagination';
 import RidesManagementCard from './components/RidesManagementCard';
-// import { apiGetRidesManagement } from '../../../../services/RidesManagementServices';
+import { apiGetRidesManagement } from '../../../../services/RidesManagementServices';
 
 const RidesManagement = () => {
   const [activeTab, setActiveTab] = useState("all");
   const [_searchQuery, setSearchQuery] = useState("");
   const [tableLoading, setTableLoading] = useState(false);
+  const [_selectedDate, setSelectedDate] = useState("");
   const [_selectedStatus, setSelectedStatus] = useState(
     STATUS_OPTIONS.find((o) => o.value === "all") ?? STATUS_OPTIONS[0]
   );
@@ -41,36 +42,42 @@ const RidesManagement = () => {
     return () => clearTimeout(timer);
   }, [_searchQuery]);
 
-  // const fetchRidesManagement = useCallback(async () => {
-  //   setTableLoading(true);
-  //   try {
-  //     const params = {
-  //       page: currentPage,
-  //       perPage: itemsPerPage,
-  //     };
-  //     if (debouncedSearchQuery?.trim()) {
-  //       params.search = debouncedSearchQuery.trim();
-  //     }
+  const fetchRidesManagement = useCallback(async () => {
+    setTableLoading(true);
+    try {
+      const params = {
+        page: currentPage,
+        perPage: itemsPerPage,
+        status: _selectedStatus?.value === "all" ? "" : _selectedStatus?.value,
+      };
 
-  //     const response = await apiGetRidesManagement(params);
+      if (debouncedSearchQuery?.trim()) {
+        params.search = debouncedSearchQuery.trim();
+      }
 
-  //     if (response?.data?.success === 1) {
-  //       const listData = response?.data?.list;
-  //       setRideManagementData(listData?.data || []);
-  //       setTotalItems(listData?.total || 0);
-  //       setTotalPages(listData?.last_page || 1);
-  //     }
-  //   } catch (error) {
-  //     console.error("Error fetching sub-companies:", error);
-  //     setRideManagementData([]);
-  //   } finally {
-  //     setTableLoading(false);
-  //   }
-  // }, [currentPage, itemsPerPage, debouncedSearchQuery]);
+      if (_selectedDate) {
+        params.date = _selectedDate; // pass selected date
+      }
 
-  // useEffect(() => {
-  //   fetchRidesManagement();
-  // }, [currentPage, itemsPerPage, debouncedSearchQuery, fetchRidesManagement, refreshTrigger]);
+      const response = await apiGetRidesManagement(params);
+
+      if (response?.data?.success === 1) {
+        const listData = response?.data?.rides;
+        setRideManagementData(listData?.data || []);
+        setTotalItems(listData?.total || 0);
+        setTotalPages(listData?.last_page || 1);
+      }
+    } catch (error) {
+      console.error("Error fetching rides:", error);
+      setRideManagementData([]);
+    } finally {
+      setTableLoading(false);
+    }
+  }, [currentPage, itemsPerPage, debouncedSearchQuery, _selectedDate, _selectedStatus]);
+
+  useEffect(() => {
+    fetchRidesManagement();
+  }, [currentPage, itemsPerPage, debouncedSearchQuery, _selectedDate, _selectedStatus, fetchRidesManagement, refreshTrigger]);
 
   const handlePageChange = (pageNumber) => {
     setCurrentPage(pageNumber);
@@ -81,6 +88,12 @@ const RidesManagement = () => {
     setCurrentPage(1);
   };
 
+  const filteredRides = activeTab === "all"
+    ? rideManagementData
+    : rideManagementData.filter(
+      (item) =>
+        item.booking_status?.toLowerCase() === activeTab.toLowerCase()
+    );
 
   return (
     <div className="px-4 py-5 sm:p-6 lg:p-10 min-h-[calc(100vh-85px)]">
@@ -101,14 +114,16 @@ const RidesManagement = () => {
         >
           All
         </Button>
-        <Button
+
+        {/* <Button
           type="filled"
           btnSize="2xl"
           className={`${activeTab === "pob" ? "!bg-[#1F41BB] !text-white" : "!bg-transparent !text-black"}`}
           onClick={() => setActiveTab("pob")}
         >
           POB
-        </Button>
+        </Button> */}
+
         <Button
           type="filled"
           btnSize="2xl"
@@ -117,6 +132,7 @@ const RidesManagement = () => {
         >
           Pending
         </Button>
+
         <Button
           type="filled"
           btnSize="2xl"
@@ -125,6 +141,7 @@ const RidesManagement = () => {
         >
           Waiting
         </Button>
+
         <Button
           type="filled"
           btnSize="2xl"
@@ -133,6 +150,7 @@ const RidesManagement = () => {
         >
           Arrived
         </Button>
+
         <Button
           type="filled"
           btnSize="2xl"
@@ -141,14 +159,15 @@ const RidesManagement = () => {
         >
           Cancelled
         </Button>
-        <Button
+
+        {/* <Button
           type="filled"
           btnSize="2xl"
-          className={`${activeTab === "no-Show" ? "!bg-[#1F41BB] !text-white" : "!bg-transparent !text-black"}`}
+          className={`${activeTab === "no-show" ? "!bg-[#1F41BB] !text-white" : "!bg-transparent !text-black"}`}
           onClick={() => setActiveTab("no-show")}
         >
           No-show
-        </Button>
+        </Button> */}
       </div>
       <div>
         <CardContainer className="p-3 sm:p-4 lg:p-5 bg-[#F5F5F5]">
@@ -156,30 +175,30 @@ const RidesManagement = () => {
             <div className="md:w-full w-[calc(100%-54px)] sm:flex-1">
               <SearchBar
                 value={_searchQuery}
-                // onSearchChange={handleSearchChange}
+                onSearchChange={setSearchQuery}
                 className="w-full md:max-w-[400px] max-w-full"
               />
             </div>
             <div className="hidden md:flex flex-row gap-3 sm:gap-5 w-full sm:w-auto">
-              <CustomSelect
+              {/* <CustomSelect
                 variant={2}
                 options={STATUS_OPTIONS}
                 value={_selectedStatus}
-                // onChange={handleStatusChange}
+                onChange={(option) => setSelectedStatus(option)}
                 placeholder="All Status"
-              />
-              <CustomSelect
-                variant={2}
-                options={STATUS_OPTIONS}
-                value={_selectedStatus}
-                // onChange={handleStatusChange}
+              /> */}
+              <input
+                type="date"
+                className="border rounded px-3 py-2"
+                value={_selectedDate}
+                onChange={(e) => setSelectedDate(e.target.value)}
                 placeholder="Select Date"
               />
             </div>
           </div>
           <Loading loading={tableLoading} type="cover">
             <div className="flex flex-col gap-4 pt-4">
-              {rideManagementData.map((ride) => (
+              {filteredRides.map((ride) => (
                 <RidesManagementCard key={ride.id} ride={ride} />
               ))}
             </div>

@@ -5,12 +5,13 @@ import SigninFormFields from "./components/SigninFormFields";
 
 const SignIn = () => {
   const initialValues = {
-    email: "divonyx@gmail.com",
-    password: "divonyx@123",
+    company_id: "divonyx245",
+    email: "dispatcher@gmail.com",
+    password: "dispatcher@123",
   };
 
   return (
-    <AuthLayout title="Client Admin Panel Login">
+    <AuthLayout title="Dispatch Admin Panel Login">
       <SigninForm initialValues={initialValues} isAdminLogin={true}>
         <SigninFormFields />
       </SigninForm>

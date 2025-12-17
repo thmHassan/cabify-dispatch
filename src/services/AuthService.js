@@ -16,11 +16,13 @@ export async function apiAdminSignIn(data) {
   // formData.append('role', data.role || 'superadmin');
 
   return ApiService.fetchData({
-    url: "/company/login",
+    url: "/dispatcher/login",
     method: "post",
     data: formData,
     headers: {
-      'Content-Type': 'multipart/form-data',
+      "Content-Type": "multipart/form-data",
+      // Send company id as `database` header (e.g. "mira")
+      ...(data?.company_id ? { database: data.company_id } : {}),
     },
   });
 }

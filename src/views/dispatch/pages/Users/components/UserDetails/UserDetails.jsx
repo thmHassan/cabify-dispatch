@@ -27,25 +27,25 @@ const UserDetails = ({ user, onEdit, onDelete }) => {
             </div>
             <div className="flex items-center justify-center gap-3">
 
-                <div className="inline-flex flex-col px-4 py-2 rounded-full bg-gray-100 text-left whitespace-nowrap">
+                {/* <div className="inline-flex flex-col px-4 py-2 rounded-full bg-gray-100 text-left whitespace-nowrap">
                     <p className="text-xs text-center text-gray-500">ID</p>
                     <p className="text-black text-center font-semibold text-sm">{user.id}</p>
-                </div>
+                </div> */}
                 <div className="inline-flex w-52 flex-col px-4 py-2 rounded-full bg-gray-100 text-left break-all">
                     <p className="text-xs text-center text-gray-500">Address</p>
-                    <p className="text-black font-semibold text-[12px]">{user.address}</p>
+                    <p className="text-black text-center font-semibold text-[12px]">{user.address}</p>
                 </div>
                 <div className="inline-flex flex-col px-4 py-2 rounded-full bg-gray-100 text-left whitespace-nowrap">
                     <p className="text-xs text-center text-gray-500">Device</p>
-                    <p className="text-black text-center font-semibold text-sm">{user.device}</p>
+                    <p className="text-black text-center font-semibold text-sm">{user.device || "Android"}</p>
                 </div>
                 <div className="inline-flex flex-col px-4 py-2 rounded-full bg-gray-100 text-left whitespace-nowrap">
                     <p className="text-xs text-center text-gray-500">Rating</p>
-                    <p className="text-black text-center font-semibold text-sm">{user.ratings}</p>
+                    <p className="text-black text-center font-semibold text-sm">{user.ratings || 12}</p>
                 </div>
                 <div className="inline-flex flex-col px-4 py-2 rounded-full bg-gray-100 text-left whitespace-nowrap">
                     <p className="text-xs text-center text-gray-500">Created At</p>
-                    <p className="text-black text-center font-semibold text-sm">{user.createdAt}</p>
+                    <p className="text-black text-center font-semibold text-sm">{user.createdAt || "sat, 20 Sep, 2025"}</p>
                 </div>
 
                 <UserDropdown options={actionOptions} itemData={user}>

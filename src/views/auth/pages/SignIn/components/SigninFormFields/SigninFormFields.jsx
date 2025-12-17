@@ -7,6 +7,28 @@ const SigninFormFields = () => {
     <>
       <div>
         <FormLabel
+          htmlFor="CompanyId"
+          className="text-sm sm:text-[15px] md:text-base lg:text-[17px] xl:text-[18px] leading-5 sm:leading-[22px] md:leading-6 lg:leading-[24px] xl:leading-[25px] mb-1 sm:mb-[5px] text-[#363636]"
+        >
+          Company ID
+        </FormLabel>
+        <div>
+          <div>
+            <Field
+              name="company_id"
+              type="text"
+              className="border-[1.2px] border-[#E0E0E0] focus:outline-none h-12 sm:h-[52px] md:h-14 lg:h-[54px] xl:h-[56px] rounded-lg p-3 sm:p-[14px] md:p-3.5 lg:p-[15px] xl:p-4 text-sm sm:text-[15px] md:text-base lg:text-[17px] xl:text-[18px] font-semibold leading-5 sm:leading-[22px] md:leading-6 w-full placeholder:text-[#9C9C9C]"
+              placeholder="Enter your Company ID"
+              autoComplete="off"
+            />
+          </div>
+          <ErrorMessage
+            name="company_id"
+            component="div"
+            className="text-red-500 text-xs sm:text-sm"
+          />
+        </div>
+        <FormLabel
           htmlFor="Email"
           className="text-sm sm:text-[15px] md:text-base lg:text-[17px] xl:text-[18px] leading-5 sm:leading-[22px] md:leading-6 lg:leading-[24px] xl:leading-[25px] mb-1 sm:mb-[5px] text-[#363636]"
         >

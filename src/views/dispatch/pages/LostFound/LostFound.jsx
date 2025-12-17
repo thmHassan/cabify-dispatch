@@ -9,6 +9,7 @@ import CustomSelect from '../../../../components/ui/CustomSelect';
 import Loading from '../../../../components/shared/Loading/Loading';
 import LostFoundCard from './components/LostFoundCard/LostFoundCard';
 import Pagination from '../../../../components/ui/Pagination/Pagination';
+import { apiGetLostFoundList } from '../../../../services/LostFoundServices';
 // import { apiGetLostFoundList } from '../../../../services/LostFoundServices';
 
 const LostFound = () => {
@@ -39,36 +40,36 @@ const LostFound = () => {
     return () => clearTimeout(timer);
   }, [_searchQuery]);
 
-  // const fetchLostFoundList = useCallback(async () => {
-  //   setTableLoading(true);
-  //   try {
-  //     const params = {
-  //       page: currentPage,
-  //       perPage: itemsPerPage,
-  //     };
-  //     if (debouncedSearchQuery?.trim()) {
-  //       params.search = debouncedSearchQuery.trim();
-  //     }
+  const fetchLostFoundList = useCallback(async () => {
+    setTableLoading(true);
+    try {
+      const params = {
+        page: currentPage,
+        perPage: itemsPerPage,
+      };
+      if (debouncedSearchQuery?.trim()) {
+        params.search = debouncedSearchQuery.trim();
+      }
 
-  //     const response = await apiGetLostFoundList(params);
+      const response = await apiGetLostFoundList(params);
 
-  //     if (response?.data?.success === 1) {
-  //       const listData = response?.data?.list;
-  //       setLostFoundData(listData?.data || []);
-  //       setTotalItems(listData?.total || 0);
-  //       setTotalPages(listData?.last_page || 1);
-  //     }
-  //   } catch (error) {
-  //     console.error("Error fetching lost found:", error);
-  //     setLostFoundData([]);
-  //   } finally {
-  //     setTableLoading(false);
-  //   }
-  // }, [currentPage, itemsPerPage, debouncedSearchQuery]);
+      if (response?.data?.success === 1) {
+        const listData = response?.data?.list;
+        setLostFoundData(listData?.data || []);
+        setTotalItems(listData?.total || 0);
+        setTotalPages(listData?.last_page || 1);
+      }
+    } catch (error) {
+      console.error("Error fetching lost found:", error);
+      setLostFoundData([]);
+    } finally {
+      setTableLoading(false);
+    }
+  }, [currentPage, itemsPerPage, debouncedSearchQuery]);
 
-  // useEffect(() => {
-  //   fetchLostFoundList();
-  // }, [currentPage, itemsPerPage, debouncedSearchQuery, fetchLostFoundList, refreshTrigger]);
+  useEffect(() => {
+    fetchLostFoundList();
+  }, [currentPage, itemsPerPage, debouncedSearchQuery, fetchLostFoundList, refreshTrigger]);
 
   const handlePageChange = (pageNumber) => {
     setCurrentPage(pageNumber);
@@ -78,45 +79,6 @@ const LostFound = () => {
     setItemsPerPage(newItemsPerPage);
     setCurrentPage(1);
   };
-
-  const staticData = [
-    {
-      id: "MR12345",
-      name: "Alex Rodriguez",
-      phoneNumber: "+1 (555) 123-4567",
-      carPlateNo: "ABC-1234",
-      DateTime: "2023-08-15 14:30",
-      loction: "Downtown",
-      status: "Active",
-    },
-    {
-      id: "MR12346",
-      name: "Alex Rodriguez",
-      phoneNumber: "+1 (555) 123-4567",
-      carPlateNo: "ABC-1234",
-      DateTime: "2023-08-15 14:30",
-      loction: "Downtown",
-      status: "Inactive",
-    },
-    {
-      id: "MR12347",
-      name: "Alex Rodriguez",
-      phoneNumber: "+1 (555) 123-4567",
-      carPlateNo: "ABC-1234",
-      DateTime: "2023-08-15 14:30",
-      loction: "Downtown",
-      status: "Active",
-    },
-    {
-      id: "MR12347",
-      name: "Alex Rodriguez",
-      phoneNumber: "+1 (555) 123-4567",
-      carPlateNo: "ABC-1234",
-      DateTime: "2023-08-15 14:30",
-      loction: "Downtown",
-      status: "Active",
-    },
-  ];
 
   return (
     <div className="px-4 py-5 sm:p-6 lg:p-10 min-h-[calc(100vh-85px)]">
@@ -134,7 +96,7 @@ const LostFound = () => {
             <div className="md:w-full w-[calc(100%-54px)] sm:flex-1">
               <SearchBar
                 value={_searchQuery}
-                // onSearchChange={handleSearchChange}
+                onSearchChange={setSearchQuery}
                 className="w-full md:max-w-[400px] max-w-full"
               />
             </div>
@@ -150,7 +112,7 @@ const LostFound = () => {
           </div>
           <Loading loading={tableLoading} type="cover">
             <div className="flex flex-col gap-4 pt-4">
-              {staticData.map((lostfound) => (
+              {lostFoundData.map((lostfound) => (
                 <LostFoundCard key={lostfound.id} lostfound={lostfound} />
               ))}
             </div>

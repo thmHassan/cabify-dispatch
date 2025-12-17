@@ -1,18 +1,22 @@
 import { ErrorMessage, Field, Form, Formik } from "formik";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import * as Yup from "yup";
 import FormLabel from "../../../../../../components/ui/FormLabel/FormLabel";
 import Password from "../../../../../../components/elements/CustomPassword/Password";
 import { unlockBodyScroll } from "../../../../../../utils/functions/common.function";
 import Button from "../../../../../../components/ui/Button/Button";
-import FormSelection from "../../../../../../components/ui/FormSelection/FormSelection";
-// import { apiCreateUser } from "../../../../../../services/UserService";
+import { apiCreateUser, apiEditUser } from "../../../../../../services/UserService";
+
 
 const USER_VALIDATION_SCHEMA = Yup.object().shape({
-    name: Yup.string().required("Name is required").min(2, "Name must be at least 2 characters"),
+    name: Yup.string().required("Name is required").min(2),
     email: Yup.string().email("Invalid email").required("Email is required"),
     phoneNumber: Yup.string().required("Phone number is required"),
-    password: Yup.string().required("Password is required").min(6, "Password must be at least 6 characters"),
+    password: Yup.string().when("isEditMode", {
+        is: false,
+        then: schema => schema.required("Password is required").min(6),
+        otherwise: schema => schema.notRequired(),
+    }),
     address: Yup.string(),
     city: Yup.string(),
 });
@@ -20,62 +24,55 @@ const USER_VALIDATION_SCHEMA = Yup.object().shape({
 const AddUserModel = ({ initialValue = {}, setIsOpen, onUserCreated }) => {
     const [submitError, setSubmitError] = useState(null);
     const [isLoading, setIsLoading] = useState(false);
+    const [isEditMode, setIsEditMode] = useState(false);
 
-    // const handleSubmit = async (values) => {
-    //     setIsLoading(true);
-    //     setSubmitError(null);
+    const handleSubmit = async (values) => {
+        setIsLoading(true);
+        setSubmitError(null);
 
-    //     const formData = new FormData();
-    //     formData.append('name', values.name || '');
-    //     formData.append('email', values.email || '');
-    //     formData.append('phone_no', values.phoneNumber || '');
-    //     formData.append('password', values.password || '');
-    //     formData.append('address', values.address || '');
-    //     formData.append('city', values.city || '');
+        try {
+            const formDataObj = new FormData();
+            if (isEditMode) {
+                formDataObj.append('id', initialValue.id);
+            }
+            
+            if (!isEditMode || values.password) {
+                formDataObj.append('password', values.password);
+            }
 
-    //     try {
-    //         const response = await apiCreateUser(formData);
-    //         console.log("API Response:", response);
+            formDataObj.append('name', values.name || '');
+            formDataObj.append('email', values.email || '');
+            formDataObj.append('phone_no', values.phoneNumber || '');
+            formDataObj.append('address', values.address || '');
+            formDataObj.append('city', values.city || '');
 
-    //         // Check for error in response data
-    //         if (response?.data?.error === 1) {
-    //             setSubmitError(response?.data?.message || 'Failed to create user');
-    //         } else if (response?.data?.success === 1 || response?.status === 200) {
-    //             if (onUserCreated) {
-    //                 onUserCreated();
-    //             }
-    //             unlockBodyScroll();
-    //             setIsOpen({ type: "new", isOpen: false });
-    //         } else {
-    //             const errorMsg = response?.data?.message ||
-    //                 response?.data?.error ||
-    //                 `Failed to create user`;
-    //             setSubmitError(errorMsg);
-    //         }
-    //     } catch (error) {
-    //         console.error('User creation error:', error);
-    //         let errorMessage = 'Error creating user';
+            const response = isEditMode
+                ? await apiEditUser(formDataObj)
+                : await apiCreateUser(formDataObj);
 
-    //         if (error.response) {
-    //             console.error('Response error data:', error.response.data);
-    //             console.error('Response error status:', error.response.status);
+            if (response?.data?.success === 1 || response?.status === 200) {
+                if (onUserCreated) {
+                    onUserCreated();
+                }
+                unlockBodyScroll();
+                setIsOpen({ type: "new", isOpen: false });
+            } else {
+                setSubmitError(response?.data?.message || `Failed to ${isEditMode ? 'update' : 'create'} user`);
+            }
+        } catch (error) {
+            setSubmitError(error?.response?.data?.message || error?.message || `Error ${isEditMode ? 'updating' : 'creating'} user`);
+        } finally {
+            setIsLoading(false);
+        }
+    };
 
-    //             errorMessage = error.response.data?.message ||
-    //                 error.response.data?.error ||
-    //                 `Server error: ${error.response.status}`;
-    //         } else if (error.request) {
-    //             console.error('No response received:', error.request);
-    //             errorMessage = 'No response from server';
-    //         } else {
-    //             console.error('Request setup error:', error.message);
-    //             errorMessage = error.message;
-    //         }
-
-    //         setSubmitError(errorMessage);
-    //     } finally {
-    //         setIsLoading(false);
-    //     }
-    // };
+    useEffect(() => {
+        if (initialValue && initialValue.id) {
+            setIsEditMode(true);
+        } else {
+            setIsEditMode(false);
+        }
+    }, [initialValue]);
 
     return (
         <div>
@@ -83,13 +80,14 @@ const AddUserModel = ({ initialValue = {}, setIsOpen, onUserCreated }) => {
                 initialValues={{
                     name: initialValue.name || '',
                     email: initialValue.email || '',
-                    phoneNumber: initialValue.phoneNumber || '',
-                    password: initialValue.password || '',
+                    phoneNumber: initialValue.phone_no || '',
+                    password: '',
                     address: initialValue.address || '',
                     city: initialValue.city || '',
+                    isEditMode,
                 }}
                 validationSchema={USER_VALIDATION_SCHEMA}
-                // onSubmit={handleSubmit}
+                onSubmit={handleSubmit}
                 validateOnChange={true}
                 validateOnBlur={true}
             >
@@ -97,7 +95,7 @@ const AddUserModel = ({ initialValue = {}, setIsOpen, onUserCreated }) => {
                     <Form>
                         <div className="text-xl sm:text-2xl lg:text-[26px] leading-7 sm:leading-8 lg:leading-9 font-semibold text-[#252525] mb-4 sm:mb-6 lg:mb-7 text-center mx-auto max-w-full sm:max-w-[85%] lg:max-w-[75%] w-full px-2">
                             <span className="w-full text-center block truncate">
-                                Add User
+                                {isEditMode ? 'Edit User' : 'Add User'}
                             </span>
                         </div>
 
@@ -185,25 +183,6 @@ const AddUserModel = ({ initialValue = {}, setIsOpen, onUserCreated }) => {
                                 </div>
                                 <ErrorMessage name="city" component="div" className="text-red-500 text-sm mt-1" />
                             </div>
-                            <div className="w-[calc((100%-20px)/2)]">
-                                <FormLabel htmlFor="sub_company">Sub Company</FormLabel>
-                                <div className="sm:h-16 h-14">
-                                    <FormSelection
-                                        label="Select Sub Company"
-                                        name="sub_company"
-                                        // value={values.sub_company}
-                                        onChange={(val) => setFieldValue("sub_company", val)}
-                                        placeholder="Select Sub Company"
-                                        // options={subCompanyList}
-                                        // disabled={loadingSubCompanies}
-                                    />
-                                </div>
-                                <ErrorMessage
-                                    name="sub_company"
-                                    component="div"
-                                    className="text-red-500 text-sm mt-1"
-                                />
-                            </div>
 
                         </div>
 
@@ -226,7 +205,7 @@ const AddUserModel = ({ initialValue = {}, setIsOpen, onUserCreated }) => {
                                 className="!px-10 pt-4 pb-[15px] leading-[25px] w-full sm:w-auto"
                                 disabled={isLoading}
                             >
-                                <span>{isLoading ? 'Creating...' : 'Submit'}</span>
+                                <span>{isLoading ? (isEditMode ? "Updating..." : "Creating...") : (isEditMode ? "Update" : "Submit")}</span>
                             </Button>
                         </div>
                     </Form>

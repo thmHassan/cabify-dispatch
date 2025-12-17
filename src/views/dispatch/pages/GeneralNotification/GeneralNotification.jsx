@@ -1,21 +1,15 @@
-import React from "react";
+import { useEffect, useState } from "react";
 import PageTitle from "../../../../components/ui/PageTitle/PageTitle";
 import PageSubTitle from "../../../../components/ui/PageSubTitle/PageSubTitle";
 import CardContainer from "../../../../components/shared/CardContainer/CardContainer";
 import { ErrorMessage, Field, Form, Formik } from "formik";
 import FormLabel from "../../../../components/ui/FormLabel/FormLabel";
 import FormSelection from "../../../../components/ui/FormSelection/FormSelection";
+import Button from "../../../../components/ui/Button/Button";
+import * as Yup from "yup";
+import { apiSendNotifiction } from "../../../../services/GeneralNotificationService";
 
-const typeOptions = [
-  { value: "coming_soon", label: "Coming Soon" },
-  { value: "premium", label: "Premium" },
-  { value: "normal", label: "Normal" },
-  { value: "bike", label: "Bike" },
-  { value: "rickshaw", label: "Rickshaw" },
-  { value: "economy", label: "Economy" },
-  { value: "comfort", label: "Comfort" },
-];
-const vehicleTypeOptions = [
+const userOptions = [
   { value: "all_drivers", label: "All Drivers" },
   { value: "all_users", label: "All Users" },
   { value: "pending_drivers", label: "Pending Drivers" },
@@ -23,98 +17,151 @@ const vehicleTypeOptions = [
   { value: "rejected_drivers", label: "Rejected Drivers" },
 ];
 
+const vehicleOptions = [
+  { value: "coming_soon", label: "Coming Soon" },
+  { value: "premium", label: "Premium" },
+  { value: "normal", label: "Normal" },
+  { value: "bike", label: "Bike" },
+  { value: "rickshaw", label: "Rickshaw" },
+  { value: "economy", label: "Economy" },
+  { value: "comfort", label: "Comfort" },
+]
+
+const validationSchema = Yup.object({
+  title: Yup.string().required("Title is required"),
+  body: Yup.string().required("Body is required"),
+  type: Yup.mixed().required("User type is required"),
+  vehicleType: Yup.mixed().nullable(),
+});
+
 const GeneralNotification = () => {
+  const [sending, setSending] = useState(false);
+
+
   return (
     <div className="px-4 py-5 sm:p-6 lg:p-10 min-h-[calc(100vh-85px)]">
       <div className="flex flex-col gap-2.5 sm:mb-[30px] mb-6">
-        <div className="flex justify-between">
-          <PageTitle title="General Notification" />
-        </div>
-        <div>
-          <PageSubTitle title="Need content here" />
-        </div>
+        <PageTitle title="General Notification" />
+        <PageSubTitle title="Send notification to users or drivers" />
       </div>
-      <div className="flex flex-col sm:gap-5 gap-4">
-        <CardContainer className="!p-3 sm:!p-4 lg:!px-5 lg:!pt-[30px] lg:!pb-5 2xl:!p-10">
-          <Formik initialValues={{}}>
-            {({ values, setFieldValue }) => (
-              <Form>
-                <div className="max-w-[624px] flex flex-col gap-5">
-                  <div className="w-full">
-                    <FormLabel htmlFor="title">Title</FormLabel>
-                    <div className="sm:h-16 h-14">
-                      <Field
-                        type="text"
-                        name="title"
-                        className="sm:px-5 px-4 sm:py-[21px] py-4 border border-[#8D8D8D] rounded-lg w-full h-full shadow-[-4px_4px_6px_0px_#0000001F] placeholder:text-[#6C6C6C] sm:text-base text-sm leading-[22px] font-semibold"
-                        placeholder="Enter Title"
-                      />
-                    </div>
-                    <ErrorMessage
+
+      <CardContainer className="!p-3 sm:!p-4 lg:!px-5 lg:!pt-[30px] lg:!pb-5 2xl:!p-10">
+        <Formik
+          initialValues={{
+            title: "",
+            body: "",
+            type: "",
+            vehicleType: "",
+          }}
+          validationSchema={validationSchema}
+          onSubmit={async (values, { resetForm }) => {
+            try {
+              setSending(true);
+
+              console.log("FORM SUBMITTED:", values);
+
+              const formData = new FormData();
+              formData.append(
+                "user_type",
+                values.type?.value || values.type
+              );
+              formData.append("title", values.title);
+              formData.append("body", values.body);
+
+              if (values.vehicleType) {
+                formData.append(
+                  "vehicle_id",
+                  values.vehicleType?.value || values.vehicleType
+                );
+              }
+
+              const response = await apiSendNotifiction(formData);
+
+              if (response?.data?.success === 1) {
+                resetForm();
+              }
+            } catch (error) {
+              console.error("Notification send failed:", error);
+            } finally {
+              setSending(false);
+            }
+          }}
+        >
+          {({ values, setFieldValue, handleSubmit }) => (
+            <Form>
+              <div className="max-w-[624px] flex flex-col gap-5">
+
+                <div>
+                  <FormLabel>Title</FormLabel>
+                  <div className="sm:h-16 h-14">
+                    <Field
                       name="title"
-                      component="div"
-                      className="text-red-500 text-sm mt-1"
+                      type="text"
+                      placeholder="Enter Title"
+                      className="sm:px-5 px-4 sm:py-[21px] py-4 border border-[#8D8D8D] rounded-lg w-full h-full font-semibold"
                     />
                   </div>
-                  <div className="w-full">
-                    <FormLabel htmlFor="body">Body</FormLabel>
-                    <div className="h-[130px]">
-                      <Field
-                        as="textarea"
-                        name="body"
-                        rows={5}
-                        className="h-full sm:px-5 px-4 sm:py-[21px] py-4 border border-[#8D8D8D] rounded-lg w-full shadow-[-4px_4px_6px_0px_#0000001F] placeholder:text-[#6C6C6C] sm:text-base text-sm leading-[22px] font-semibold"
-                        placeholder="Write here..."
-                      />
-                    </div>
-                    <ErrorMessage
+                  <ErrorMessage name="title" component="div" className="text-red-500 text-sm mt-1" />
+                </div>
+                <div>
+                  <FormLabel>Body</FormLabel>
+                  <div className="h-[130px]">
+                    <Field
+                      as="textarea"
                       name="body"
-                      component="div"
-                      className="text-red-500 text-sm mt-1"
+                      rows={5}
+                      placeholder="Write here..."
+                      className="h-full sm:px-5 px-4 sm:py-[21px] py-4 border border-[#8D8D8D] rounded-lg w-full font-semibold"
                     />
                   </div>
-                  <div className="w-full">
-                    <FormLabel htmlFor="type">Type</FormLabel>
-                    <div className="sm:h-16 h-14">
-                      <FormSelection
-                        label="Select Type"
-                        name="type"
-                        value={values.type}
-                        onChange={(val) => setFieldValue("type", val)}
-                        placeholder="Select Type"
-                        options={typeOptions}
-                      />
-                    </div>
-                    <ErrorMessage
+                  <ErrorMessage name="body" component="div" className="text-red-500 text-sm mt-1" />
+                </div>
+
+                <div>
+                  <FormLabel>User Type</FormLabel>
+                  <div className="sm:h-16 h-14">
+                    <FormSelection
                       name="type"
-                      component="div"
-                      className="text-red-500 text-sm mt-1"
+                      value={values.type}
+                      onChange={(val) => setFieldValue("type", val)}
+                      placeholder="Select Type"
+                      options={userOptions}
                     />
                   </div>
-                  <div className="w-full">
-                    <FormLabel htmlFor="vehicleType">Vehicle Type</FormLabel>
-                    <div className="sm:h-16 h-14">
-                      <FormSelection
-                        label="Select Vehicle Type"
-                        name="vehicleType"
-                        value={values.vehicleType}
-                        onChange={(val) => setFieldValue("vehicleType", val)}
-                        placeholder="Select Vehicle Type"
-                        options={vehicleTypeOptions}
-                      />
-                    </div>
-                    <ErrorMessage
+                  <ErrorMessage name="type" component="div" className="text-red-500 text-sm mt-1" />
+                </div>
+
+                <div>
+                  <FormLabel>Vehicle Type </FormLabel>
+                  <div className="sm:h-16 h-14">
+                    <FormSelection
                       name="vehicleType"
-                      component="div"
-                      className="text-red-500 text-sm mt-1"
+                      value={values.vehicleType}
+                      onChange={(val) => setFieldValue("vehicleType", val)}
+                      placeholder="Select Vehicle Type"
+                      options={vehicleOptions}
                     />
                   </div>
                 </div>
-              </Form>
-            )}
-          </Formik>
-        </CardContainer>
-      </div>
+
+                <div className="pt-4">
+                  <Button
+                    btnType="submit"
+                    btnSize="md"
+                    type="filled"
+                    onClick={handleSubmit}
+                    disabled={sending}
+                    className="sm:h-14 h-12 px-10 rounded-lg font-semibold"
+                  >
+                    {sending ? "Sending..." : "Send"}
+                  </Button>
+                </div>
+
+              </div>
+            </Form>
+          )}
+        </Formik>
+      </CardContainer>
     </div>
   );
 };

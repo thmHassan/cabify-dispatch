@@ -136,23 +136,8 @@ const UserPageContainer = ({ children }) => {
                 <DrawerIcon width={24} height={24} fill="#000000" />
               </span>
             </button>
-            <button
-              className="flex sm:hidden min-w-[40px] h-[40px] sm:min-w-[50px] sm:h-[50px] rounded-full bg-[#FFFFFF] justify-center items-center flex-shrink-0"
-              aria-label="Open search"
-              onClick={() => setIsMobileSearchOpen(true)}
-            >
-              <SearchIcon width={18} height={18} />
-            </button>
-            <div className="xl:min-w-[400px] xl:w-full flex-1 hidden sm:block">
-              <SearchBar />
-            </div>
           </div>
           <div className="flex gap-1.5 sm:gap-3 lg:gap-5 items-center flex-shrink-0">
-            <div className="flex min-w-[40px] h-[40px] sm:min-w-[50px] sm:h-[50px] rounded-full bg-[#FFFFFF] justify-center items-center">
-              <div className="w-[18px] h-[18px] sm:w-[25px] sm:h-[26px] flex items-center justify-center">
-                <SettingIcon width={18} height={18} className="w-full h-full" />
-              </div>
-            </div>
             <div className="flex min-w-[40px] h-[40px] sm:min-w-[50px] sm:h-[50px] rounded-full bg-[#FFFFFF] justify-center items-center">
               <div className="w-[18px] h-[20px] sm:w-[22px] sm:h-[24px] flex items-center justify-center">
                 <NotificationIcon
@@ -187,7 +172,7 @@ const UserPageContainer = ({ children }) => {
                   />
                 </div>
                 <div className="hidden sm:flex font-semibold w-[calc(100%-56px)] text-base sm:text-[18px] leading-5 sm:leading-[25px] min-w-[119px] truncate capitalize">
-                  <span>{user.name}</span>
+                  <span>{user.name || "Dispatch" }</span>
                 </div>
               </div>
             </UserDropdown>

@@ -181,8 +181,8 @@ export const getUserDataFromToken = () => {
     // In production, you might want to decode the JWT token to get user info
     return {
       id: 1,
-      name: "Super Admin",
-      email: "divonyx@gmail.com",
+      name: "",
+      email: "divonyx23@gmail.com",
       // role: "superadmin",
       avatar: ""
     };
