@@ -11,6 +11,7 @@ import Loading from '../../../../components/shared/Loading/Loading';
 import Pagination from '../../../../components/ui/Pagination/Pagination';
 import RidesManagementCard from './components/RidesManagementCard';
 import { apiGetRidesManagement } from '../../../../services/RidesManagementServices';
+import { getDispatcherId } from '../../../../utils/auth';
 
 const RidesManagement = () => {
   const [activeTab, setActiveTab] = useState("all");
@@ -23,6 +24,9 @@ const RidesManagement = () => {
   const savedPagination = useAppSelector(
     (state) => state?.app?.app?.pagination?.companies
   );
+
+   const dispatcherId = getDispatcherId();
+
   const [currentPage, setCurrentPage] = useState(
     Number(savedPagination?.currentPage) || 1
   );
@@ -48,6 +52,7 @@ const RidesManagement = () => {
       const params = {
         page: currentPage,
         perPage: itemsPerPage,
+        dispatcher_id: dispatcherId,
         status: _selectedStatus?.value === "all" ? "" : _selectedStatus?.value,
       };
 
@@ -56,7 +61,7 @@ const RidesManagement = () => {
       }
 
       if (_selectedDate) {
-        params.date = _selectedDate; // pass selected date
+        params.date = _selectedDate;
       }
 
       const response = await apiGetRidesManagement(params);

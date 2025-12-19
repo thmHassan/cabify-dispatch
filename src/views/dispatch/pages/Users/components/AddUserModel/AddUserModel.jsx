@@ -6,6 +6,7 @@ import Password from "../../../../../../components/elements/CustomPassword/Passw
 import { unlockBodyScroll } from "../../../../../../utils/functions/common.function";
 import Button from "../../../../../../components/ui/Button/Button";
 import { apiCreateUser, apiEditUser } from "../../../../../../services/UserService";
+import { getDispatcherId } from "../../../../../../utils/auth";
 
 
 const USER_VALIDATION_SCHEMA = Yup.object().shape({
@@ -31,15 +32,16 @@ const AddUserModel = ({ initialValue = {}, setIsOpen, onUserCreated }) => {
         setSubmitError(null);
 
         try {
+            const dispatcherId = getDispatcherId();
             const formDataObj = new FormData();
             if (isEditMode) {
                 formDataObj.append('id', initialValue.id);
             }
-            
+
             if (!isEditMode || values.password) {
                 formDataObj.append('password', values.password);
             }
-
+            formDataObj.append("dispatcher_id", dispatcherId);
             formDataObj.append('name', values.name || '');
             formDataObj.append('email', values.email || '');
             formDataObj.append('phone_no', values.phoneNumber || '');

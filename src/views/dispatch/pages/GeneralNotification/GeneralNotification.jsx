@@ -42,7 +42,7 @@ const GeneralNotification = () => {
     <div className="px-4 py-5 sm:p-6 lg:p-10 min-h-[calc(100vh-85px)]">
       <div className="flex flex-col gap-2.5 sm:mb-[30px] mb-6">
         <PageTitle title="General Notification" />
-        <PageSubTitle title="Send notification to users or drivers" />
+        <PageSubTitle title="Need content here" />
       </div>
 
       <CardContainer className="!p-3 sm:!p-4 lg:!px-5 lg:!pt-[30px] lg:!pb-5 2xl:!p-10">
@@ -87,7 +87,7 @@ const GeneralNotification = () => {
             }
           }}
         >
-          {({ values, setFieldValue, handleSubmit }) => (
+          {({ values, setFieldValue, handleSubmit, resetForm }) => (
             <Form>
               <div className="max-w-[624px] flex flex-col gap-5">
 
@@ -144,7 +144,7 @@ const GeneralNotification = () => {
                   </div>
                 </div>
 
-                <div className="pt-4">
+                <div className="pt-4 flex gap-2">
                   <Button
                     btnType="submit"
                     btnSize="md"
@@ -153,7 +153,14 @@ const GeneralNotification = () => {
                     disabled={sending}
                     className="sm:h-14 h-12 px-10 rounded-lg font-semibold"
                   >
-                    {sending ? "Sending..." : "Send"}
+                    {sending ? "Sending..." : "Send Notification"}
+                  </Button>
+                  <Button
+                    type="button"
+                    onClick={() => resetForm()}
+                    className="border border-[#1F41BB] sm:h-14 h-12 px-10 rounded-lg font-semibold text-[#1F41BB]"
+                  >
+                    Clear
                   </Button>
                 </div>
 
