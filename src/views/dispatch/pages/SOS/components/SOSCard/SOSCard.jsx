@@ -32,7 +32,7 @@ const SOSCard = ({ sos }) => {
                         ? "bg-[#b1f7d8] border border-green-500 text-green-700 xl:h-12 lg:h-12 md:h-12 h-12 w-28 xl:py-4 lg:py-4.5 md:py-3 py-2 text-center rounded-full"
                         : "bg-[#faadad] border border-red-500 text-red-700 text-center xl:h-12 lg:h-12 md:h-12 h-12 w-28 xl:py-4 lg:py-4 md:py-3 py-2 rounded-full"
                 }>
-                    <p className="text-black font-semibold text-sm">{sos.status}</p>
+                    <p className="font-semibold text-sm">{sos.status}</p>
                 </div>
 
                 <div className="inline-flex flex-col px-4 py-2 rounded-full bg-gray-100 text-left whitespace-nowrap">

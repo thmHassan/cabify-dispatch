@@ -2,10 +2,10 @@ import { createSlice } from "@reduxjs/toolkit";
 import { SLICE_BASE_NAME } from "./constants";
 
 const initialState = {
+  id: null,
   avatar: "",
   name: "",
   email: "",
-  // role: "client", // Default to superadmin for encrypted token users
 };
 
 const userSlice = createSlice({
@@ -13,13 +13,19 @@ const userSlice = createSlice({
   initialState,
   reducers: {
     setUser(state, action) {
-      state.avatar = action.payload?.avatar;
-      state.email = action.payload?.email;
-      state.name = action.payload?.name;
-      // state.role = action.payload?.role;
+      state.id = action.payload?.id ?? null;
+      state.avatar = action.payload?.avatar ?? "";
+      state.name = action.payload?.name ?? "";
+      state.email = action.payload?.email ?? "";
+    },
+    clearUser(state) {
+      state.id = null;
+      state.avatar = "";
+      state.name = "";
+      state.email = "";
     },
   },
 });
 
-export const { setUser } = userSlice.actions;
+export const { setUser, clearUser } = userSlice.actions;
 export default userSlice.reducer;

@@ -7,6 +7,7 @@ import Pagination from "../../../../components/ui/Pagination/Pagination";
 import { PAGE_SIZE_OPTIONS } from "../../../../constants/selectOptions";
 import { useAppSelector } from "../../../../store";
 import { apiGetCancelledBooking } from "../../../../services/AddBookingServices";
+import { getDispatcherId } from "../../../../utils/auth";
 
 const Cancellations = () => {
   const [_searchQuery, setSearchQuery] = useState("");
@@ -14,6 +15,7 @@ const Cancellations = () => {
   const savedPagination = useAppSelector(
     (state) => state?.app?.app?.pagination?.companies
   );
+  const dispatcherId = getDispatcherId();
   const [currentPage, setCurrentPage] = useState(
     Number(savedPagination?.currentPage) || 1
   );
@@ -40,7 +42,9 @@ const Cancellations = () => {
       const params = {
         page: currentPage,
         perPage: itemsPerPage,
+        dispatcher_id: dispatcherId,
       };
+
       if (debouncedSearchQuery?.trim()) {
         params.search = debouncedSearchQuery.trim();
       }
@@ -54,12 +58,16 @@ const Cancellations = () => {
         setTotalPages(listData?.last_page || 1);
       }
     } catch (error) {
-      console.error("Error fetching sub-companies:", error);
+      console.error("Error fetching cancelled bookings:", error);
       setCancellationsData([]);
     } finally {
       setTableLoading(false);
     }
-  }, [currentPage, itemsPerPage, debouncedSearchQuery]);
+  }, [currentPage, itemsPerPage, debouncedSearchQuery, dispatcherId]);
+
+  useEffect(() => {
+    console.log("Dispatcher ID:", dispatcherId);
+  }, [dispatcherId]);
 
   useEffect(() => {
     fetchCancellationsBooking();

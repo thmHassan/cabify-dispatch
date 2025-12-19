@@ -64,7 +64,9 @@ const DriverManagementCard = ({ driver, onEdit, onDelete, onStatusChange }) => {
 
                 <div className="inline-flex flex-col px-4 py-2 rounded-full bg-gray-100 text-left whitespace-nowrap">
                     <p className="text-xs text-center text-gray-500">Change Req</p>
-                    <p className="text-black text-center font-semibold text-sm">{driver.changeReq}</p>
+                    <p className="text-black text-center font-semibold text-sm">
+                        {Number(driver.vehicle_change_request) > 0 ? "Yes" : "No"}
+                    </p>
                 </div>
 
                 <div className="inline-flex flex-col px-4 py-2 rounded-full bg-gray-100 text-left whitespace-nowrap">
@@ -74,11 +76,11 @@ const DriverManagementCard = ({ driver, onEdit, onDelete, onStatusChange }) => {
 
                 <div className="inline-flex flex-col px-4 py-2 rounded-full bg-[#006FFF1A] text-left whitespace-nowrap">
                     <p className="text-xs text-center text-gray-500">Wallet Balance</p>
-                    <p className="text-black text-center text-[#1F41BB] font-semibold text-sm">{driver.walletBalance}</p>
+                    <p className="text-black text-center text-[#1F41BB] font-semibold text-sm">{driver.wallet_balance}</p>
                 </div>
 
                 <div className={
-                    driver.status === "Active"
+                    driver.status === "accepted"
                         ? "bg-[#10B981] text-white xl:h-10 lg:h-10 md:h-10 h-10 w-24 xl:py-3 lg:py-3 md:py-2 py-2 text-center rounded-full"
                         : "bg-[#FF4747] text-white xl:h-10 lg:h-10 md:h-10 h-10 w-24 xl:py-3 lg:py-3 md:py-2 py-2 text-center rounded-full"
                 }>

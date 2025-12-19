@@ -11,6 +11,7 @@ import CustomSelect from '../../../../components/ui/CustomSelect';
 import TicketsCard from './components/TicketsCard';
 import Modal from '../../../../components/shared/Modal/Modal';
 import AddTicketModel from './components/AddTicketModel';
+import { apiChangeTicketStatus, apiGetTicketList } from '../../../../services/TicketServices';
 // import { apiChangeTicketStatus, apiGetTicketList } from '../../../../services/TicketsServices';
 
 const Tickets = () => {
@@ -58,57 +59,57 @@ const Tickets = () => {
   };
 
 
-  // const fetchTickets = useCallback(async () => {
-  //   setTableLoading(true);
-  //   try {
-  //     const params = {
-  //       page: currentPage,
-  //       perPage: itemsPerPage,
-  //     };
-  //     if (debouncedSearchQuery?.trim()) {
-  //       params.search = debouncedSearchQuery.trim();
-  //     }
+  const fetchTickets = useCallback(async () => {
+    setTableLoading(true);
+    try {
+      const params = {
+        page: currentPage,
+        perPage: itemsPerPage,
+      };
+      if (debouncedSearchQuery?.trim()) {
+        params.search = debouncedSearchQuery.trim();
+      }
 
-  //     const response = await apiGetTicketList(params);
+      const response = await apiGetTicketList(params);
 
-  //     if (response?.data?.success === 1) {
-  //       const listData = response?.data?.list;
-  //       setTicketsData(listData?.data || []);
-  //       setTotalItems(listData?.total || 0);
-  //       setTotalPages(listData?.last_page || 1);
-  //     }
-  //   } catch (error) {
-  //     console.error("Error fetching tickets:", error);
-  //     setTicketsData([]);
-  //   } finally {
-  //     setTableLoading(false);
-  //   }
-  // }, [currentPage, itemsPerPage, debouncedSearchQuery]);
+      if (response?.data?.success === 1) {
+        const listData = response?.data?.list;
+        setTicketsData(listData?.data || []);
+        setTotalItems(listData?.total || 0);
+        setTotalPages(listData?.last_page || 1);
+      }
+    } catch (error) {
+      console.error("Error fetching tickets:", error);
+      setTicketsData([]);
+    } finally {
+      setTableLoading(false);
+    }
+  }, [currentPage, itemsPerPage, debouncedSearchQuery]);
 
-  // useEffect(() => {
-  //   fetchTickets();
-  // }, [currentPage, itemsPerPage, debouncedSearchQuery, fetchTickets, refreshTrigger]);
+  useEffect(() => {
+    fetchTickets();
+  }, [currentPage, itemsPerPage, debouncedSearchQuery, fetchTickets, refreshTrigger]);
 
   const handleReplyClick = (ticket) => {
     setSelectedTicket(ticket);
     setIsTicketsModelOpen({ isOpen: true });
   };
 
-  // const handleStatusChange = async (ticketId, newStatus) => {
-  //   try {
-  //     const formData = new FormData();
-  //     formData.append("ticket_id", ticketId);
-  //     formData.append("status", newStatus);
+  const handleStatusChange = async (ticketId, newStatus) => {
+    try {
+      const formData = new FormData();
+      formData.append("ticket_id", ticketId);
+      formData.append("status", newStatus);
 
-  //     const response = await apiChangeTicketStatus(formData);
+      const response = await apiChangeTicketStatus(formData);
 
-  //     if (response?.data?.success === 1) {
-  //       setRefreshTrigger((prev) => prev + 1);
-  //     }
-  //   } catch (error) {
-  //     console.error("Error changing ticket status:", error);
-  //   }
-  // };
+      if (response?.data?.success === 1) {
+        setRefreshTrigger((prev) => prev + 1);
+      }
+    } catch (error) {
+      console.error("Error changing ticket status:", error);
+    }
+  };
 
   return (
     <div className="px-4 py-5 sm:p-6 lg:p-10 min-h-[calc(100vh-85px)]">
@@ -148,7 +149,7 @@ const Tickets = () => {
                 key={ticket.id}
                 tickets={ticket}
                 onReplyClick={handleReplyClick}
-                // onStatusChange={handleStatusChange}
+                onStatusChange={handleStatusChange}
               />
             ))}
           </div>

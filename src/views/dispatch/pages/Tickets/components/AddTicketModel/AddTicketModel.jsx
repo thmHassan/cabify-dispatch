@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-// import { apiReplyTicket } from "../../../../../../services/TicketsServices";
+import { apiReplyTicket } from "../../../../../../services/TicketServices";
 
 const AddTicketModel = ({ ticket, onClose, refreshList }) => {
     const [message, setMessage] = useState("");
@@ -7,32 +7,32 @@ const AddTicketModel = ({ ticket, onClose, refreshList }) => {
 
     const isViewOnly = ticket.reply_message !== null && ticket.reply_message !== "";
 
-    // const handleReplySubmit = async () => {
-    //     if (!message.trim()) return alert("Please enter a reply message");
+    const handleReplySubmit = async () => {
+        if (!message.trim()) return ;
 
-    //     setLoading(true);
+        setLoading(true);
 
-    //     try {
-    //         const formData = new FormData();
-    //         formData.append("ticket_id", ticket.id);
-    //         formData.append("reply_message", message);
+        try {
+            const formData = new FormData();
+            formData.append("ticket_id", ticket.id);
+            formData.append("reply_message", message);
 
-    //         const response = await apiReplyTicket(formData);
+            const response = await apiReplyTicket(formData);
 
-    //         if (response?.data?.success === 1) {
-    //             refreshList();
-    //             onClose();
-    //         } else {
-    //             alert("Failed to submit reply");
-    //         }
+            if (response?.data?.success === 1) {
+                refreshList();
+                onClose();
+            } else {
+                alert("Failed to submit reply");
+            }
 
-    //     } catch (error) {
-    //         console.error("Reply API Error:", error);
-    //         alert("Something went wrong");
-    //     } finally {
-    //         setLoading(false);
-    //     }
-    // };
+        } catch (error) {
+            console.error("Reply API Error:", error);
+            alert("Something went wrong");
+        } finally {
+            setLoading(false);
+        }
+    };
 
     return (
         <div className="w-[420px] bg-white rounded-2xl p-6 max-h-[85vh] overflow-y-auto">

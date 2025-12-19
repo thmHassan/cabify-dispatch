@@ -15,7 +15,8 @@ import { lockBodyScroll } from "../../../../utils/functions/common.function";
 import Pagination from "../../../../components/ui/Pagination/Pagination";
 import Loading from "../../../../components/shared/Loading/Loading";
 import UserDetails from "./components/UserDetails";
-import { apiDeleteUser, apiGetUser } from "../../../../services/UserService";
+import { apiDeleteUser, apiEditUserStatus, apiGetUser } from "../../../../services/UserService";
+import { getDispatcherId } from "../../../../utils/auth";
 
 const Users = () => {
   const navigate = useNavigate();
@@ -31,6 +32,8 @@ const Users = () => {
   const savedPagination = useAppSelector(
     (state) => state?.app?.app?.pagination?.companies
   );
+const dispatcherId = getDispatcherId();
+
   const [currentPage, setCurrentPage] = useState(
     Number(savedPagination?.currentPage) || 1
   );
@@ -67,6 +70,7 @@ const Users = () => {
       const params = {
         page: currentPage,
         perPage: itemsPerPage,
+        dispatcher_id: dispatcherId,
       };
       if (debouncedSearchQuery && debouncedSearchQuery.trim()) {
         params.search = debouncedSearchQuery.trim();
@@ -161,6 +165,24 @@ const Users = () => {
     });
   };
 
+  const handleStatusChange = async (userId, status) => {
+    try {
+      const response = await apiEditUserStatus({
+        id: userId,
+        status: status,
+      });
+
+      if (response?.data?.success === 1 || response?.status === 200) {
+        setRefreshTrigger(prev => prev + 1);
+      } else {
+        console.error("Failed to change user status");
+      }
+    } catch (error) {
+      console.error("Change status error:", error);
+    }
+  };
+
+
   return (
     <div className="px-4 py-5 sm:p-6 lg:p-10 min-h-[calc(100vh-85px)]">
       <div className="flex justify-between sm:flex-row flex-col items-start sm:items-center gap-3 sm:gap-0">
@@ -210,7 +232,8 @@ const Users = () => {
                 key={user.id}
                 user={user}
                 onEdit={handleEdit}
-              onDelete={handleDeleteClick}
+                onDelete={handleDeleteClick}
+                onStatusChange={handleStatusChange}
               />
             ))}
           </div>
@@ -238,7 +261,7 @@ const Users = () => {
           onUserCreated={() => setRefreshTrigger(prev => prev + 1)}
         />
       </Modal>
-      
+
       <Modal isOpen={deleteModalOpen} className="p-6 sm:p-8 w-full max-w-md">
         <div className="text-center">
           <h2 className="text-xl font-semibold mb-3">Delete User?</h2>

@@ -1,7 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAppSelector } from "../../../../store";
-import { STATUS_OPTIONS } from "../../../../constants/selectOptions";
+import { PAGE_SIZE_OPTIONS, STATUS_OPTIONS } from "../../../../constants/selectOptions";
 import PageTitle from "../../../../components/ui/PageTitle/PageTitle";
 import PageSubTitle from "../../../../components/ui/PageSubTitle/PageSubTitle";
 import Button from "../../../../components/ui/Button/Button";
@@ -11,6 +11,8 @@ import CustomSelect from "../../../../components/ui/CustomSelect";
 import Loading from "../../../../components/shared/Loading/Loading";
 import DriverManagementCard from "./components/DriversManagementCard/DriversManagementCard";
 import Pagination from "../../../../components/ui/Pagination/Pagination";
+import { apiDeleteDriverManagement, apiGetDriverManagement } from "../../../../services/DriverManagementService";
+import Modal from "../../../../components/shared/Modal/Modal";
 
 const DriversManagement = () => {
     const navigate = useNavigate();
@@ -49,38 +51,38 @@ const DriversManagement = () => {
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
-  // const fetchDrivers = useCallback(async () => {
-  //   setTableLoading(true);
-  //   try {
-  //     const params = {
-  //       page: currentPage,
-  //       perPage: itemsPerPage,
-  //       status: activeTab,
-  //     };
-  //     if (debouncedSearchQuery?.trim()) {
-  //       params.search = debouncedSearchQuery.trim();
-  //     }
+  const fetchDrivers = useCallback(async () => {
+    setTableLoading(true);
+    try {
+      const params = {
+        page: currentPage,
+        perPage: itemsPerPage,
+        status: activeTab,
+      };
+      if (debouncedSearchQuery?.trim()) {
+        params.search = debouncedSearchQuery.trim();
+      }
 
-  //     const response = await apiGetDriverManagement(params);
-  //     console.log("Drivers response:", response);
+      const response = await apiGetDriverManagement(params);
+      console.log("Drivers response:", response);
 
-  //     if (response?.data?.success === 1) {
-  //       const listData = response?.data?.list;
-  //       setDriversData(listData?.data || []);
-  //       setTotalItems(listData?.total || 0);
-  //       setTotalPages(listData?.last_page || 1);
-  //     }
-  //   } catch (error) {
-  //     console.error("Error fetching drivers:", error);
-  //     setDriversData([]);
-  //   } finally {
-  //     setTableLoading(false);
-  //   }
-  // }, [currentPage, itemsPerPage, debouncedSearchQuery, activeTab]);
+      if (response?.data?.success === 1) {
+        const listData = response?.data?.list;
+        setDriversData(listData?.data || []);
+        setTotalItems(listData?.total || 0);
+        setTotalPages(listData?.last_page || 1);
+      }
+    } catch (error) {
+      console.error("Error fetching drivers:", error);
+      setDriversData([]);
+    } finally {
+      setTableLoading(false);
+    }
+  }, [currentPage, itemsPerPage, debouncedSearchQuery, activeTab]);
 
-  // useEffect(() => {
-  //   fetchDrivers();
-  // }, [currentPage, itemsPerPage, debouncedSearchQuery, activeTab, fetchDrivers, refreshTrigger]);
+  useEffect(() => {
+    fetchDrivers();
+  }, [currentPage, itemsPerPage, debouncedSearchQuery, activeTab, fetchDrivers, refreshTrigger]);
 
   const handleOnDriverCreated = () => {
     setRefreshTrigger(prev => prev + 1);
@@ -95,74 +97,35 @@ const DriversManagement = () => {
     setCurrentPage(1);
   };
 
-  // const handleDeleteClick = (driver) => {
-  //   setDriverToDelete(driver);
-  //   setDeleteModalOpen(true);
-  // };
+  const handleDeleteClick = (driver) => {
+    setDriverToDelete(driver);
+    setDeleteModalOpen(true);
+  };
 
-  // const handleDeleteDriver = async () => {
-  //   if (!driverToDelete?.id) return;
+  const handleDeleteDriver = async () => {
+    if (!driverToDelete?.id) return;
 
-  //   setIsDeleting(true);
-  //   try {
-  //     const response = await apiDeleteDriverManagement(driverToDelete.id);
+    setIsDeleting(true);
+    try {
+      const response = await apiDeleteDriverManagement(driverToDelete.id);
 
-  //     if (response?.data?.success === 1 || response?.status === 200) {
-  //       setDeleteModalOpen(false);
-  //       setDriverToDelete(null);
-  //       setRefreshTrigger(prev => prev + 1);
-  //     } else {
-  //       console.error("Failed to delete driver");
-  //     }
-  //   } catch (error) {
-  //     console.error("Error deleting driver:", error);
-  //   } finally {
-  //     setIsDeleting(false);
-  //   }
-  // };
+      if (response?.data?.success === 1 || response?.status === 200) {
+        setDeleteModalOpen(false);
+        setDriverToDelete(null);
+        setRefreshTrigger(prev => prev + 1);
+      } else {
+        console.error("Failed to delete driver");
+      }
+    } catch (error) {
+      console.error("Error deleting driver:", error);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
-  // const handleDriverStatusChange = () => {
-  //   setRefreshTrigger(prev => prev + 1);
-  // };
-
-    const staticData = [
-    {
-      id: "MR12345",
-      name: "Alex Rodriguez",
-      phoneNumber: "+1 (555) 123-4567",
-      carPlateNo: "ABC-1234",
-      DateTime: "2023-08-15 14:30",
-      loction: "Downtown",
-      status: "Active",
-    },
-    {
-      id: "MR12346",
-      name: "Alex Rodriguez",
-      phoneNumber: "+1 (555) 123-4567",
-      carPlateNo: "ABC-1234",
-      DateTime: "2023-08-15 14:30",
-      loction: "Downtown",
-      status: "Inactive",
-    },
-    {
-      id: "MR12347",
-      name: "Alex Rodriguez",
-      phoneNumber: "+1 (555) 123-4567",
-      carPlateNo: "ABC-1234",
-      DateTime: "2023-08-15 14:30",
-      loction: "Downtown",
-      status: "Active",
-    },
-    {
-      id: "MR12347",
-      name: "Alex Rodriguez",
-      phoneNumber: "+1 (555) 123-4567",
-      carPlateNo: "ABC-1234",
-      DateTime: "2023-08-15 14:30",
-      loction: "Downtown",
-      status: "Active",
-    },
-  ];
+  const handleDriverStatusChange = () => {
+    setRefreshTrigger(prev => prev + 1);
+  };
 
   return (
     <div className="px-4 py-5 sm:p-6 lg:p-10 min-h-[calc(100vh-85px)]">
@@ -196,13 +159,13 @@ const DriversManagement = () => {
           </div>
           <Loading loading={tableLoading} type="cover">
             <div className="flex flex-col gap-4 pt-4">
-              {staticData?.map((driver) => (
+              {driversData?.map((driver) => (
                 <DriverManagementCard
                   key={driver.id}
                   driver={driver}
-                  // onDelete={handleDeleteClick}
+                  onDelete={handleDeleteClick}
                   onEdit={(driverToEdit) => navigate(`/driver/${driverToEdit.id}`)}
-                  // onStatusChange={handleDriverStatusChange}
+                  onStatusChange={handleDriverStatusChange}
                 />
               ))}
             </div>
@@ -223,9 +186,9 @@ const DriversManagement = () => {
           ) : null}
         </CardContainer>
       </div>
-      {/* <Modal isOpen={deleteModalOpen} className="p-6 sm:p-8 w-full max-w-md">
+      <Modal isOpen={deleteModalOpen} className="p-6 sm:p-8 w-full max-w-md">
         <div className="text-center">
-          <h2 className="text-xl font-semibold mb-3">Delete Sub Company?</h2>
+          <h2 className="text-xl font-semibold mb-3">Delete Drivers?</h2>
           <p className="text-gray-600 mb-6">
             Are you sure you want to delete {driverToDelete?.name}?
           </p>
@@ -252,7 +215,7 @@ const DriversManagement = () => {
             </Button>
           </div>
         </div>
-      </Modal> */}
+      </Modal>
     </div>
   );
 };

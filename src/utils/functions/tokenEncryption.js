@@ -109,6 +109,19 @@ export const storeTenantId = (tenantId) => {
 };
 
 /**
+ * Stores tenant data (e.g. company profile) in localStorage
+ * @param {object} tenantData
+ */
+export const storeTenantData = (tenantData) => {
+  try {
+    if (!tenantData) return;
+    localStorage.setItem('tenant_data', JSON.stringify(tenantData));
+  } catch (error) {
+    console.error('Failed to store tenant data:', error);
+  }
+};
+
+/**
  * Retrieves tenant id from localStorage
  * @returns {string|null}
  */
@@ -122,6 +135,20 @@ export const getTenantId = () => {
 };
 
 /**
+ * Retrieves tenant data from localStorage
+ * @returns {object|null}
+ */
+export const getTenantData = () => {
+  try {
+    const raw = localStorage.getItem('tenant_data');
+    return raw ? JSON.parse(raw) : null;
+  } catch (error) {
+    console.error('Failed to get tenant data:', error);
+    return null;
+  }
+};
+
+/**
  * Removes tenant id from localStorage
  */
 export const removeTenantId = () => {
@@ -129,6 +156,17 @@ export const removeTenantId = () => {
     localStorage.removeItem('tenant_id');
   } catch (error) {
     console.error('Failed to remove tenant id:', error);
+  }
+};
+
+/**
+ * Removes tenant data from localStorage
+ */
+export const removeTenantData = () => {
+  try {
+    localStorage.removeItem('tenant_data');
+  } catch (error) {
+    console.error('Failed to remove tenant data:', error);
   }
 };
 
@@ -157,6 +195,8 @@ export const clearAllAuthData = () => {
     
     // Remove tenant id
     localStorage.removeItem('tenant_id');
+    // Remove tenant data
+    localStorage.removeItem('tenant_data');
 
     // Remove any legacy Redux persistence data
     localStorage.removeItem('admin');
