@@ -8,6 +8,8 @@ import Modal from "../../../../components/shared/Modal/Modal";
 import AddBookingModel from "./components/AddBookingModel";
 import MapsConfigurationIcon from "../../../../components/svg/MapsConfigurationIcon";
 import OverViewDetails from "./components/OverviewDetails";
+import AddBooking from "./components/AddBooking";
+import MessageModel from "./components/AddBooking/components/MessageModel";
 
 function Stat({ title, value, color }) {
   return (
@@ -23,8 +25,12 @@ const Overview = () => {
     type: "new",
     isOpen: false,
   })
+   const [isMessageModelOpen, setIsMessageModelOpen] = useState({
+    type: "new",
+    isOpen: false,
+  });
   return (
-    <div className="px-4 py-5 sm:p-6 lg:p-10 min-h-[calc(100vh-85px)]">
+    <div className="px-4 py-5 sm:p-6 lg:p-10 h-full">
       <div className="flex justify-between sm:flex-row flex-col items-start sm:items-center gap-3 sm:gap-0 2xl:mb-6 1.5xl:mb-10 mb-0">
         <div className="sm:mb-[30px] mb-1 sm:w-[calc(100%-240px)] w-full flex gap-5 items-center">          <div className="flex flex-col gap-2.5 w-[calc(100%-100px)]">
           <PageTitle title="Dashboard overview" />
@@ -73,6 +79,10 @@ const Overview = () => {
           </Button>
           <Button
             className="w-full sm:w-auto px-3 py-1.5 bg-[#AAC0FB] rounded-full"
+            onClick={() => {
+              lockBodyScroll();
+              setIsMessageModelOpen({ isOpen: true, type: "new" });
+            }}
           >
             <div className="flex gap-1 items-center justify-center whitespace-nowrap">
               <span className="hidden sm:inline-block">
@@ -111,43 +121,30 @@ const Overview = () => {
       </div>
 
       <div className="">
-        {/* Body */}
-        <div className="flex flex-row flex-wrap gap-3">
-
-          {/* Map */}
-          <div className="flex-[6] bg-white rounded-2xl bg-[#F4F7FF] shadow p-2">
-            {/* Top Bar */}
-            <div className="flex items-center justify-between max-sm:flex-col max-sm:justify-end items-end mb-3 border-b">
-              <div className="flex items-center gap-4 text-sm">
-                <div className="items-center gap-1 text-green-600"><MapsConfigurationIcon fill="#10B981" width="20" height="20" />29 Online</div>
-                <div className="items-center gap-1 text-gray-500"><MapsConfigurationIcon fill="#252525" width="20" height="20" />21 Offline</div>
-                <div className="items-center gap-1 text-red-500"><MapsConfigurationIcon fill="#ff4747" width="20" height="20" />27 Active Ride</div>
-                <div className="items-center gap-1 text-yellow-500"><MapsConfigurationIcon fill="#f59e0b" width="20" height="20" />2 Ride Pending</div>
+        <div className="flex flex-row flex-wrap gap-3 h-full">
+          <div className="flex-[6] bg-white rounded-2xl bg-[#F4F7FF] shadow p-2 flex flex-col full">
+            <div className="flex flex-wrap items-center justify-between mb-3 border-b gap-2 max-sm:flex-col">
+              <div className="flex flex-wrap gap-4 text-sm">
+                <div className="flex items-center gap-1 text-green-600">29 Online</div>
+                <div className="flex items-center gap-1 text-gray-500">21 Offline</div>
+                <div className="flex items-center gap-1 text-red-500">27 Active Ride</div>
+                <div className="flex items-center gap-1 text-yellow-500">2 Ride Pending</div>
               </div>
-              <div className="flex gap-2 justify-end items-end">
-                <Button
-                  type="filled"
-                  className="px-3 py-2 rounded-md flex">
-                  <MapsConfigurationIcon fill="#ffffff" width="20" height="20" />Plot
-                </Button>
-                <Button
-                  type="filled"
-                  className="px-3 py-2 rounded-md flex">
-                  <MapsConfigurationIcon fill="#ffffff" width="20" height="20" />Map
-                </Button>
+              <div className="flex gap-2 max-sm:flex-col">
+                <Button type="filled" className="px-3 py-2 rounded-md flex justify-center">Plot</Button>
+                <Button type="filled" className="px-3 py-2 rounded-md flex justify-center">Map</Button>
               </div>
             </div>
-            <div className="relative h-full rounded-xl overflow-hidden">
-              <img
-                src="/map-placeholder.png"
-                alt="map"
-                className="absolute inset-0 w-full h-full object-cover"
-              />
 
+            <div className="flex-1 rounded-xl overflow-hidden">
+              <iframe
+                title="map"
+                src="https://maps.google.com/maps?q=london&t=&z=11&ie=UTF8&iwloc=&output=embed"
+                className="w-full h-full"
+              ></iframe>
             </div>
           </div>
 
-          {/* Drivers Waiting */}
           <div className="flex-[2.2] bg-orange-50 rounded-2xl shadow p-3">
             <div className="flex items-center justify-between mb-2">
               <h3 className="font-semibold">Drivers Waiting</h3>
@@ -177,7 +174,6 @@ const Overview = () => {
             </table>
           </div>
 
-          {/* On Jobs */}
           <div className="flex-[2] bg-green-50 rounded-2xl shadow p-3">
             <div className="flex items-center justify-between mb-2">
               <h3 className="font-semibold">On Jobs</h3>
@@ -200,7 +196,6 @@ const Overview = () => {
             </table>
           </div>
 
-          {/* Messages */}
           <div className="flex-[1.6] bg-purple-50 rounded-2xl shadow p-3">
             <h3 className="font-semibold mb-2">Messages</h3>
             <div className="space-y-2 text-xs">
@@ -222,8 +217,8 @@ const Overview = () => {
       <div>
         <OverViewDetails />
       </div>
-      
-      <Modal
+
+      {/* <Modal
         isOpen={isBookingModelOpen.isOpen}
         className="p-4 sm:p-6 lg:p-10"
       >
@@ -231,6 +226,23 @@ const Overview = () => {
           // initialValue={isBookingModelOpen.type === "edit" ? isBookingModelOpen.accountData : {}}
           setIsOpen={setIsBookingModelOpen}
         // onSubCompanyCreated={handleOnSubCompanyCreated}
+        />
+      </Modal> */}
+      <Modal
+        isOpen={isBookingModelOpen.isOpen}
+        className="p-4 sm:p-6 lg:p-10"
+      >
+        <AddBooking
+          // initialValue={isBookingModelOpen.type === "edit" ? isBookingModelOpen.accountData : {}}
+          setIsOpen={setIsBookingModelOpen}
+        // onSubCompanyCreated={handleOnSubCompanyCreated}
+        />
+      </Modal>
+      <Modal isOpen={isMessageModelOpen.isOpen}>
+        <MessageModel
+          setIsOpen={setIsMessageModelOpen}
+          onClose={() => setIsMessageModelOpen({ isOpen: false })}
+          refreshList={() => setRefreshTrigger(prev => prev + 1)}
         />
       </Modal>
     </div>

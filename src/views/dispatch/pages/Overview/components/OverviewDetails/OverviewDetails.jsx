@@ -60,7 +60,7 @@ const StatusMenu = ({ anchorRef, onClose }) => {
 
     return createPortal(
         <div
-            className="absolute w-56 bg-white border rounded shadow-lg z-[9999]"
+            className="absolute w-48 -ml-14 mt-2 bg-white border rounded shadow-lg z-[9999]"
             style={{ top: pos.top, left: pos.left }}
         >
             {[

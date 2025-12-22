@@ -8,6 +8,7 @@ import { apiGetAllVehicleType } from "../../../../../../services/VehicleTypeServ
 import { apiCreateBooking, apiCreateCalculateFares, apiGetAllPlot } from "../../../../../../services/AddBookingServices";
 import Button from "../../../../../../components/ui/Button/Button";
 import { getTenantData } from "../../../../../../utils/functions/tokenEncryption";
+import { getDispatcherId } from "../../../../../../utils/auth";
 
 
 const AddBookingModel = ({ initialValue = {}, setIsOpen, onSubCompanyCreated }) => {
@@ -87,8 +88,8 @@ const AddBookingModel = ({ initialValue = {}, setIsOpen, onSubCompanyCreated }) 
             "";
 
         const prefRaw =
-            tenant?.maps_api ||
-            tenant?.map ||
+            tenant?.maps_api || "barikoi"
+        tenant?.map ||
             tenant?.search_api ||
             "";
         const preference = prefRaw?.toLowerCase?.() || "google";
@@ -610,6 +611,7 @@ const AddBookingModel = ({ initialValue = {}, setIsOpen, onSubCompanyCreated }) 
         setSubmitError(null);
 
         try {
+            const dispatcherId = getDispatcherId();
             if (!fareCalculated) {
                 setSubmitError("Please calculate fares before creating the booking.");
                 setIsLoading(false);
@@ -645,7 +647,7 @@ const AddBookingModel = ({ initialValue = {}, setIsOpen, onSubCompanyCreated }) 
             }
 
             const formDataObj = new FormData();
-
+            formDataObj.append("dispatcher_id", dispatcherId);
             formDataObj.append('sub_company', values.sub_company || "");
             formDataObj.append("distance", calculatedDistanceRef.current);
             formDataObj.append('multi_booking', values.multi_booking || "no");

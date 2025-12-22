@@ -1,5 +1,4 @@
 import { METHOD_GET, METHOD_POST } from "../constants/method.constant";
-import { replaceSlash } from "../utils/functions/common.function";
 import ApiService from "./ApiService";
 import {GET_TICKETS, CHANGE_TICKET_STATUS, REPLY_TICKET } from "../constants/api.route.constant";
 

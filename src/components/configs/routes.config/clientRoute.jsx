@@ -10,12 +10,12 @@ const clientRoute = [
     component: lazy(() => import("../../../views/dispatch/pages/Overview")),
     authority: [],
   },
-  {
-    key: KEY.ACCOUNTS_KEY,
-    path: PATH.ACCOUNTS_PATH,
-    component: lazy(() => import("../../../views/dispatch/pages/Accounts")),
-    authority: [],
-  },
+  // {
+  //   key: KEY.ACCOUNTS_KEY,
+  //   path: PATH.ACCOUNTS_PATH,
+  //   component: lazy(() => import("../../../views/dispatch/pages/Accounts")),
+  //   authority: [],
+  // },
   {
     key: KEY.CANCELLATIONS_KEY,
     path: PATH.CANCELLATIONS_PATH,

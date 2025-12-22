@@ -8,6 +8,7 @@ import FormSelection from "../../../../components/ui/FormSelection/FormSelection
 import Button from "../../../../components/ui/Button/Button";
 import * as Yup from "yup";
 import { apiSendNotifiction } from "../../../../services/GeneralNotificationService";
+import { apiGetAllVehicleType } from "../../../../services/VehicleTypeServices";
 
 const userOptions = [
   { value: "all_drivers", label: "All Drivers" },
@@ -17,16 +18,6 @@ const userOptions = [
   { value: "rejected_drivers", label: "Rejected Drivers" },
 ];
 
-const vehicleOptions = [
-  { value: "coming_soon", label: "Coming Soon" },
-  { value: "premium", label: "Premium" },
-  { value: "normal", label: "Normal" },
-  { value: "bike", label: "Bike" },
-  { value: "rickshaw", label: "Rickshaw" },
-  { value: "economy", label: "Economy" },
-  { value: "comfort", label: "Comfort" },
-]
-
 const validationSchema = Yup.object({
   title: Yup.string().required("Title is required"),
   body: Yup.string().required("Body is required"),
@@ -35,8 +26,31 @@ const validationSchema = Yup.object({
 });
 
 const GeneralNotification = () => {
+  const [vehicleList, setVehicleList] = useState([]);
+  const [loadingVehicleType, setLoadingVehicleType] = useState(false);
   const [sending, setSending] = useState(false);
 
+  useEffect(() => {
+    const fetchVehicle = async () => {
+      setLoadingVehicleType(true);
+      try {
+        const response = await apiGetAllVehicleType();
+        if (response?.data?.success === 1) {
+          const options = (response?.data?.list || []).map((vehicle) => ({
+            label: vehicle.vehicle_type_name,
+            value: vehicle.id.toString(),
+          }));
+          setVehicleList(options);
+        }
+      } catch (error) {
+        console.error("Error fetching vehicle types:", error);
+      } finally {
+        setLoadingVehicleType(false);
+      }
+    };
+
+    fetchVehicle();
+  }, []);
 
   return (
     <div className="px-4 py-5 sm:p-6 lg:p-10 min-h-[calc(100vh-85px)]">
@@ -68,6 +82,7 @@ const GeneralNotification = () => {
               formData.append("title", values.title);
               formData.append("body", values.body);
 
+              // vehicle_id OPTIONAL
               if (values.vehicleType) {
                 formData.append(
                   "vehicle_id",
@@ -138,8 +153,9 @@ const GeneralNotification = () => {
                       name="vehicleType"
                       value={values.vehicleType}
                       onChange={(val) => setFieldValue("vehicleType", val)}
-                      placeholder="Select Vehicle Type"
-                      options={vehicleOptions}
+                      placeholder={loadingVehicleType ? "Loading..." : "Select Vehicle Type"}
+                      options={vehicleList}
+                      isDisabled={loadingVehicleType}
                     />
                   </div>
                 </div>

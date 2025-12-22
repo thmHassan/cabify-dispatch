@@ -63,29 +63,6 @@ export async function apiDeleteDriverManagement(id) {
     });
 }
 
-// export async function apiAddWalletBalance(data) {
-//     const isFormData = data instanceof FormData;
-
-//     return ApiService.fetchData({
-//         url: ADD_WALLET_BALANCE,
-//         method: METHOD_POST,
-//         data,
-//         ...(isFormData && {
-//             headers: {
-//                 'Content-Type': 'multipart/form-data',
-//             },
-//         }),
-//     });
-// }
-
-// export async function apieditDriverStatus(params) {
-//     return ApiService.fetchData({
-//         url: POST_EDIT_DRIVER_STATUS,
-//         method: METHOD_GET,
-//         params: params, 
-//     });
-// }
-
 export async function apiGetDriverDocumentList(params) {
     try {
         return ApiService.fetchData({
@@ -106,67 +83,3 @@ export async function apiGetDriverDocumentById(params) {
         params,
     });
 }
-
-// export async function apiChangeDriverDocument(data) {
-//     const isFormData = data instanceof FormData;
-    
-//     try {
-//         return ApiService.fetchData({
-//             url: CHANGE_DRIVER_DOCUMENT_STATUS,
-//             method: METHOD_POST,
-//             data,
-//             ...(isFormData && {
-//                 headers: {
-//                     'Content-Type': 'multipart/form-data',
-//                 },
-//             }),
-//         });
-//     } catch (error) {
-//         console.log("Error changing driver document status:", error);
-//         throw error;
-//     }
-// }
-
-// export async function apiDeleteDriverDocument(id) {
-//     return ApiService.fetchData({
-//         url: `${DELETE_DRIVER_DOCUMENT}?id=${id}`,
-//         method: METHOD_GET,
-//     });
-// }
-
-// export async function apiApproveVehicle(data) {
-//     const isFormData = data instanceof FormData;
-
-//     return ApiService.fetchData({
-//         url: APPROVE_VEHICLE,
-//         method: METHOD_POST,
-//         data,
-//         ...(isFormData && {
-//             headers: {
-//                 'Content-Type': 'multipart/form-data',
-//             },
-//         }),
-//     });
-// }
-
-// export async function apiRejectVehicle(data) {
-//     const isFormData = data instanceof FormData;
-
-//     return ApiService.fetchData({
-//         url: REJECT_VAHICLE,
-//         method: METHOD_POST,
-//         data,
-//         ...(isFormData && {
-//             headers: {
-//                 'Content-Type': 'multipart/form-data',
-//             },
-//         }),
-//     });
-// }
-
-// export async function apiGetDriverRideHistory(id) {
-//     return ApiService.fetchData({
-//         url: `${DRIVER_RIDE_HISTORY}?driver_id=${id}`,
-//         method: METHOD_GET,
-//     });
-// }
