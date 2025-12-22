@@ -11,25 +11,25 @@ import CustomSelect from "../../../../components/ui/CustomSelect";
 import Loading from "../../../../components/shared/Loading/Loading";
 import DriverManagementCard from "./components/DriversManagementCard/DriversManagementCard";
 import Pagination from "../../../../components/ui/Pagination/Pagination";
-import { apiDeleteDriverManagement, apiGetDriverManagement } from "../../../../services/DriverManagementService";
+import {
+  apiDeleteDriverManagement,
+  apiGetDriverManagement,
+} from "../../../../services/DriverManagementService";
 import Modal from "../../../../components/shared/Modal/Modal";
 
 const DriversManagement = () => {
-    const navigate = useNavigate();
-  const [isDriversManagementModalOpen, setIsDriversManagementModalOpen] = useState({
-    type: "new",
-    isOpen: false,
-  });
-  const [activeTab, setActiveTab] = useState("accepted");
+  const navigate = useNavigate();
+
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
   const [tableLoading, setTableLoading] = useState(false);
   const [driversData, setDriversData] = useState([]);
-  const [_selectedStatus, setSelectedStatus] = useState(
-    STATUS_OPTIONS.find((o) => o.value === "all") ?? STATUS_OPTIONS[0]
+
+  const [selectedStatus, setSelectedStatus] = useState(
+    STATUS_OPTIONS.find(o => o.value === "all")
   );
   const savedPagination = useAppSelector(
-    (state) => state?.app?.app?.pagination?.companies
+    state => state?.app?.app?.pagination?.companies
   );
   const [currentPage, setCurrentPage] = useState(
     Number(savedPagination?.currentPage) || 1
@@ -37,7 +37,7 @@ const DriversManagement = () => {
   const [itemsPerPage, setItemsPerPage] = useState(
     Number(savedPagination?.itemsPerPage) || 10
   );
-  const [totalItems, setTotalItems] = useState(0);
+
   const [totalPages, setTotalPages] = useState(1);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
@@ -57,74 +57,66 @@ const DriversManagement = () => {
       const params = {
         page: currentPage,
         perPage: itemsPerPage,
-        status: activeTab,
       };
+
+      if (selectedStatus?.value !== "all") {
+        params.status = selectedStatus.value;
+      }
+
       if (debouncedSearchQuery?.trim()) {
         params.search = debouncedSearchQuery.trim();
       }
 
       const response = await apiGetDriverManagement(params);
-      console.log("Drivers response:", response);
 
       if (response?.data?.success === 1) {
-        const listData = response?.data?.list;
-        setDriversData(listData?.data || []);
-        setTotalItems(listData?.total || 0);
-        setTotalPages(listData?.last_page || 1);
+        setDriversData(response.data.list?.data || []);
+        setTotalPages(response.data.list?.last_page || 1);
+      } else {
+        setDriversData([]);
       }
     } catch (error) {
-      console.error("Error fetching drivers:", error);
+      console.error("Fetch drivers error:", error);
       setDriversData([]);
     } finally {
       setTableLoading(false);
     }
-  }, [currentPage, itemsPerPage, debouncedSearchQuery, activeTab]);
+  }, [
+    currentPage,
+    itemsPerPage,
+    selectedStatus,
+    debouncedSearchQuery,
+  ]);
 
   useEffect(() => {
     fetchDrivers();
-  }, [currentPage, itemsPerPage, debouncedSearchQuery, activeTab, fetchDrivers, refreshTrigger]);
-
-  const handleOnDriverCreated = () => {
-    setRefreshTrigger(prev => prev + 1);
-  };
-
-  const handlePageChange = (pageNumber) => {
-    setCurrentPage(pageNumber);
-  };
-
-  const handleItemsPerPageChange = (newItemsPerPage) => {
-    setItemsPerPage(newItemsPerPage);
-    setCurrentPage(1);
-  };
-
-  const handleDeleteClick = (driver) => {
-    setDriverToDelete(driver);
-    setDeleteModalOpen(true);
-  };
+  }, [fetchDrivers, refreshTrigger]);
 
   const handleDeleteDriver = async () => {
     if (!driverToDelete?.id) return;
 
     setIsDeleting(true);
     try {
-      const response = await apiDeleteDriverManagement(driverToDelete.id);
-
-      if (response?.data?.success === 1 || response?.status === 200) {
+      const res = await apiDeleteDriverManagement(driverToDelete.id);
+      if (res?.data?.success === 1) {
         setDeleteModalOpen(false);
         setDriverToDelete(null);
         setRefreshTrigger(prev => prev + 1);
-      } else {
-        console.error("Failed to delete driver");
       }
-    } catch (error) {
-      console.error("Error deleting driver:", error);
+    } catch (err) {
+      console.error(err);
     } finally {
       setIsDeleting(false);
     }
   };
 
-  const handleDriverStatusChange = () => {
-    setRefreshTrigger(prev => prev + 1);
+    const handlePageChange = (pageNumber) => {
+    setCurrentPage(pageNumber);
+  };
+
+  const handleItemsPerPageChange = (newItemsPerPage) => {
+    setItemsPerPage(newItemsPerPage);
+    setCurrentPage(1);
   };
 
   return (
@@ -149,11 +141,12 @@ const DriversManagement = () => {
             </div>
             <div className="hidden md:flex flex-row gap-3 sm:gap-5 w-full sm:w-auto">
               <CustomSelect
-                variant={2}
                 options={STATUS_OPTIONS}
-                value={_selectedStatus}
-                // onChange={handleStatusChange}
-                placeholder="All Status"
+                value={selectedStatus}
+                onChange={(opt) => {
+                  setSelectedStatus(opt);
+                  setCurrentPage(1);
+                }}
               />
             </div>
           </div>
@@ -163,9 +156,11 @@ const DriversManagement = () => {
                 <DriverManagementCard
                   key={driver.id}
                   driver={driver}
-                  onDelete={handleDeleteClick}
-                  onEdit={(driverToEdit) => navigate(`/driver/${driverToEdit.id}`)}
-                  onStatusChange={handleDriverStatusChange}
+                  onEdit={() => navigate(`/driver/${driver.id}`)}
+                  onDelete={(d) => {
+                    setDriverToDelete(d);
+                    setDeleteModalOpen(true);
+                  }}
                 />
               ))}
             </div>

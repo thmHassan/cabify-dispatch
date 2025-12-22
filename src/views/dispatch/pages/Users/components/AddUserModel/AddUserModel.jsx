@@ -185,7 +185,6 @@ const AddUserModel = ({ initialValue = {}, setIsOpen, onUserCreated }) => {
                                 </div>
                                 <ErrorMessage name="city" component="div" className="text-red-500 text-sm mt-1" />
                             </div>
-
                         </div>
 
                         <div className="flex flex-col sm:flex-row gap-3 sm:gap-5 justify-end">

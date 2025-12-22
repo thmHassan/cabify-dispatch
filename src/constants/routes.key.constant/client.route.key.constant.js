@@ -1,5 +1,5 @@
 export const OVERVIEW_KEY = "overview";
-export const ACCOUNTS_KEY = "accounts";
+// export const ACCOUNTS_KEY = "accounts";
 export const CANCELLATIONS_KEY = "cancellations";
 export const DRIVERS_MANAGEMENT_KEY = "drivers-management";
 export const DRIVER_DETAILS_KEY = "driver-details";

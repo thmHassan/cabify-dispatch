@@ -150,12 +150,6 @@ const UserPageContainer = ({ children }) => {
             <UserDropdown
               options={[
                 {
-                  label: "Profile",
-                  icon: FaUser,
-                  onClick: handleProfile,
-                  route: ACCOUNTS_PATH,
-                },
-                {
                   label: isLoggingOut ? "Logging out..." : "Logout",
                   icon: isLoggingOut ? () => <AppLogoLoader /> : FaSignOutAlt,
                   onClick: handleLogout,
