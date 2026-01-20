@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import useAuth from "../../../../../../utils/hooks/useAuth";
 import useApiLoader from "../../../../../../utils/hooks/useApiLoader";
 import { ErrorMessage, Field, Form, Formik } from "formik";
@@ -20,6 +20,15 @@ const SigninForm = ({
   const navigate = useNavigate();
   const { isLoading, executeWithLoader } = useApiLoader();
   const [toastMessage, setToastMessage] = useState("");
+
+  useEffect(() => {
+    if (toastMessage) {
+      const timer = setTimeout(() => {
+        setToastMessage("");
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [toastMessage]);
 
   const onSignIn = async (values, setSubmitting) => {
     const { email, password, company_id } = values;
@@ -62,6 +71,12 @@ const SigninForm = ({
       type="fullscreen"
       customLoader={<AppLogoLoader />}
     >
+
+      {toastMessage && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 bg-red-500 text-white px-4 py-2 rounded shadow-lg z-[9999] text-sm sm:text-base">
+          {toastMessage}
+        </div>
+      )}
       <Formik
         initialValues={initialValues}
         //   validationSchema={SIGNIN_VALIDATION_SCHEMA}

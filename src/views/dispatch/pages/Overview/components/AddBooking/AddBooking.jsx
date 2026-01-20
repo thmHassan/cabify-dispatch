@@ -15,12 +15,27 @@ const GOOGLE_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
 const BARIKOI_KEY = import.meta.env.VITE_BARIKOI_API_KEY;
 
 const loadGoogleScript = () =>
-    new Promise((resolve) => {
-        if (window.google?.maps?.places) return resolve();
+    new Promise((resolve, reject) => {
+        if (window.google?.maps?.places) {
+            return resolve();
+        }
+
+        // Check if script is already being loaded
+        const existingScript = document.querySelector(
+            `script[src*="maps.googleapis.com"]`
+        );
+
+        if (existingScript) {
+            existingScript.addEventListener('load', resolve);
+            existingScript.addEventListener('error', reject);
+            return;
+        }
+
         const script = document.createElement("script");
         script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_KEY}&libraries=places`;
         script.async = true;
         script.onload = resolve;
+        script.onerror = reject;
         document.head.appendChild(script);
     });
 
@@ -158,50 +173,79 @@ const AddBooking = ({ initialValue = {}, setIsOpen, onSubCompanyCreated }) => {
 
     useEffect(() => {
         if (SEARCH_API === "google" || SEARCH_API === "both") {
-            loadGoogleScript().then(() => {
-                setGoogleService(new window.google.maps.places.AutocompleteService());
-            });
+            loadGoogleScript()
+                .then(() => {
+                    if (window.google?.maps?.places) {
+                        setGoogleService(new window.google.maps.places.AutocompleteService());
+                    }
+                })
+                .catch((error) => {
+                    console.error("Failed to load Google Maps:", error);
+                });
         }
-    }, []);
+    }, [SEARCH_API]);
 
     const searchLocation = async (query, type, index = null) => {
         if (!query) return;
 
         let list = [];
 
-        if ((SEARCH_API === "google" || SEARCH_API === "both") && googleService) {
-            googleService.getPlacePredictions(
-                { input: query, componentRestrictions: { country: COUNTRY_CODE } },
-                (predictions, status) => {
-                    if (status === "OK") {
-                        list = predictions.map((p) => ({
-                            label: p.description,
-                            place_id: p.place_id,
-                            source: "google",
-                        }));
-                        updateSuggestions(list, type, index);
-                    }
+        if ((SEARCH_API === "google" || SEARCH_API === "both")) {
+            try {
+                // Ensure Google is loaded before using it
+                await loadGoogleScript();
+
+                if (!googleService) {
+                    const service = new window.google.maps.places.AutocompleteService();
+                    setGoogleService(service);
                 }
-            );
+
+                const service = googleService || new window.google.maps.places.AutocompleteService();
+
+                service.getPlacePredictions(
+                    {
+                        input: query,
+                        componentRestrictions: { country: COUNTRY_CODE }
+                    },
+                    (predictions, status) => {
+                        if (status === "OK" && predictions) {
+                            list = predictions.map((p) => ({
+                                label: p.description,
+                                place_id: p.place_id,
+                                source: "google",
+                            }));
+                            updateSuggestions(list, type, index);
+                        } else {
+                            console.error("Autocomplete error:", status);
+                        }
+                    }
+                );
+            } catch (error) {
+                console.error("Error with Google search:", error);
+            }
         }
 
         if (SEARCH_API === "barikoi" || SEARCH_API === "both") {
-            const res = await fetch(
-                `https://barikoi.xyz/v1/api/search/autocomplete/${BARIKOI_KEY}/place?q=${encodeURIComponent(
-                    query
-                )}`
-            );
-            const json = await res.json();
+            try {
+                const res = await fetch(
+                    `https://barikoi.xyz/v1/api/search/autocomplete/${BARIKOI_KEY}/place?q=${encodeURIComponent(
+                        query
+                    )}`
+                );
+                const json = await res.json();
 
-            const barikoiList = (json.places || []).map((p) => ({
-                label: p.address || p.place_name,
-                lat: p.latitude,
-                lng: p.longitude,
-                source: "barikoi",
-            }));
+                const barikoiList = (json.places || []).map((p) => ({
+                    label: p.address || p.place_name,
+                    lat: p.latitude,
+                    lng: p.longitude,
+                    source: "barikoi",
+                }));
 
-            list = SEARCH_API === "both" ? [...list, ...barikoiList] : barikoiList;
-            updateSuggestions(list, type, index);
+                list = SEARCH_API === "both" ? [...list, ...barikoiList] : barikoiList;
+                updateSuggestions(list, type, index);
+            } catch (error) {
+                console.error("Error with Barikoi search:", error);
+            }
         }
     };
 
@@ -219,7 +263,12 @@ const AddBooking = ({ initialValue = {}, setIsOpen, onSubCompanyCreated }) => {
     };
 
     const getLatLngFromPlaceId = (placeId) =>
-        new Promise((resolve) => {
+        new Promise((resolve, reject) => {
+            if (!window.google?.maps?.places) {
+                reject(new Error("Google Maps not loaded"));
+                return;
+            }
+
             const service = new window.google.maps.places.PlacesService(
                 document.createElement("div")
             );
@@ -235,7 +284,10 @@ const AddBooking = ({ initialValue = {}, setIsOpen, onSubCompanyCreated }) => {
                             lat: place.geometry.location.lat(),
                             lng: place.geometry.location.lng(),
                         });
-                    } else resolve(null);
+                    } else {
+                        console.error("Place details error:", status);
+                        resolve(null);
+                    }
                 }
             );
         });
@@ -273,10 +325,16 @@ const AddBooking = ({ initialValue = {}, setIsOpen, onSubCompanyCreated }) => {
 
         let latLng = null;
 
-        if (item.source === "google") {
-            latLng = await getLatLngFromPlaceId(item.place_id);
-        } else if (item.source === "barikoi") {
-            latLng = { lat: item.lat, lng: item.lng };
+        try {
+            if (item.source === "google") {
+                // Ensure Google Maps is loaded
+                await loadGoogleScript();
+                latLng = await getLatLngFromPlaceId(item.place_id);
+            } else if (item.source === "barikoi") {
+                latLng = { lat: item.lat, lng: item.lng };
+            }
+        } catch (error) {
+            console.error("Error getting coordinates:", error);
         }
 
         let plot = "No Plot Found";
@@ -300,7 +358,6 @@ const AddBooking = ({ initialValue = {}, setIsOpen, onSubCompanyCreated }) => {
         else if (type === "destination") setDestinationPlot(plot);
         else setViaPlots((p) => ({ ...p, [index]: plot }));
 
-        // Invalidate fare when location changes
         invalidateFare();
     };
 
@@ -308,22 +365,28 @@ const AddBooking = ({ initialValue = {}, setIsOpen, onSubCompanyCreated }) => {
         if (!address) return null;
 
         try {
-            if ((SEARCH_API === "google" || SEARCH_API === "both") && window.google?.maps) {
-                const geocoder = new window.google.maps.Geocoder();
+            if ((SEARCH_API === "google" || SEARCH_API === "both")) {
+                await loadGoogleScript();
 
-                return new Promise((resolve) => {
-                    geocoder.geocode({ address }, (results, status) => {
-                        if (status === "OK" && results[0]) {
-                            resolve({
-                                latitude: results[0].geometry.location.lat(),
-                                longitude: results[0].geometry.location.lng()
-                            });
-                        } else {
-                            resolve(null);
-                        }
+                if (window.google?.maps) {
+                    const geocoder = new window.google.maps.Geocoder();
+
+                    return new Promise((resolve) => {
+                        geocoder.geocode({ address }, (results, status) => {
+                            if (status === "OK" && results[0]) {
+                                resolve({
+                                    latitude: results[0].geometry.location.lat(),
+                                    longitude: results[0].geometry.location.lng()
+                                });
+                            } else {
+                                console.error("Geocoding error:", status);
+                                resolve(null);
+                            }
+                        });
                     });
-                });
+                }
             }
+
             if (SEARCH_API === "barikoi" || SEARCH_API === "both") {
                 const res = await fetch(
                     `https://barikoi.xyz/v1/api/search/autocomplete/${BARIKOI_KEY}/place?q=${encodeURIComponent(address)}`
@@ -1367,7 +1430,7 @@ const AddBooking = ({ initialValue = {}, setIsOpen, onSubCompanyCreated }) => {
                                     btnSize="md"
                                     type="filled"
                                     className="!px-10 pt-4 pb-[15px] leading-[25px] w-full sm:w-auto"
-                                    disabled={isBookingLoading || !fareCalculated}
+                                // disabled={isBookingLoading || !fareCalculated}
                                 >
                                     <span>{isBookingLoading ? "Creating..." : "Create Booking"}</span>
                                 </Button>

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import PageTitle from "../../../../components/ui/PageTitle/PageTitle";
 import PageSubTitle from "../../../../components/ui/PageSubTitle/PageSubTitle";
 import Button from "../../../../components/ui/Button/Button";
@@ -10,6 +10,38 @@ import MapsConfigurationIcon from "../../../../components/svg/MapsConfigurationI
 import OverViewDetails from "./components/OverviewDetails";
 import AddBooking from "./components/AddBooking";
 import MessageModel from "./components/AddBooking/components/MessageModel";
+import { useSocket } from "../../../../components/routes/SocketProvider";
+
+const GOOGLE_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
+
+const MARKER_ICONS = {
+  online: "https://maps.google.com/mapfiles/ms/icons/green-dot.png",
+  offline: "https://maps.google.com/mapfiles/ms/icons/grey-dot.png",
+  active: "https://maps.google.com/mapfiles/ms/icons/blue-dot.png",
+  pending: "https://maps.google.com/mapfiles/ms/icons/yellow-dot.png",
+};
+
+const loadGoogleMaps = () => {
+  return new Promise((resolve, reject) => {
+    if (window.google && window.google.maps) return resolve();
+
+    const existingScript = document.getElementById("google-maps-script");
+    if (existingScript) {
+      existingScript.onload = resolve;
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.id = "google-maps-script";
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_KEY}&libraries=places`;
+    script.async = true;
+    script.defer = true;
+    script.onload = resolve;
+    script.onerror = reject;
+
+    document.head.appendChild(script);
+  });
+};
 
 function Stat({ title, value, color }) {
   return (
@@ -25,10 +57,189 @@ const Overview = () => {
     type: "new",
     isOpen: false,
   })
-   const [isMessageModelOpen, setIsMessageModelOpen] = useState({
+  const [isMessageModelOpen, setIsMessageModelOpen] = useState({
     type: "new",
     isOpen: false,
   });
+
+  const socket = useSocket();
+
+  const mapRef = useRef(null);
+  const mapInstance = useRef(null);
+  const markers = useRef({});
+  const [driverData, setDriverData] = useState({});
+
+  useEffect(() => {
+    let isMounted = true;
+
+    loadGoogleMaps()
+      .then(() => {
+        if (!isMounted || !mapRef.current) return;
+
+        mapInstance.current = new window.google.maps.Map(mapRef.current, {
+          center: { lat: 23.0225, lng: 72.5714 },
+          zoom: 13,
+          styles: [
+            {
+              featureType: "poi",
+              elementType: "labels",
+              stylers: [{ visibility: "off" }],
+            },
+          ],
+        });
+
+        console.log("Google Maps initialized");
+      })
+      .catch((err) => console.error("Google Maps load failed:", err));
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const fitMapToMarkers = () => {
+    if (!mapInstance.current || Object.keys(markers.current).length === 0) return;
+
+    const bounds = new window.google.maps.LatLngBounds();
+    let hasVisibleMarkers = false;
+
+    Object.values(markers.current).forEach((marker) => {
+      if (marker.getVisible()) {
+        bounds.extend(marker.getPosition());
+        hasVisibleMarkers = true;
+      }
+    });
+
+    if (hasVisibleMarkers) {
+      mapInstance.current.fitBounds(bounds);
+
+      // Prevent zooming in too much for single marker
+      const zoom = mapInstance.current.getZoom();
+      if (zoom > 15) {
+        mapInstance.current.setZoom(15);
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleDriverUpdate = (data) => {
+      if (!mapInstance.current) {
+        console.warn("Map not initialized yet");
+        return;
+      }
+
+      console.log("Received driver-location-update:", data);
+
+      let driver_id, latitude, longitude, status, name;
+
+      if (typeof data === 'object' && !Array.isArray(data)) {
+        // Your backend sends latitude/longitude swapped, so we need to swap them back
+        driver_id = data.driver_id;
+        // SWAPPING: Your backend's "latitude" is actually longitude and vice versa
+        latitude = data.longitude;  // Backend's longitude is actual latitude
+        longitude = data.latitude;  // Backend's latitude is actual longitude
+        status = data.status || "online";
+        name = data.name || `Driver ${driver_id}`;
+      }
+
+      if (!latitude || !longitude) {
+        console.warn("❌ Could not extract location from data");
+        return;
+      }
+
+      // Ensure driver_id exists
+      if (!driver_id) {
+        driver_id = `driver_${Date.now()}`;
+      }
+
+      console.log("✅ Corrected coordinates:", { driver_id, latitude, longitude, status });
+
+      const position = {
+        lat: Number(latitude),
+        lng: Number(longitude),
+      };
+
+      // Store driver data for filtering
+      setDriverData((prev) => ({
+        ...prev,
+        [driver_id]: { ...data, position },
+      }));
+
+      // Determine marker icon based on status
+      let markerIcon = MARKER_ICONS.online;
+      if (status === "offline") markerIcon = MARKER_ICONS.offline;
+      else if (status === "active" || status === "on_ride") markerIcon = MARKER_ICONS.active;
+      else if (status === "pending") markerIcon = MARKER_ICONS.pending;
+
+      if (markers.current[driver_id]) {
+        markers.current[driver_id].setPosition(position);
+        markers.current[driver_id].setIcon(markerIcon);
+        console.log(`Updated driver ${driver_id} to:`, position);
+      } else {
+        const marker = new window.google.maps.Marker({
+          position,
+          map: mapInstance.current,
+          title: name || `Driver ${driver_id}`,
+          icon: markerIcon,
+          animation: window.google.maps.Animation.DROP,
+        });
+
+        // Add info window
+        const infoWindow = new window.google.maps.InfoWindow({
+          content: `
+              <div style="padding: 8px;">
+                <strong>${name || `Driver ${driver_id}`}</strong><br/>
+                Status: <span style="text-transform: capitalize;">${status || 'online'}</span><br/>
+                Location: ${latitude.toFixed(4)}, ${longitude.toFixed(4)}
+              </div>
+            `,
+        });
+
+        marker.addListener("click", () => {
+          // Close all other info windows
+          Object.values(markers.current).forEach((m) => {
+            if (m.infoWindow) m.infoWindow.close();
+          });
+          infoWindow.open(mapInstance.current, marker);
+        });
+
+        marker.infoWindow = infoWindow;
+        markers.current[driver_id] = marker;
+        console.log(`Created marker for driver ${driver_id} at:`, position);
+      }
+
+      // Apply filter based on selected status
+      updateMarkerVisibility();
+
+      // Auto-fit map to show all markers
+      setTimeout(() => fitMapToMarkers(), 100);
+    };
+
+    socket.on("driver-location-update", handleDriverUpdate);
+
+    return () => {
+      socket.off("driver-location-update", handleDriverUpdate);
+    };
+  }, [socket]);
+
+  const updateMarkerVisibility = () => {
+    Object.entries(markers.current).forEach(([driverId, marker]) => {
+      const driver = driverData[driverId];
+      if (!driver) return;
+
+      let visible = true;
+
+      marker.setVisible(visible);
+    });
+  };
+
+  useEffect(() => {
+    updateMarkerVisibility();
+    setTimeout(() => fitMapToMarkers(), 100);
+  }, [ driverData]);
+
   return (
     <div className="px-4 py-5 sm:p-6 lg:p-10 h-full">
       <div className="flex justify-between sm:flex-row flex-col items-start sm:items-center gap-3 sm:gap-0 2xl:mb-6 1.5xl:mb-10 mb-0">
@@ -53,6 +264,10 @@ const Overview = () => {
           </Button>
           <Button
             className="w-full sm:w-auto px-3 py-1.5 border border-[#1f41bb] rounded-full"
+            onClick={() => {
+              lockBodyScroll();
+              setIsMessageModelOpen({ isOpen: true, type: "new" });
+            }}
           >
             <div className="flex gap-1 items-center justify-center whitespace-nowrap">
               <span className="hidden sm:inline-block">
@@ -137,11 +352,10 @@ const Overview = () => {
             </div>
 
             <div className="flex-1 rounded-xl overflow-hidden">
-              <iframe
-                title="map"
-                src="https://maps.google.com/maps?q=london&t=&z=11&ie=UTF8&iwloc=&output=embed"
+              <div
+                ref={mapRef}
                 className="w-full h-full"
-              ></iframe>
+              />
             </div>
           </div>
 
@@ -236,6 +450,13 @@ const Overview = () => {
           // initialValue={isBookingModelOpen.type === "edit" ? isBookingModelOpen.accountData : {}}
           setIsOpen={setIsBookingModelOpen}
         // onSubCompanyCreated={handleOnSubCompanyCreated}
+        />
+      </Modal>
+      <Modal isOpen={isMessageModelOpen.isOpen}>
+        <MessageModel
+          setIsOpen={setIsMessageModelOpen}
+          onClose={() => setIsMessageModelOpen({ isOpen: false })}
+          refreshList={() => setRefreshTrigger(prev => prev + 1)}
         />
       </Modal>
       <Modal isOpen={isMessageModelOpen.isOpen}>
