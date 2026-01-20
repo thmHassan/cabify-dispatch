@@ -6,13 +6,15 @@ import { useAppSelector } from '../../../../store';
 import CardContainer from '../../../../components/shared/CardContainer';
 import SearchBar from '../../../../components/shared/SearchBar/SearchBar';
 import CustomSelect from '../../../../components/ui/CustomSelect';
-import Loading from '../../../../components/shared/Loading/Loading';
 import LostFoundCard from './components/LostFoundCard/LostFoundCard';
 import Pagination from '../../../../components/ui/Pagination/Pagination';
-import { apiGetLostFoundList } from '../../../../services/LostFoundServices';
-// import { apiGetLostFoundList } from '../../../../services/LostFoundServices';
+import { apiChangeLostFoundStatus, apiGetLostFoundList } from '../../../../services/LostFoundServices';
+import { useNavigate } from 'react-router-dom';
+import toast from "react-hot-toast";
+import AppLogoLoader from '../../../../components/shared/AppLogoLoader';
 
 const LostFound = () => {
+  const navigate = useNavigate()
   const [_searchQuery, setSearchQuery] = useState("");
   const [tableLoading, setTableLoading] = useState(false);
   const [_selectedStatus, setSelectedStatus] = useState(
@@ -80,6 +82,39 @@ const LostFound = () => {
     setCurrentPage(1);
   };
 
+  const handleStatusChange = async (id, status) => {
+    const toastId = toast.loading("Updating status...");
+
+    try {
+      const formData = new FormData();
+      formData.append("id", id);
+      formData.append("status", status);
+
+      const response = await apiChangeLostFoundStatus(formData);
+
+      if (response?.data?.success === 1) {
+        toast.success("Status updated successfully", { id: toastId });
+        setRefreshTrigger(prev => prev + 1);
+      } else {
+        toast.error(response?.data?.message || "Failed to update status", {
+          id: toastId,
+        });
+      }
+    } catch (error) {
+      toast.error("Something went wrong", { id: toastId });
+      console.error("Failed to change status", error);
+    }
+  };
+
+    if (tableLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <AppLogoLoader  />
+      </div>
+    );
+  }
+
+
   return (
     <div className="px-4 py-5 sm:p-6 lg:p-10 min-h-[calc(100vh-85px)]">
       <div className="flex flex-col gap-2.5 sm:mb-[30px] mb-6">
@@ -96,7 +131,7 @@ const LostFound = () => {
             <div className="md:w-full w-[calc(100%-54px)] sm:flex-1">
               <SearchBar
                 value={_searchQuery}
-                onSearchChange={setSearchQuery}
+                // onSearchChange={handleSearchChange}
                 className="w-full md:max-w-[400px] max-w-full"
               />
             </div>
@@ -110,13 +145,16 @@ const LostFound = () => {
               />
             </div>
           </div>
-          <Loading loading={tableLoading} type="cover">
             <div className="flex flex-col gap-4 pt-4">
               {lostFoundData.map((lostfound) => (
-                <LostFoundCard key={lostfound.id} lostfound={lostfound} />
+                <LostFoundCard
+                  key={lostfound.id}
+                  lostfound={lostfound}
+                  // onView={(lostfoundToView) => navigate(`/lost-found/${lostfoundToView.id}`)}
+                  onStatusChange={handleStatusChange}
+                />
               ))}
             </div>
-          </Loading>
           {Array.isArray(lostFoundData) &&
             lostFoundData.length > 0 ? (
             <div className="mt-4 sm:mt-4 border-t border-[#E9E9E9] pt-3 sm:pt-4">

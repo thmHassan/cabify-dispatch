@@ -1,74 +1,123 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
+import { getTenantData } from "../../../../../../utils/functions/tokenEncryption";
 
-const RidesManagementCard = ({ ride }) => {
+const RidesManagementCard = ({ ride, onView }) => {
+
     const statusColors = {
         pending: "bg-yellow-500 text-white",
         cancelled: "bg-red-500 text-white",
         completed: "bg-green-500 text-white",
         arrived: "bg-blue-500 text-white",
         waiting: "bg-purple-500 text-white",
-        default: "bg-gray-100 text-gray-600"
+        default: "bg-[#EFEFEF] text-gray-600"
+    };
+
+    const currencySymbols = {
+        INR: "₹",
+        USD: "$",
+        EUR: "€",
+        GBP: "£",
+        AUD: "A$",
+        CAD: "C$",
+        AED: "د.إ",
+    };
+
+    const [distanceUnit, setDistanceUnit] = useState("Miles");
+    const [currencySymbol, setCurrencySymbol] = useState("₹");
+
+    useEffect(() => {
+        const tenant = getTenantData();
+
+        if (tenant?.units) {
+            const unit = tenant.units.toLowerCase() === "km" ? "Km" : "Miles";
+            setDistanceUnit(unit);
+        }
+
+        if (tenant?.currency) {
+            setCurrencySymbol(currencySymbols[tenant.currency] || tenant.currency);
+        }
+    }, []);
+
+    const formatDistance = (distanceInMeters) => {
+        if (!distanceInMeters) return "-";
+
+        if (distanceUnit === "Km") {
+            return `${(distanceInMeters / 1000).toFixed(2)} Km`;
+        }
+
+        return `${(distanceInMeters / 1609.34).toFixed(2)} Miles`;
+    };
+
+    const actionOptions = [
+        {
+            label: "View",
+            onClick: () => onView(ride),
+        },
+    ];
+
+    const capitalizeFirst = (value) => {
+        if (!value) return "-";
+        return value.charAt(0).toUpperCase() + value.slice(1);
+    };
+
+    const formatAmount = (amount) => {
+        if (amount === null || amount === undefined) return "-";
+        return Number(amount).toFixed(2);
     };
 
     return (
 
-        <div className="bg-white rounded-[15px] p-4 mx-4 hover:shadow-md w-full overflow-x-auto">
+        <div className="bg-white rounded-[15px] p-4 hover:shadow-md w-full overflow-x-auto">
             <div className="flex items-center gap-3">
 
-                {/* Ride ID and Status */}
                 <div className="flex flex-col gap-2 flex-shrink-0">
                     <div className="w-52">
                         <p className="font-semibold text-xl">{ride.booking_id}</p>
                         <p
-                            className={`text-[10px] px-4 py-2 font-bold rounded-full inline-block
+                            className={`text-[10px] px-4 py-1 font-bold rounded-full inline-block
                         ${statusColors[ride.booking_status] || statusColors.default}`}
                         >
-                            {ride.booking_status}
+                            {capitalizeFirst(ride.booking_status)}
                         </p>
                     </div>
                 </div>
 
-                {/* <div className=""> */}
-                {/* Driver */}
-                <div className="inline-flex flex-col px-4 py-2 rounded-full bg-gray-100 flex-shrink-0">
-                    <p className="text-xs font-semibold text-gray-500 text-center">Driver</p>
-                    <p className="text-black text-center text-sm">{ride.driver || "Driver Name"}</p>
+                <div className="inline-flex flex-col px-4 py-2 rounded-full bg-[#EFEFEF] flex-shrink-0 w-[165px]">
+                    <p className="text-xs font-semibold text-[#6C6C6C] text-center">Driver Name</p>
+                    <p className="text-[#333333] text-center font-semibold text-sm">{capitalizeFirst(ride?.driver_detail?.name || "-")}</p>
                 </div>
 
-                {/* Customer */}
-                <div className="inline-flex flex-col px-4 py-2 rounded-full bg-gray-100 flex-shrink-0">
-                    <p className="text-xs font-semibold text-gray-500 text-center">Customer</p>
-                    <p className="text-black text-center text-sm">{ride.name}</p>
+                <div className="inline-flex flex-col px-4 py-2 rounded-full bg-[#EFEFEF] flex-shrink-0 w-[165px]" >
+                    <p className="text-xs font-semibold text-[#6C6C6C] text-center">Customer Name</p>
+                    <p className="text-[#333333] text-center font-semibold text-sm">{capitalizeFirst(ride.name)}</p>
                 </div>
 
-                {/* Route */}
-                <div className="inline-flex flex-col px-4 py-2 rounded-full bg-gray-100 flex-shrink-0">
-                    <p className="text-xs font-semibold text-gray-500 text-center">Route</p>
-                    <p className="flex flex-col text-black text-center text-sm">
-                        {/* {ride.pickup_location} → {ride.destination_location} */}
-                        <span>{ride.pickup_location}</span>
-                        <span>{ride.destination_location}</span>
+                <div className="inline-flex flex-col px-4 py-2 rounded-full bg-[#EFEFEF] flex-shrink-0 w-[245px]">
+                    <p className="text-xs font-semibold text-[#6C6C6C] text-center">Route</p>
+                    <p className="flex flex-col text-[#333333] text-center font-semibold text-xs">
+                        <span className="line-clamp-1">{ride.pickup_location}</span>
+                        <span className="line-clamp-1">{ride.destination_location}</span>
                     </p>
                 </div>
 
-                {/* Time */}
-                <div className="inline-flex flex-col px-4 py-2 rounded-full bg-gray-100 flex-shrink-0">
-                    <p className="text-xs font-semibold text-gray-500 text-center">Time</p>
-                    <p className="text-black text-center text-sm">{ride.pickup_time}</p>
+                <div className="inline-flex flex-col px-4 py-2 rounded-full bg-[#EFEFEF] flex-shrink-0 w-[210px]">
+                    <p className="text-xs font-semibold text-[#6C6C6C] text-center">Time</p>
+                    <p className="text-[#333333] text-center font-semibold text-sm">{capitalizeFirst(ride.pickup_time)}</p>
                 </div>
 
-                {/* Fare */}
-                <div className="inline-flex flex-col px-4 py-2 rounded-full bg-gray-100 flex-shrink-0">
-                    <p className="text-xs font-semibold text-gray-500 text-center">Fare</p>
-                    <p className="text-black text-center text-sm">₹ {ride.booking_amount}</p>
+                <div className="inline-flex flex-col px-4 py-2 rounded-full bg-[#EFEFEF] flex-shrink-0 w-[107px]">
+                    <p className="text-xs font-semibold text-[#6C6C6C] text-center">Fare</p>
+                    <p className="text-[#333333] text-center font-semibold text-sm">
+                        {currencySymbol} {formatAmount(ride.booking_amount)}
+                    </p>
                 </div>
 
-                {/* Distance */}
-                <div className="inline-flex flex-col px-4 py-2 rounded-full bg-gray-100 flex-shrink-0">
-                    <p className="text-xs font-semibold text-gray-500 text-center">Distance</p>
-                    <p className="text-black text-center text-sm">{ride.distance} km</p>
+                <div className="inline-flex flex-col px-4 py-2 rounded-full bg-[#EFEFEF] flex-shrink-0 w-[130px]">
+                    <p className="text-xs font-semibold text-[#6C6C6C] text-center">Distance</p>
+                    <p className="text-[#333333] text-center font-semibold text-sm">
+                        {formatDistance(ride.distance)}
+                    </p>
                 </div>
-                {/* </div> */}
             </div>
         </div>
 

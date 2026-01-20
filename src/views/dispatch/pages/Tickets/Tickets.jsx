@@ -5,12 +5,12 @@ import { useAppSelector } from '../../../../store';
 import { PAGE_SIZE_OPTIONS, STATUS_OPTIONS } from '../../../../constants/selectOptions';
 import CardContainer from '../../../../components/shared/CardContainer';
 import SearchBar from '../../../../components/shared/SearchBar/SearchBar';
-import Loading from '../../../../components/shared/Loading/Loading';
 import Pagination from '../../../../components/ui/Pagination/Pagination';
 import CustomSelect from '../../../../components/ui/CustomSelect';
 import TicketsCard from './components/TicketsCard';
 import Modal from '../../../../components/shared/Modal/Modal';
 import AddTicketModel from './components/AddTicketModel';
+import AppLogoLoader from '../../../../components/shared/AppLogoLoader';
 import { apiChangeTicketStatus, apiGetTicketList } from '../../../../services/TicketServices';
 
 const Tickets = () => {
@@ -41,6 +41,7 @@ const Tickets = () => {
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
+  // Search debounce
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedSearchQuery(_searchQuery);
@@ -57,7 +58,7 @@ const Tickets = () => {
     setCurrentPage(1);
   };
 
-
+  // Fetch Ticket List
   const fetchTickets = useCallback(async () => {
     setTableLoading(true);
     try {
@@ -94,6 +95,7 @@ const Tickets = () => {
     setIsTicketsModelOpen({ isOpen: true });
   };
 
+  // 🔥 STATUS CHANGE HANDLER HERE
   const handleStatusChange = async (ticketId, newStatus) => {
     try {
       const formData = new FormData();
@@ -109,6 +111,14 @@ const Tickets = () => {
       console.error("Error changing ticket status:", error);
     }
   };
+
+  if (tableLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <AppLogoLoader />
+      </div>
+    );
+  }
 
   return (
     <div className="px-4 py-5 sm:p-6 lg:p-10 min-h-[calc(100vh-85px)]">
@@ -141,18 +151,16 @@ const Tickets = () => {
           </div>
         </div>
 
-        <Loading loading={tableLoading} type="cover">
-          <div className="flex flex-col gap-4 pt-4">
-            {ticketsData.map((ticket) => (
-              <TicketsCard
-                key={ticket.id}
-                tickets={ticket}
-                onReplyClick={handleReplyClick}
-                onStatusChange={handleStatusChange}
-              />
-            ))}
-          </div>
-        </Loading>
+        <div className="flex flex-col gap-4 pt-4">
+          {ticketsData.map((ticket) => (
+            <TicketsCard
+              key={ticket.id}
+              tickets={ticket}
+              onReplyClick={handleReplyClick}
+              onStatusChange={handleStatusChange}
+            />
+          ))}
+        </div>
 
         {ticketsData.length > 0 && (
           <div className="mt-4 border-t border-[#E9E9E9] pt-4">

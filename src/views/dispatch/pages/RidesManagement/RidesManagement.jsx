@@ -6,7 +6,6 @@ import { PAGE_SIZE_OPTIONS, STATUS_OPTIONS } from '../../../../constants/selectO
 import Button from '../../../../components/ui/Button/Button';
 import CardContainer from '../../../../components/shared/CardContainer';
 import SearchBar from '../../../../components/shared/SearchBar/SearchBar';
-import CustomSelect from '../../../../components/ui/CustomSelect';
 import Loading from '../../../../components/shared/Loading/Loading';
 import Pagination from '../../../../components/ui/Pagination/Pagination';
 import RidesManagementCard from './components/RidesManagementCard';
@@ -26,6 +25,7 @@ const RidesManagement = () => {
   );
 
    const dispatcherId = getDispatcherId();
+   console.log("dispatcherId", dispatcherId);
 
   const [currentPage, setCurrentPage] = useState(
     Number(savedPagination?.currentPage) || 1

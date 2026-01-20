@@ -110,7 +110,7 @@ const DriversManagement = () => {
     }
   };
 
-    const handlePageChange = (pageNumber) => {
+  const handlePageChange = (pageNumber) => {
     setCurrentPage(pageNumber);
   };
 
@@ -181,9 +181,10 @@ const DriversManagement = () => {
           ) : null}
         </CardContainer>
       </div>
-      <Modal isOpen={deleteModalOpen} className="p-6 sm:p-8 w-full max-w-md">
+
+      <Modal isOpen={deleteModalOpen} className="p-10">
         <div className="text-center">
-          <h2 className="text-xl font-semibold mb-3">Delete Drivers?</h2>
+          <h2 className="text-xl font-semibold mb-3">Delete Driver?</h2>
           <p className="text-gray-600 mb-6">
             Are you sure you want to delete {driverToDelete?.name}?
           </p>
@@ -195,7 +196,7 @@ const DriversManagement = () => {
                 setDeleteModalOpen(false);
                 setDriverToDelete(null);
               }}
-              className="px-6 py-2"
+              className="px-6 py-2 rounded-md"
             >
               Cancel
             </Button>
@@ -204,7 +205,7 @@ const DriversManagement = () => {
               type="filledRed"
               onClick={handleDeleteDriver}
               disabled={isDeleting}
-              className="px-6 py-2"
+              className="px-6 py-2 rounded-md"
             >
               {isDeleting ? "Deleting..." : "Delete"}
             </Button>

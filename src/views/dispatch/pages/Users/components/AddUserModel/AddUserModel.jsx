@@ -1,26 +1,13 @@
 import { ErrorMessage, Field, Form, Formik } from "formik";
 import { useEffect, useState } from "react";
-import * as Yup from "yup";
 import FormLabel from "../../../../../../components/ui/FormLabel/FormLabel";
 import Password from "../../../../../../components/elements/CustomPassword/Password";
 import { unlockBodyScroll } from "../../../../../../utils/functions/common.function";
 import Button from "../../../../../../components/ui/Button/Button";
 import { apiCreateUser, apiEditUser } from "../../../../../../services/UserService";
 import { getDispatcherId } from "../../../../../../utils/auth";
-
-
-const USER_VALIDATION_SCHEMA = Yup.object().shape({
-    name: Yup.string().required("Name is required").min(2),
-    email: Yup.string().email("Invalid email").required("Email is required"),
-    phoneNumber: Yup.string().required("Phone number is required"),
-    password: Yup.string().when("isEditMode", {
-        is: false,
-        then: schema => schema.required("Password is required").min(6),
-        otherwise: schema => schema.notRequired(),
-    }),
-    address: Yup.string(),
-    city: Yup.string(),
-});
+import toast from "react-hot-toast";
+import { USER_VALIDATION_SCHEMA } from "../../../../validators/pages/user.validation";
 
 const AddUserModel = ({ initialValue = {}, setIsOpen, onUserCreated }) => {
     const [submitError, setSubmitError] = useState(null);
@@ -53,16 +40,29 @@ const AddUserModel = ({ initialValue = {}, setIsOpen, onUserCreated }) => {
                 : await apiCreateUser(formDataObj);
 
             if (response?.data?.success === 1 || response?.status === 200) {
+                // Success toast
+                toast.success(
+                    isEditMode ? 'User updated successfully!' : 'User created successfully!',
+                );
+
                 if (onUserCreated) {
                     onUserCreated();
                 }
                 unlockBodyScroll();
                 setIsOpen({ type: "new", isOpen: false });
             } else {
-                setSubmitError(response?.data?.message || `Failed to ${isEditMode ? 'update' : 'create'} user`);
+                const errorMsg = response?.data?.message || `Failed to ${isEditMode ? 'update' : 'create'} user`;
+                setSubmitError(errorMsg);
+                // Error toast
+                toast.error(errorMsg, {
+                });
             }
         } catch (error) {
-            setSubmitError(error?.response?.data?.message || error?.message || `Error ${isEditMode ? 'updating' : 'creating'} user`);
+            const errorMsg = error?.response?.data?.message || error?.message || `Error ${isEditMode ? 'updating' : 'creating'} user`;
+            setSubmitError(errorMsg);
+            // Error toast
+            toast.error(errorMsg, {
+            });
         } finally {
             setIsLoading(false);
         }

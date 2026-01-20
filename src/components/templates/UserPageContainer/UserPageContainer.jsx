@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import useAuth from "../../../utils/hooks/useAuth";
 import SettingIcon from "../../svg/SettingIcon";
 import NotificationIcon from "../../svg/NotificationIcon";
-import userImage from "../../../assets/Images/71067d46ba23cf7a8102bc3d1fab56453de3b958.jpg";
+import UsersIcon from "../../svg/UsersIcon"
 import AppLogoIcon from "../../svg/AppLogoIcon";
 import { NAV_ELEMENTS } from "../../../constants/nav.route.constant/nav.route.constant";
 import NavElement from "./components/NavElement";
@@ -157,14 +157,14 @@ const UserPageContainer = ({ children }) => {
                 },
               ]}
             >
-              <div className="max-w-[200px] w-full rounded-[30px] bg-[#ffffff] py-1 sm:py-[5px] px-1 sm:px-[5px] lg:pl-[5px] lg:pr-5 flex items-center gap-1.5 sm:gap-3">
-                <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-full overflow-hidden flex-shrink-0">
-                  <img
-                    src={userImage}
-                    alt=""
-                    className="w-full h-full object-cover"
-                  />
-                </div>
+              <div className="max-w-[200px] w-full rounded-[30px] bg-[#ffffff]  sm:py-[5px] px-1 sm:px-[5px] lg:pl-[5px] lg:pr-5 flex items-center gap-1.5 sm:gap-3">
+                <div className="flex min-w-[40px] h-[40px] sm:min-w-[50px] sm:h-[50px] rounded-full bg-[#FFFFFF] justify-center items-center">
+                <UsersIcon
+                  width={24}
+                  height={24}
+                  className="w-full h-full"
+                />
+            </div>
                 <div className="hidden sm:flex font-semibold w-[calc(100%-56px)] text-base sm:text-[18px] leading-5 sm:leading-[25px] truncate capitalize">
                   <span>{user.name || "Dispatch" }</span>
                 </div>

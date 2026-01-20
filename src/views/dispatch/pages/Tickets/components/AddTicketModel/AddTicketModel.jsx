@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import Button from "../../../../../../components/ui/Button/Button";
 import { apiReplyTicket } from "../../../../../../services/TicketServices";
 
 const AddTicketModel = ({ ticket, onClose, refreshList }) => {
@@ -8,7 +9,7 @@ const AddTicketModel = ({ ticket, onClose, refreshList }) => {
     const isViewOnly = ticket.reply_message !== null && ticket.reply_message !== "";
 
     const handleReplySubmit = async () => {
-        if (!message.trim()) return ;
+        if (!message.trim()) return alert("Please enter a reply message");
 
         setLoading(true);
 
@@ -37,6 +38,7 @@ const AddTicketModel = ({ ticket, onClose, refreshList }) => {
     return (
         <div className="w-[420px] bg-white rounded-2xl p-6 max-h-[85vh] overflow-y-auto">
 
+            {/* Ticket ID */}
             <h2 className="text-xl font-semibold mb-1">#{ticket.ticket_id}</h2>
 
             <p className="text-gray-600 text-sm">
@@ -47,6 +49,7 @@ const AddTicketModel = ({ ticket, onClose, refreshList }) => {
                 {new Date(ticket.created_at).toLocaleDateString("en-GB")}
             </p>
 
+            {/* Chat bubbles */}
             <div className="flex flex-col gap-4 mb-5">
 
                 <div className="self-start max-w-[80%] bg-blue-50 text-gray-700 px-4 py-3 rounded-2xl">
@@ -60,6 +63,7 @@ const AddTicketModel = ({ ticket, onClose, refreshList }) => {
                 )}
             </div>
 
+            {/* ONLY SHOW TEXTAREA IF NO REPLY */}
             {!isViewOnly && (
                 <>
                     <textarea
@@ -76,19 +80,20 @@ const AddTicketModel = ({ ticket, onClose, refreshList }) => {
 
                 <button
                     onClick={onClose}
-                    className="px-6 py-2 border rounded-lg text-gray-700 hover:bg-gray-100"
+                    className="px-6 py-2 border border-[#1F41BB] text-[#1F41BB] rounded-lg"
                 >
                     Close
                 </button>
 
                 {!isViewOnly && (
-                    <button
+                    <Button
+                        type="filled"
                         onClick={handleReplySubmit}
                         disabled={loading}
-                        className="px-6 py-2 bg-[#1F41BB] text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                        className="px-6 py-2 bg-[#1F41BB] text-white rounded-lg disabled:opacity-50"
                     >
                         {loading ? "Sending..." : "Reply"}
-                    </button>
+                    </Button>
                 )}
             </div>
         </div>
