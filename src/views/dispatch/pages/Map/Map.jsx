@@ -38,6 +38,37 @@ const loadGoogleMaps = () => {
   });
 };
 
+const animateMarker = (marker, newPosition, duration = 1000) => {
+  const startPosition = marker.getPosition();
+  const startLat = startPosition.lat();
+  const startLng = startPosition.lng();
+  const endLat = newPosition.lat;
+  const endLng = newPosition.lng;
+
+  const startTime = Date.now();
+
+  const animate = () => {
+    const elapsed = Date.now() - startTime;
+    const progress = Math.min(elapsed / duration, 1);
+
+    // Easing function for smooth animation (ease-in-out)
+    const easeProgress = progress < 0.5
+      ? 2 * progress * progress
+      : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+
+    const currentLat = startLat + (endLat - startLat) * easeProgress;
+    const currentLng = startLng + (endLng - startLng) * easeProgress;
+
+    marker.setPosition({ lat: currentLat, lng: currentLng });
+
+    if (progress < 1) {
+      requestAnimationFrame(animate);
+    }
+  };
+
+  animate();
+};
+
 const Map = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedStatus, setSelectedStatus] = useState(
@@ -106,24 +137,41 @@ const Map = () => {
   useEffect(() => {
     if (!socket) return;
 
-    const handleDriverUpdate = (data) => {
+    const handleDriverUpdate = (rawData) => {
       if (!mapInstance.current) {
         console.warn("Map not initialized yet");
         return;
       }
 
-      console.log("Received driver-location-update:", data);
+      console.log("Received driver-location-update:", rawData);
 
-      let driver_id, latitude, longitude, status, name;
+      // Parse JSON string if needed
+      let data;
+      try {
+        if (typeof rawData === 'string') {
+          data = JSON.parse(rawData);
+          console.log("✅ Parsed JSON data:", data);
+        } else {
+          data = rawData;
+        }
+      } catch (error) {
+        console.error("❌ Failed to parse JSON:", error);
+        return;
+      }
 
-      if (typeof data === 'object' && !Array.isArray(data)) {
-        // Your backend sends latitude/longitude swapped, so we need to swap them back
-        driver_id = data.driver_id;
-        // SWAPPING: Your backend's "latitude" is actually longitude and vice versa
-        latitude = data.longitude;  // Backend's longitude is actual latitude
-        longitude = data.latitude;  // Backend's latitude is actual longitude
-        status = data.status || "online";
-        name = data.name || `Driver ${driver_id}`;
+      // Extract dispatcher_id, latitude, longitude from the data
+      const dispatcher_id = data?.dispatcher_id ?? data?.driver_id;
+      const latitude = data?.latitude;
+      const longitude = data?.longitude;
+      const status = data?.status || "online";
+      const name = data?.name || `Dispatcher ${dispatcher_id}`;
+
+      console.log("Extracted values:", { dispatcher_id, latitude, longitude, status, name });
+
+      // Validate that we have the required data
+      if (!dispatcher_id && dispatcher_id !== 0) {
+        console.warn("❌ No dispatcher_id found in data");
+        return;
       }
 
       if (!latitude || !longitude) {
@@ -131,12 +179,7 @@ const Map = () => {
         return;
       }
 
-      // Ensure driver_id exists
-      if (!driver_id) {
-        driver_id = `driver_${Date.now()}`;
-      }
-
-      console.log("✅ Corrected coordinates:", { driver_id, latitude, longitude, status });
+      console.log("✅ Processing dispatcher:", { dispatcher_id, latitude, longitude, status });
 
       const position = {
         lat: Number(latitude),
@@ -146,7 +189,7 @@ const Map = () => {
       // Store driver data for filtering
       setDriverData((prev) => ({
         ...prev,
-        [driver_id]: { ...data, position },
+        [dispatcher_id]: { ...data, position, name, status },
       }));
 
       // Determine marker icon based on status
@@ -155,15 +198,48 @@ const Map = () => {
       else if (status === "active" || status === "on_ride") markerIcon = MARKER_ICONS.active;
       else if (status === "pending") markerIcon = MARKER_ICONS.pending;
 
-      if (markers.current[driver_id]) {
-        markers.current[driver_id].setPosition(position);
-        markers.current[driver_id].setIcon(markerIcon);
-        console.log(`Updated driver ${driver_id} to:`, position);
+      if (markers.current[dispatcher_id]) {
+        // Update existing marker with smooth animation
+        const marker = markers.current[dispatcher_id];
+        const oldPosition = marker.getPosition();
+        const oldLat = oldPosition.lat();
+        const oldLng = oldPosition.lng();
+
+        // Calculate distance between old and new position
+        const latDiff = Math.abs(oldLat - position.lat);
+        const lngDiff = Math.abs(oldLng - position.lng);
+        const distance = Math.sqrt(latDiff * latDiff + lngDiff * lngDiff);
+
+        // Only animate if distance is small (to avoid long animations across the map)
+        // 0.01 degrees is roughly 1 km
+        if (distance < 0.01) {
+          animateMarker(marker, position, 1000); // 1 second smooth animation
+        } else {
+          // For large jumps, just set position directly
+          marker.setPosition(position);
+        }
+
+        marker.setIcon(markerIcon);
+
+        // Update info window content
+        if (marker.infoWindow) {
+          marker.infoWindow.setContent(`
+            <div style="padding: 8px;">
+              <strong>${name}</strong><br/>
+              ID: ${dispatcher_id}<br/>
+              Status: <span style="text-transform: capitalize;">${status}</span><br/>
+              Location: ${latitude.toFixed(4)}, ${longitude.toFixed(4)}
+            </div>
+          `);
+        }
+
+        console.log(`✅ Animated dispatcher ${dispatcher_id} to:`, position);
       } else {
+        // Create new marker
         const marker = new window.google.maps.Marker({
           position,
           map: mapInstance.current,
-          title: name || `Driver ${driver_id}`,
+          title: name,
           icon: markerIcon,
           animation: window.google.maps.Animation.DROP,
         });
@@ -172,8 +248,9 @@ const Map = () => {
         const infoWindow = new window.google.maps.InfoWindow({
           content: `
             <div style="padding: 8px;">
-              <strong>${name || `Driver ${driver_id}`}</strong><br/>
-              Status: <span style="text-transform: capitalize;">${status || 'online'}</span><br/>
+              <strong>${name}</strong><br/>
+              ID: ${dispatcher_id}<br/>
+              Status: <span style="text-transform: capitalize;">${status}</span><br/>
               Location: ${latitude.toFixed(4)}, ${longitude.toFixed(4)}
             </div>
           `,
@@ -188,15 +265,17 @@ const Map = () => {
         });
 
         marker.infoWindow = infoWindow;
-        markers.current[driver_id] = marker;
-        console.log(`Created marker for driver ${driver_id} at:`, position);
+        markers.current[dispatcher_id] = marker;
+        console.log(`✅ Created marker for dispatcher ${dispatcher_id} at:`, position);
       }
 
       // Apply filter based on selected status
       updateMarkerVisibility();
 
-      // Auto-fit map to show all markers
-      setTimeout(() => fitMapToMarkers(), 100);
+      // Auto-fit map to show all markers (only on first marker)
+      if (Object.keys(markers.current).length <= 1) {
+        setTimeout(() => fitMapToMarkers(), 100);
+      }
     };
 
     socket.on("driver-location-update", handleDriverUpdate);
@@ -207,8 +286,8 @@ const Map = () => {
   }, [socket, selectedStatus, searchQuery]);
 
   const updateMarkerVisibility = () => {
-    Object.entries(markers.current).forEach(([driverId, marker]) => {
-      const driver = driverData[driverId];
+    Object.entries(markers.current).forEach(([dispatcherId, marker]) => {
+      const driver = driverData[dispatcherId];
       if (!driver) return;
 
       let visible = true;
@@ -221,7 +300,7 @@ const Map = () => {
         const query = searchQuery.toLowerCase();
         const matchesSearch =
           driver.name?.toLowerCase().includes(query) ||
-          driver.driver_id?.toString().includes(query);
+          dispatcherId.toString().includes(query);
         visible = visible && matchesSearch;
       }
 
