@@ -21,7 +21,7 @@ const initSocket = () => {
         return null;
     }
 
-    socket = io("wss://backend.cabifyit.com", {
+    socket = io("https://backend.cabifyit.com", {
         path: "/socket.io",
         transports: ["polling", "websocket",],
         reconnection: true,
