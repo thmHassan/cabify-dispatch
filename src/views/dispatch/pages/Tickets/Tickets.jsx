@@ -1,8 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import PageTitle from '../../../../components/ui/PageTitle/PageTitle';
-import PageSubTitle from '../../../../components/ui/PageSubTitle/PageSubTitle';
 import { useAppSelector } from '../../../../store';
-import { PAGE_SIZE_OPTIONS, STATUS_OPTIONS } from '../../../../constants/selectOptions';
+import { PAGE_SIZE_OPTIONS, TICKET_STATUS_OPTIONS } from '../../../../constants/selectOptions';
 import CardContainer from '../../../../components/shared/CardContainer';
 import SearchBar from '../../../../components/shared/SearchBar/SearchBar';
 import Pagination from '../../../../components/ui/Pagination/Pagination';
@@ -12,6 +11,7 @@ import Modal from '../../../../components/shared/Modal/Modal';
 import AddTicketModel from './components/AddTicketModel';
 import AppLogoLoader from '../../../../components/shared/AppLogoLoader';
 import { apiChangeTicketStatus, apiGetTicketList } from '../../../../services/TicketServices';
+import { getDispatcherId } from '../../../../utils/auth';
 
 const Tickets = () => {
   const [isTicketsModelOpen, setIsTicketsModelOpen] = useState({
@@ -22,9 +22,11 @@ const Tickets = () => {
   const [_searchQuery, setSearchQuery] = useState("");
   const [tableLoading, setTableLoading] = useState(false);
   const [_selectedStatus, setSelectedStatus] = useState(
-    STATUS_OPTIONS.find((o) => o.value === "all") ?? STATUS_OPTIONS[0]
+    TICKET_STATUS_OPTIONS.find((o) => o.value === "all") ?? TICKET_STATUS_OPTIONS[0]
   );
 
+  const dispatcherId = getDispatcherId();
+  
   const savedPagination = useAppSelector(
     (state) => state?.app?.app?.pagination?.companies
   );
@@ -45,6 +47,7 @@ const Tickets = () => {
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedSearchQuery(_searchQuery);
+      setCurrentPage(1);
     }, 500);
     return () => clearTimeout(timer);
   }, [_searchQuery]);
@@ -58,6 +61,11 @@ const Tickets = () => {
     setCurrentPage(1);
   };
 
+  const handleStatusFilterChange = (newStatus) => {
+    setSelectedStatus(newStatus);
+    setCurrentPage(1);
+  };
+
   // Fetch Ticket List
   const fetchTickets = useCallback(async () => {
     setTableLoading(true);
@@ -65,6 +73,7 @@ const Tickets = () => {
       const params = {
         page: currentPage,
         perPage: itemsPerPage,
+        dispatcher_id: dispatcherId,
       };
       if (debouncedSearchQuery?.trim()) {
         params.search = debouncedSearchQuery.trim();
@@ -90,12 +99,16 @@ const Tickets = () => {
     fetchTickets();
   }, [currentPage, itemsPerPage, debouncedSearchQuery, fetchTickets, refreshTrigger]);
 
+  const filteredTickets = _selectedStatus.value === "all"
+    ? ticketsData
+    : ticketsData.filter(ticket => ticket.status === _selectedStatus.value);
+
   const handleReplyClick = (ticket) => {
     setSelectedTicket(ticket);
     setIsTicketsModelOpen({ isOpen: true });
   };
 
-  // 🔥 STATUS CHANGE HANDLER HERE
+
   const handleStatusChange = async (ticketId, newStatus) => {
     try {
       const formData = new FormData();
@@ -112,14 +125,6 @@ const Tickets = () => {
     }
   };
 
-  if (tableLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <AppLogoLoader />
-      </div>
-    );
-  }
-
   return (
     <div className="px-4 py-5 sm:p-6 lg:p-10 min-h-[calc(100vh-85px)]">
       <div className="flex flex-col gap-2.5 sm:mb-[30px] mb-6">
@@ -127,7 +132,7 @@ const Tickets = () => {
           <PageTitle title="Tickets" />
         </div>
         <div>
-          <PageSubTitle title="Need Content Here" />
+          {/* <PageSubTitle title="Need Content Here" /> */}
         </div>
       </div>
 
@@ -144,25 +149,36 @@ const Tickets = () => {
           <div className="hidden md:flex flex-row gap-5">
             <CustomSelect
               variant={2}
-              options={STATUS_OPTIONS}
+              options={TICKET_STATUS_OPTIONS}
               value={_selectedStatus}
+              onChange={handleStatusFilterChange}
               placeholder="All Status"
             />
           </div>
         </div>
 
         <div className="flex flex-col gap-4 pt-4">
-          {ticketsData.map((ticket) => (
-            <TicketsCard
-              key={ticket.id}
-              tickets={ticket}
-              onReplyClick={handleReplyClick}
-              onStatusChange={handleStatusChange}
-            />
-          ))}
+          {tableLoading ? (
+            <div className="flex justify-center py-8">
+              <AppLogoLoader />
+            </div>
+          ) : filteredTickets.length > 0 ? (
+            filteredTickets.map((ticket) => (
+              <TicketsCard
+                key={ticket.id}
+                tickets={ticket}
+                onReplyClick={handleReplyClick}
+                onStatusChange={handleStatusChange}
+              />
+            ))
+          ) : (
+            <div className="text-center py-8 text-gray-500">
+              No tickets found
+            </div>
+          )}
         </div>
 
-        {ticketsData.length > 0 && (
+        {filteredTickets.length > 0 && (
           <div className="mt-4 border-t border-[#E9E9E9] pt-4">
             <Pagination
               currentPage={currentPage}

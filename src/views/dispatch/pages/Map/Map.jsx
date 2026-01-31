@@ -321,16 +321,8 @@ const Map = () => {
       </div>
 
       <CardContainer className="p-4 bg-[#F5F5F5]">
-        <div className="flex flex-row items-stretch sm:items-center gap-3 sm:gap-5 justify-between mb-4 sm:mb-0 pb-4">
-          <div className="md:w-full w-[calc(100%-54px)] sm:flex-1">
-            <SearchBar
-              value={searchQuery}
-              onSearchChange={setSearchQuery}
-              placeholder="Search by driver name or ID..."
-              className="max-w-[400px]"
-            />
-          </div>
-          <div className="hidden md:flex flex-row gap-3 sm:gap-5 w-full sm:w-auto">
+        <div className="flex flex-row items-stretch sm:items-center gap-3 sm:gap-5 justify-end mb-4 sm:mb-0 pb-4">
+          <div className=" md:flex flex-row gap-3 sm:gap-5 w-full sm:w-auto">
             <CustomSelect
               variant={2}
               options={STATUS_OPTIONS}

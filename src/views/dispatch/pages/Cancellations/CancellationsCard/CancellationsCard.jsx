@@ -1,42 +1,3 @@
-// import React from "react";
-
-// const CancellationsCard = ({ cancellations }) => {
-
-//     return (
-//         <div
-//             className="bg-white rounded-[15px] p-4 gap-2 flex items-center justify-between hover:shadow-md overflow-x-auto"
-//         >
-//             <div className="flex items-center gap-3">
-//                 <div className="inline-flex flex-col px-4 py-2 rounded-full bg-gray-100 text-left whitespace-nowrap">
-//                     <p className="text-xs text-center text-gray-500">Ride ID</p>
-//                     <p className="text-black text-center font-semibold text-sm">{cancellations.rideId}</p>
-//                 </div>
-//             </div>
-//             <div className="flex items-center justify-center gap-3">
-//                 <div className="inline-flex flex-col px-4 py-2 rounded-full bg-gray-100 text-left whitespace-nowrap">
-//                     <p className="text-xs text-center text-gray-500">User Name</p>
-//                     <p className="text-black text-center font-semibold text-sm">{cancellations.userName}</p>
-//                 </div>
-
-//                 <div className="inline-flex flex-col px-4 py-2 rounded-full bg-gray-100 text-left whitespace-nowrap">
-//                     <p className="text-xs text-center text-gray-500">Driver Name</p>
-//                     <p className="text-black text-center font-semibold text-sm">{cancellations.driverName}</p>
-//                 </div>
-//                 <div className="inline-flex flex-col px-4 py-2 rounded-full bg-gray-100 text-left whitespace-nowrap">
-//                     <p className="text-xs text-center text-gray-500">Driver Rating</p>
-//                     <p className="text-black text-center font-semibold text-sm">{cancellations.rating}</p>
-//                 </div>
-//                 <div className="inline-flex w-80 flex-col px-4 py-2 rounded-full bg-gray-100 text-left break-all">
-//                     <p className="text-xs text-gray-500">User Comment</p>
-//                     <p className="text-black font-semibold text-[12px]">{cancellations.comment}</p>
-//                 </div>
-//             </div>
-//         </div>
-//     );
-// }
-
-// export default CancellationsCard;
-
 import { useEffect, useState } from "react";
 import { getTenantData } from "../../../../../utils/functions/tokenEncryption";
 
@@ -90,7 +51,6 @@ const CancellationsCard = ({ cancellations }) => {
     return (
         <div className="bg-white rounded-[15px] p-4 gap-[13px] flex items-center justify-between hover:shadow-md overflow-x-auto">
 
-            {/* Ride ID */}
             <div className="inline-flex flex-col px-4 py-2 rounded-full bg-[#EFEFEF] whitespace-nowrap">
                 <p className="text-xs text-center text-[#6C6C6C]">Ride Id</p>
                 <p className="text-[#333333] text-center font-semibold text-sm">
@@ -98,7 +58,6 @@ const CancellationsCard = ({ cancellations }) => {
                 </p>
             </div>
 
-            {/* User Name */}
             <div className="inline-flex flex-col px-4 py-2 rounded-full bg-[#EFEFEF]">
                 <div className="w-[150px]">
                     <p className="text-xs text-center text-[#6C6C6C]">User Name</p>
@@ -108,7 +67,6 @@ const CancellationsCard = ({ cancellations }) => {
                 </div>
             </div>
 
-            {/* Driver Name */}
             <div className="inline-flex flex-col px-4 py-2 rounded-full bg-[#EFEFEF]">
                 <div className="w-[150px]">
                     <p className="text-xs text-center text-[#6C6C6C]">Driver Name</p>
@@ -118,7 +76,6 @@ const CancellationsCard = ({ cancellations }) => {
                 </div>
             </div>
 
-            {/* Service */}
             <div className="inline-flex flex-col px-4 py-2 rounded-full bg-[#EFEFEF]">
                 <div className="w-[100px]">
                     <p className="text-xs text-center text-[#6C6C6C]">Service</p>
@@ -128,7 +85,6 @@ const CancellationsCard = ({ cancellations }) => {
                 </div>
             </div>
 
-            {/* Amount */}
             <div className="inline-flex flex-col px-4 py-2 rounded-full bg-[#EFEFEF] whitespace-nowrap">
                 <div className="w-[100px]">
                     <p className="text-xs text-center text-[#6C6C6C]">Amount</p>
@@ -138,7 +94,6 @@ const CancellationsCard = ({ cancellations }) => {
                 </div>
             </div>
 
-            {/* Cancelled By */}
             <div className="inline-flex flex-col px-4 py-2 rounded-full bg-[#EFEFEF] w-[140px]">
                 <div className="w-[114px]">
                     <p className="text-xs text-center text-[#6C6C6C]">Cancelled By</p>
@@ -148,8 +103,6 @@ const CancellationsCard = ({ cancellations }) => {
                 </div>
             </div>
 
-
-            {/* Reason */}
             <div className="inline-flex flex-col px-4 py-2 rounded-full bg-[#EFEFEF] w-[220px]">
                 <div className="w-[173px]">
                     <p className="text-xs text-center text-[#6C6C6C]">Reason</p>
@@ -159,7 +112,6 @@ const CancellationsCard = ({ cancellations }) => {
                 </div>
             </div>
 
-            {/* Initiated At */}
             <div className="inline-flex flex-col px-4 py-2 rounded-full bg-[#EFEFEF]">
                 <div className="w-[140px]">
                     <p className="text-xs text-center text-[#6C6C6C]">Initiated At</p>
@@ -168,7 +120,6 @@ const CancellationsCard = ({ cancellations }) => {
                     </p>
                 </div>
             </div>
-
         </div>
     );
 };

@@ -16,6 +16,7 @@ import {
   apiGetDriverManagement,
 } from "../../../../services/DriverManagementService";
 import Modal from "../../../../components/shared/Modal/Modal";
+import { getDispatcherId } from "../../../../utils/auth";
 
 const DriversManagement = () => {
   const navigate = useNavigate();
@@ -38,6 +39,10 @@ const DriversManagement = () => {
     Number(savedPagination?.itemsPerPage) || 10
   );
 
+  const dispatcherId = getDispatcherId();
+  console.log(dispatcherId);
+
+
   const [totalPages, setTotalPages] = useState(1);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
@@ -57,6 +62,7 @@ const DriversManagement = () => {
       const params = {
         page: currentPage,
         perPage: itemsPerPage,
+        dispatcher_id: dispatcherId,
       };
 
       if (selectedStatus?.value !== "all") {
@@ -139,7 +145,7 @@ const DriversManagement = () => {
                 className="w-full md:max-w-[400px] max-w-full"
               />
             </div>
-            <div className="hidden md:flex flex-row gap-3 sm:gap-5 w-full sm:w-auto">
+            <div className="md:flex flex-row gap-3 sm:gap-5 w-full sm:w-auto">
               <CustomSelect
                 options={STATUS_OPTIONS}
                 value={selectedStatus}

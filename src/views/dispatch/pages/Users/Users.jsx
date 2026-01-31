@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import PageTitle from "../../../../components/ui/PageTitle/PageTitle";
 import PageSubTitle from "../../../../components/ui/PageSubTitle/PageSubTitle";
@@ -13,7 +13,7 @@ import AddUserModel from "./components/AddUserModel";
 import Modal from "../../../../components/shared/Modal/Modal";
 import { lockBodyScroll } from "../../../../utils/functions/common.function";
 import Pagination from "../../../../components/ui/Pagination/Pagination";
-import Loading from "../../../../components/shared/Loading/Loading";
+import AppLogoLoader from "../../../../components/shared/AppLogoLoader";
 import UserDetails from "./components/UserDetails";
 import { apiDeleteUser, apiEditUserStatus, apiGetUser } from "../../../../services/UserService";
 import { getDispatcherId } from "../../../../utils/auth";
@@ -32,7 +32,7 @@ const Users = () => {
   const savedPagination = useAppSelector(
     (state) => state?.app?.app?.pagination?.companies
   );
-const dispatcherId = getDispatcherId();
+  const dispatcherId = getDispatcherId();
 
   const [currentPage, setCurrentPage] = useState(
     Number(savedPagination?.currentPage) || 1
@@ -62,6 +62,15 @@ const dispatcherId = getDispatcherId();
   const handleItemsPerPageChange = (newItemsPerPage) => {
     setItemsPerPage(newItemsPerPage);
     setCurrentPage(1);
+  };
+
+  const handleStatusFilterChange = (newStatus) => {
+    setSelectedStatus(newStatus);
+    setCurrentPage(1); // Reset to first page when filter changes
+  };
+
+  const handleSearchChange = (value) => {
+    setSearchQuery(value);
   };
 
   const getUser = useCallback(async () => {
@@ -94,11 +103,12 @@ const dispatcherId = getDispatcherId();
     } finally {
       setIsUserLoadnig(false);
     }
-  }, [currentPage, itemsPerPage, debouncedSearchQuery]);
+  }, [currentPage, itemsPerPage, debouncedSearchQuery, dispatcherId]);
 
   useEffect(() => {
     const handler = setTimeout(() => {
       setDebouncedSearchQuery(_searchQuery);
+      setCurrentPage(1); // Reset to first page on search
     }, 500);
 
     return () => {
@@ -109,14 +119,14 @@ const dispatcherId = getDispatcherId();
   useEffect(() => {
     if (!hasCalledInitial.current) {
       hasCalledInitial.current = true;
+      getUser();
       return;
     }
     getUser();
-  }, [refreshTrigger]);
+  }, [refreshTrigger, getUser]);
 
   useEffect(() => {
     if (!hasCalledInitial.current) {
-      hasCalledInitial.current = true;
       return;
     }
     const pageChanged = prevCurrentPageRef.current !== currentPage;
@@ -124,12 +134,17 @@ const dispatcherId = getDispatcherId();
     const itemsPerPageChanged = prevItemsPerPageRef.current !== itemsPerPage;
 
     if (pageChanged || searchChanged || itemsPerPageChanged) {
-      // getUser();
+      getUser();
       prevCurrentPageRef.current = currentPage;
       prevSearchRef.current = debouncedSearchQuery;
       prevItemsPerPageRef.current = itemsPerPage;
     }
-  }, [currentPage, itemsPerPage, debouncedSearchQuery]);
+  }, [currentPage, itemsPerPage, debouncedSearchQuery, getUser]);
+
+  // Filter users based on selected status
+  const filteredUsers = _selectedStatus.value === "all"
+    ? userListDisplay
+    : userListDisplay.filter(user => user.status === _selectedStatus.value);
 
   const handleDeleteClick = (user) => {
     setUserToDelete(user);
@@ -161,8 +176,13 @@ const dispatcherId = getDispatcherId();
     setIsUserModalOpen({
       type: "edit",
       isOpen: true,
-      userData: user,
+      userData: {
+        ...user,
+        // Store the original password so it can be sent if user doesn't change it
+        original_password: user.password || ''
+      },
     });
+    lockBodyScroll();
   };
 
   const handleStatusChange = async (userId, status) => {
@@ -181,7 +201,6 @@ const dispatcherId = getDispatcherId();
       console.error("Change status error:", error);
     }
   };
-
 
   return (
     <div className="px-4 py-5 sm:p-6 lg:p-10 min-h-[calc(100vh-85px)]">
@@ -211,7 +230,7 @@ const dispatcherId = getDispatcherId();
         <div className="flex flex-row items-stretch sm:items-center gap-3 sm:gap-5 justify-between mb-4">
           <SearchBar
             value={_searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onSearchChange={handleSearchChange}
             className="w-full md:max-w-[400px]"
           />
 
@@ -220,14 +239,19 @@ const dispatcherId = getDispatcherId();
               variant={2}
               options={STATUS_OPTIONS}
               value={_selectedStatus}
+              onChange={handleStatusFilterChange}
               placeholder="All Status"
             />
           </div>
         </div>
 
-        <Loading loading={isUserLoadnig} type="cover">
-          <div className="flex flex-col gap-4 pt-4">
-            {userListDisplay.map((user) => (
+        <div className="flex flex-col gap-4 pt-4">
+          {isUserLoadnig ? (
+            <div className="flex justify-center py-10">
+              <AppLogoLoader />
+            </div>
+          ) : filteredUsers.length > 0 ? (
+            filteredUsers.map((user) => (
               <UserDetails
                 key={user.id}
                 user={user}
@@ -235,11 +259,15 @@ const dispatcherId = getDispatcherId();
                 onDelete={handleDeleteClick}
                 onStatusChange={handleStatusChange}
               />
-            ))}
-          </div>
-        </Loading>
+            ))
+          ) : (
+            <div className="text-center py-8 text-gray-500">
+              No users found
+            </div>
+          )}
+        </div>
 
-        {userListDisplay.length > 0 && (
+        {filteredUsers.length > 0 && (
           <div className="mt-4 border-t border-[#E9E9E9] pt-4">
             <Pagination
               currentPage={currentPage}

@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import {
   apiSignIn,
   apiAdminSignIn,
+  apiSignOut,
 } from "../../services/AuthService";
 import {
   setUser,
@@ -100,11 +101,19 @@ function useAuth() {
   };
 
   /* ---------------- LOGOUT ---------------- */
-  const signOut = () => {
-    clearAllAuthData();
-    dispatch(signOutSuccess());
-    dispatch(clearUser());
-    navigate(appConfig.unAuthenticatedEntryPath);
+  const signOut = async () => {
+    try {
+      await apiSignOut();
+    } catch (error) {
+      // Log error but continue with logout process
+      console.error("Logout API error:", error);
+    } finally {
+      // Always clear local data and redirect, even if API call fails
+      clearAllAuthData();
+      dispatch(signOutSuccess());
+      dispatch(clearUser());
+      navigate(appConfig.unAuthenticatedEntryPath);
+    }
   };
 
   /* ---------------- RESTORE ON REFRESH ---------------- */

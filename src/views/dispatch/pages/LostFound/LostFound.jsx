@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import PageTitle from '../../../../components/ui/PageTitle/PageTitle';
 import PageSubTitle from '../../../../components/ui/PageSubTitle/PageSubTitle';
-import { PAGE_SIZE_OPTIONS, STATUS_OPTIONS } from '../../../../constants/selectOptions';
+import { PAGE_SIZE_OPTIONS, LOST_STATUS_OPTIONS } from '../../../../constants/selectOptions';
 import { useAppSelector } from '../../../../store';
 import CardContainer from '../../../../components/shared/CardContainer';
 import SearchBar from '../../../../components/shared/SearchBar/SearchBar';
@@ -18,7 +18,7 @@ const LostFound = () => {
   const [_searchQuery, setSearchQuery] = useState("");
   const [tableLoading, setTableLoading] = useState(false);
   const [_selectedStatus, setSelectedStatus] = useState(
-    STATUS_OPTIONS.find((o) => o.value === "all") ?? STATUS_OPTIONS[0]
+    LOST_STATUS_OPTIONS.find((o) => o.value === "all") ?? LOST_STATUS_OPTIONS[0]
   );
   const savedPagination = useAppSelector(
     (state) => state?.app?.app?.pagination?.companies
@@ -38,6 +38,7 @@ const LostFound = () => {
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedSearchQuery(_searchQuery);
+      setCurrentPage(1); // Reset to first page on search
     }, 500);
     return () => clearTimeout(timer);
   }, [_searchQuery]);
@@ -73,6 +74,11 @@ const LostFound = () => {
     fetchLostFoundList();
   }, [currentPage, itemsPerPage, debouncedSearchQuery, fetchLostFoundList, refreshTrigger]);
 
+  // Filter lost found data based on selected status
+  const filteredLostFoundData = _selectedStatus.value === "all"
+    ? lostFoundData
+    : lostFoundData.filter(item => item.status === _selectedStatus.value);
+
   const handlePageChange = (pageNumber) => {
     setCurrentPage(pageNumber);
   };
@@ -82,7 +88,19 @@ const LostFound = () => {
     setCurrentPage(1);
   };
 
-  const handleStatusChange = async (id, status) => {
+  // Handle search change
+  const handleSearchChange = (value) => {
+    setSearchQuery(value);
+  };
+
+  // Handle status filter change
+  const handleStatusFilterChange = (newStatus) => {
+    setSelectedStatus(newStatus);
+    setCurrentPage(1); // Reset to first page when filter changes
+  };
+
+  // Handle status update for individual items
+  const handleItemStatusChange = async (id, status) => {
     const toastId = toast.loading("Updating status...");
 
     try {
@@ -106,15 +124,6 @@ const LostFound = () => {
     }
   };
 
-    if (tableLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <AppLogoLoader  />
-      </div>
-    );
-  }
-
-
   return (
     <div className="px-4 py-5 sm:p-6 lg:p-10 min-h-[calc(100vh-85px)]">
       <div className="flex flex-col gap-2.5 sm:mb-[30px] mb-6">
@@ -131,32 +140,40 @@ const LostFound = () => {
             <div className="md:w-full w-[calc(100%-54px)] sm:flex-1">
               <SearchBar
                 value={_searchQuery}
-                // onSearchChange={handleSearchChange}
+                onSearchChange={handleSearchChange}
                 className="w-full md:max-w-[400px] max-w-full"
               />
             </div>
-            <div className="hidden md:flex flex-row gap-3 sm:gap-5 w-full sm:w-auto">
+            {/* <div className="md:flex flex-row gap-3 sm:gap-5 w-full sm:w-auto">
               <CustomSelect
                 variant={2}
-                options={STATUS_OPTIONS}
+                options={LOST_STATUS_OPTIONS}
                 value={_selectedStatus}
-                // onChange={handleStatusChange}
+                onChange={handleStatusFilterChange}
                 placeholder="All Status"
               />
-            </div>
+            </div> */}
           </div>
-            <div className="flex flex-col gap-4 pt-4">
-              {lostFoundData.map((lostfound) => (
+          <div className="flex flex-col gap-4 pt-4">
+            {tableLoading ? (
+              <div className="flex justify-center py-10">
+                <AppLogoLoader />
+              </div>
+            ) : filteredLostFoundData.length > 0 ? (
+              filteredLostFoundData.map((lostfound) => (
                 <LostFoundCard
                   key={lostfound.id}
                   lostfound={lostfound}
-                  // onView={(lostfoundToView) => navigate(`/lost-found/${lostfoundToView.id}`)}
-                  onStatusChange={handleStatusChange}
+                  onStatusChange={handleItemStatusChange}
                 />
-              ))}
-            </div>
-          {Array.isArray(lostFoundData) &&
-            lostFoundData.length > 0 ? (
+              ))
+            ) : (
+              <div className="text-center py-8 text-gray-500">
+                No lost & found items found
+              </div>
+            )}
+          </div>
+          {filteredLostFoundData.length > 0 && (
             <div className="mt-4 sm:mt-4 border-t border-[#E9E9E9] pt-3 sm:pt-4">
               <Pagination
                 currentPage={currentPage}
@@ -168,7 +185,7 @@ const LostFound = () => {
                 pageKey="companies"
               />
             </div>
-          ) : null}
+          )}
         </CardContainer>
       </div>
     </div>

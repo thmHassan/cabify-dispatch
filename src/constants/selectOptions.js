@@ -7,6 +7,19 @@ export const STATUS_OPTIONS = [
   { value: "pending", label: "Pending" },
 ];
 
+export const LOST_STATUS_OPTIONS = [
+  { value: "all", label: "All Status" },
+  { value: "Lost", label: "Lost" },
+  { value: "Searching", label: "Searching" },
+  { value: "Found", label: "Found" },
+];
+
+export const TICKET_STATUS_OPTIONS = [
+  { value: "all", label: "All Status" },
+  { value: "closed", label: "Closed" },
+  { value: "open", label: "Open" },
+];
+
 export const PLAN_OPTIONS = [
   { value: "all", label: "All Plans" },
   { value: "basic", label: "Basic Plan" },
@@ -39,10 +52,10 @@ export const PAGE_SIZE_OPTIONS = [
 ];
 
 export const COMPANY_OPTIONS = [
-    { value: 'all', label: 'All Sub Company' },
-    { value: 'company_a', label: 'Company A' },
-    { value: 'company_b', label: 'Company B' },
-    { value: 'company_c', label: 'Company C' },
-    { value: 'company_d', label: 'Company D' },
-    { value: 'company_e', label: 'Company E' },
-  ];
+  { value: 'all', label: 'All Sub Company' },
+  { value: 'company_a', label: 'Company A' },
+  { value: 'company_b', label: 'Company B' },
+  { value: 'company_c', label: 'Company C' },
+  { value: 'company_d', label: 'Company D' },
+  { value: 'company_e', label: 'Company E' },
+];
