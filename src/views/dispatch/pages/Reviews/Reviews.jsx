@@ -1,8 +1,7 @@
-import React, { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import PageTitle from "../../../../components/ui/PageTitle/PageTitle";
 import PageSubTitle from "../../../../components/ui/PageSubTitle/PageSubTitle";
 import CardContainer from "../../../../components/shared/CardContainer";
-import DataDetailsTable from "../../../../components/shared/DataDetailsTable/DataDetailsTable";
 import SearchBar from "../../../../components/shared/SearchBar/SearchBar";
 import Button from "../../../../components/ui/Button/Button";
 import ReviewCard from "./ReviewCard";
@@ -105,7 +104,6 @@ const Reviews = () => {
     fetchDriverRating();
     fetchCustomerRating()
   }, [currentPage, itemsPerPage, debouncedSearchQuery, fetchDriverRating, fetchCustomerRating,  refreshTrigger]);
-
 
   const reviews = activeTab === "customer" ? customerRatingData : driverRatingData;
 

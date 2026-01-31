@@ -235,7 +235,7 @@ const DriverDetails = () => {
 
     return (
         <div className="px-4 py-5 sm:p-6 lg:p-10 min-h-[calc(100vh-85px)]">
-            <div className="flex justify-between sm:flex-row flex-col items-start sm:items-center gap-3 sm:gap-0 2xl:mb-6 1.5xl:mb-10 mb-0">
+            <div className="flex justify-between sm:flex-row flex-col items-start sm:items-center gap-3 sm:gap-0">
                 <div className="sm:mb-[30px] mb-1 sm:w-[calc(100%-240px)] w-full flex gap-5 items-center">
                     <div className="flex flex-col gap-2.5 w-[calc(100%-100px)]">
                         <PageTitle title="Drivers Details" />

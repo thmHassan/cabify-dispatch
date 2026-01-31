@@ -357,7 +357,7 @@ const Overview = () => {
               <span>Call Queue</span>
             </div>
           </Button>
-          <Button
+          {/* <Button
             className="w-full sm:w-auto px-3 py-1.5 bg-[#F9F9F9] rounded-full"
           >
             <div className="flex gap-1 items-center justify-center whitespace-nowrap">
@@ -369,7 +369,7 @@ const Overview = () => {
               </span>
               <span>Log Out</span>
             </div>
-          </Button>
+          </Button> */}
           <Button
             className="w-full sm:w-auto px-3 py-1.5 bg-[#AAC0FB] rounded-full"
             onClick={() => {

@@ -21,19 +21,35 @@ const AddUserModel = ({ initialValue = {}, setIsOpen, onUserCreated }) => {
         try {
             const dispatcherId = getDispatcherId();
             const formDataObj = new FormData();
+
             if (isEditMode) {
                 formDataObj.append('id', initialValue.id);
             }
 
-            if (!isEditMode || values.password) {
-                formDataObj.append('password', values.password);
-            }
             formDataObj.append("dispatcher_id", dispatcherId);
             formDataObj.append('name', values.name || '');
             formDataObj.append('email', values.email || '');
             formDataObj.append('phone_no', values.phoneNumber || '');
             formDataObj.append('address', values.address || '');
             formDataObj.append('city', values.city || '');
+
+            // Password handling: 
+            // - In create mode: always send the password
+            // - In edit mode: only send if password field has been changed (not empty)
+            //   Otherwise send the original password from initialValue
+            if (isEditMode) {
+                // If user typed a new password, use it; otherwise use the original password
+                const passwordToSend = values.password.trim() !== ''
+                    ? values.password
+                    : initialValue.original_password || '';
+
+                if (passwordToSend) {
+                    formDataObj.append('password', passwordToSend);
+                }
+            } else {
+                // Create mode: password is required
+                formDataObj.append('password', values.password);
+            }
 
             const response = isEditMode
                 ? await apiEditUser(formDataObj)
@@ -83,7 +99,7 @@ const AddUserModel = ({ initialValue = {}, setIsOpen, onUserCreated }) => {
                     name: initialValue.name || '',
                     email: initialValue.email || '',
                     phoneNumber: initialValue.phone_no || '',
-                    password: '',
+                    password: '', // Always empty - user will type new password if they want to change
                     address: initialValue.address || '',
                     city: initialValue.city || '',
                     isEditMode,
@@ -92,6 +108,7 @@ const AddUserModel = ({ initialValue = {}, setIsOpen, onUserCreated }) => {
                 onSubmit={handleSubmit}
                 validateOnChange={true}
                 validateOnBlur={true}
+                enableReinitialize={true}
             >
                 {({ values, setFieldValue }) => (
                     <Form>
@@ -148,12 +165,14 @@ const AddUserModel = ({ initialValue = {}, setIsOpen, onUserCreated }) => {
                             </div>
 
                             <div className="w-full sm:w-[calc((100%-20px)/2)]">
-                                <FormLabel htmlFor="password">Password</FormLabel>
+                                <FormLabel htmlFor="password">
+                                    Password {isEditMode && <span className="text-gray-500 text-sm">(Leave empty to keep current password)</span>}
+                                </FormLabel>
                                 <div className="sm:h-16 h-14">
                                     <Password
                                         name="password"
                                         className="sm:px-5 px-4 sm:py-[21px] py-4 !select-none border border-[#8D8D8D] rounded-lg w-full h-14 sm:h-16 shadow-[-4px_4px_6px_0px_#0000001F] placeholder:text-[#6C6C6C] sm:text-base text-sm leading-[22px] font-semibold"
-                                        placeholder="Enter password"
+                                        placeholder={isEditMode ? "Enter new password (optional)" : "Enter password"}
                                         autoComplete="off"
                                     />
                                 </div>

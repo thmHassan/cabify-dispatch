@@ -1,7 +1,6 @@
 import React from "react";
 
 const ReviewCard = ({ review }) => {
-
     return (
         <div
             className="bg-white rounded-[15px] p-4 gap-2 flex items-center justify-between hover:shadow-md overflow-x-auto"

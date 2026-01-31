@@ -99,7 +99,7 @@ const OverViewDetails = () => {
                     </div>
 
                     <div className="hidden md:flex flex-row gap-5">
-                        <CustomSelect variant={2} options={STATUS_OPTIONS} placeholder="All Sub Companies" />
+                        <CustomSelect variant={2} options={STATUS_OPTIONS} placeholder="Sub Company" />
                         <CustomSelect variant={2} options={STATUS_OPTIONS} placeholder="All Bookings" />
                         <CustomSelect variant={2} options={STATUS_OPTIONS} placeholder="All Status" />
                     </div>

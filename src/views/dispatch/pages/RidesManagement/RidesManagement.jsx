@@ -141,20 +141,20 @@ const RidesManagement = () => {
         <Button
           type="filled"
           btnSize="2xl"
-          className={`${activeTab === "waiting" ? "!bg-[#1F41BB] !text-white" : "!bg-transparent !text-black"}`}
-          onClick={() => setActiveTab("waiting")}
+          className={`${activeTab === "ongoing" ? "!bg-[#1F41BB] !text-white" : "!bg-transparent !text-black"}`}
+          onClick={() => setActiveTab("ongoing")}
         >
-          Waiting
+          Ongoing
         </Button>
 
-        <Button
+        {/* <Button
           type="filled"
           btnSize="2xl"
           className={`${activeTab === "arrived" ? "!bg-[#1F41BB] !text-white" : "!bg-transparent !text-black"}`}
           onClick={() => setActiveTab("arrived")}
         >
           Arrived
-        </Button>
+        </Button> */}
 
         <Button
           type="filled"

@@ -29,7 +29,7 @@ export async function apiAdminSignIn(data) {
 
 export async function apiSignOut() {
   return ApiService.fetchData({
-    url: "/sign-out",
+    url: "/dispatcher/logout",
     method: "post",
   });
 }

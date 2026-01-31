@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState } from "react";
 import UserDropdown from "../../../../../../components/shared/UserDropdown";
 import Button from "../../../../../../components/ui/Button/Button";
@@ -6,7 +5,6 @@ import ThreeDotsIcon from "../../../../../../components/svg/ThreeDotsIcon";
 import toast from "react-hot-toast";
 import { getTenantData } from "../../../../../../utils/functions/tokenEncryption";
 import { apieditDriverStatus } from "../../../../../../services/DriverManagementService";
-
 
 const DriverManagementCard = ({ driver, onEdit, onDelete, onStatusChange }) => {
     const [status, setStatus] = useState(driver?.status || "pending");
@@ -128,7 +126,7 @@ const DriverManagementCard = ({ driver, onEdit, onDelete, onStatusChange }) => {
 
                 <div className="inline-flex flex-col px-4 py-2 rounded-full bg-[#006FFF1A] text-left whitespace-nowrap">
                     <p className="text-xs text-center text-gray-500">Wallet Balance</p>
-                    <p className="text-black text-center text-[#1F41BB] font-semibold text-sm"> {currencySymbol} {driver.wallet_balance}</p>
+                    <p className="text-black text-center text-[#1F41BB] font-semibold text-sm"> {currencySymbol} {driver.wallet_balance || "0"}</p>
                 </div>
 
                 <UserDropdown options={getStatusOptions()} itemData={driver}>

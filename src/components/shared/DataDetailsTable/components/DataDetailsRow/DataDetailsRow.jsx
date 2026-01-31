@@ -5,7 +5,6 @@ import SubAdminManagementRowFields from "../SubAdminManagementRowFields";
 import SubscriptionTableRow from "../SubscriptionTableRow";
 import SystemAnalyticsTableRow from "../SystemAnalyticsTableRow";
 import UsageMonitoringTableRow from "../UsageMonitoringTableRow";
-import VehicleTypeFields from "../VehicleTypeFields";
 
 const DataDetailsRow = ({ type = "subscription", ...props }) => {
   const TABLE_ROW_CONFIG = {
@@ -14,7 +13,6 @@ const DataDetailsRow = ({ type = "subscription", ...props }) => {
     usageMonitoring: UsageMonitoringTableRow,
     systemAnalytics: SystemAnalyticsTableRow,
     driverDocuments: DriverDocumentsRowFields,
-    vehicleType: VehicleTypeFields,
     subAdminManagement: SubAdminManagementRowFields,
     ApiKeys: ApiKeyRowFields,
     MapProvider: MapProviderRowField,
