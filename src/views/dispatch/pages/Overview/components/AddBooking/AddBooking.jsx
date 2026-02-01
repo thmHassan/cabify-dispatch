@@ -1,6 +1,6 @@
 import { ErrorMessage, Form, Formik } from "formik";
 import { useEffect, useState } from "react";
-import Maps from "./components/Maps";
+import Maps from "./components/Maps.jsx";
 import { getTenantData } from "../../../../../../utils/functions/tokenEncryption";
 import { apiGetSubCompany } from "../../../../../../services/SubCompanyServices";
 import { apiGetDriverManagement } from "../../../../../../services/DriverManagementService";
