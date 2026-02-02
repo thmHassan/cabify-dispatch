@@ -463,6 +463,7 @@ const AddBooking = ({ setIsOpen }) => {
             }
 
             const formData = new FormData();
+            const dispatcherId = getDispatcherId();
             formData.append('pickup_point[latitude]', pickupCoords.latitude.toString());
             formData.append('pickup_point[longitude]', pickupCoords.longitude.toString());
             formData.append('destination_point[latitude]', destinationCoords.latitude.toString());
@@ -483,6 +484,8 @@ const AddBooking = ({ setIsOpen }) => {
 
             formData.append('vehicle_id', values.vehicle);
             formData.append('journey', values.journey_type);
+            formData.append("dispatcher_id", dispatcherId);
+
 
             const response = await apiCreateCalculateFares(formData);
 

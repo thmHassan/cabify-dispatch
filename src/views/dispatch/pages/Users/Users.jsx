@@ -234,7 +234,7 @@ const Users = () => {
             className="w-full md:max-w-[400px]"
           />
 
-          <div className="hidden md:flex flex-row gap-3 sm:gap-5 w-full sm:w-auto">
+          {/* <div className="hidden md:flex flex-row gap-3 sm:gap-5 w-full sm:w-auto">
             <CustomSelect
               variant={2}
               options={STATUS_OPTIONS}
@@ -242,7 +242,7 @@ const Users = () => {
               onChange={handleStatusFilterChange}
               placeholder="All Status"
             />
-          </div>
+          </div> */}
         </div>
 
         <div className="flex flex-col gap-4 pt-4">

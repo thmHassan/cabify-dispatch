@@ -11,6 +11,7 @@ import Pagination from '../../../../components/ui/Pagination/Pagination';
 import RidesManagementCard from './components/RidesManagementCard';
 import { apiGetRidesManagement } from '../../../../services/RidesManagementServices';
 import { getDispatcherId } from '../../../../utils/auth';
+import AppLogoLoader from '../../../../components/shared/AppLogoLoader/AppLogoLoader';
 
 const RidesManagement = () => {
   const [activeTab, setActiveTab] = useState("all");
@@ -24,8 +25,7 @@ const RidesManagement = () => {
     (state) => state?.app?.app?.pagination?.companies
   );
 
-   const dispatcherId = getDispatcherId();
-   console.log("dispatcherId", dispatcherId);
+  const dispatcherId = getDispatcherId();
 
   const [currentPage, setCurrentPage] = useState(
     Number(savedPagination?.currentPage) || 1
@@ -201,13 +201,28 @@ const RidesManagement = () => {
               />
             </div>
           </div>
-          <Loading loading={tableLoading} type="cover">
+          {/* <Loading loading={tableLoading} type="cover">
             <div className="flex flex-col gap-4 pt-4">
               {filteredRides.map((ride) => (
                 <RidesManagementCard key={ride.id} ride={ride} />
               ))}
             </div>
-          </Loading>
+          </Loading> */}
+          <div className="flex flex-col gap-4 pt-4">
+            {tableLoading ? (
+              <div className="flex items-center justify-center py-10">
+                <AppLogoLoader />
+              </div>
+            ) : filteredRides.length === 0 ? (
+              <div className="text-center py-10 text-gray-500">No rides found</div>
+            ) : (
+              <div className="flex flex-col gap-4 pt-4">
+                {filteredRides.map((ride) => (
+                  <RidesManagementCard key={ride.id} ride={ride} />
+                ))}
+              </div>
+            )}
+          </div>
           {Array.isArray(rideManagementData) &&
             rideManagementData.length > 0 ? (
             <div className="mt-4 sm:mt-4 border-t border-[#E9E9E9] pt-3 sm:pt-4">

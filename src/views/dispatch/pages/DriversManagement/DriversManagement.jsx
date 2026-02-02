@@ -17,6 +17,7 @@ import {
 } from "../../../../services/DriverManagementService";
 import Modal from "../../../../components/shared/Modal/Modal";
 import { getDispatcherId } from "../../../../utils/auth";
+import AppLogoLoader from "../../../../components/shared/AppLogoLoader/AppLogoLoader";
 
 const DriversManagement = () => {
   const navigate = useNavigate();
@@ -40,8 +41,6 @@ const DriversManagement = () => {
   );
 
   const dispatcherId = getDispatcherId();
-  console.log(dispatcherId);
-
 
   const [totalPages, setTotalPages] = useState(1);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
@@ -156,7 +155,7 @@ const DriversManagement = () => {
               />
             </div>
           </div>
-          <Loading loading={tableLoading} type="cover">
+          {/* <Loading loading={tableLoading} type="cover">
             <div className="flex flex-col gap-4 pt-4">
               {driversData?.map((driver) => (
                 <DriverManagementCard
@@ -170,7 +169,31 @@ const DriversManagement = () => {
                 />
               ))}
             </div>
-          </Loading>
+          </Loading> */}
+          <div className="flex flex-col gap-4 pt-4">
+            {tableLoading ? (
+              <div className="flex items-center justify-center py-10">
+                <AppLogoLoader />
+              </div>
+            ) : driversData.length === 0 ? (
+              <div className="text-center py-10 text-gray-500">No drivers found</div>
+            ) : (
+              <div className="flex flex-col gap-4 pt-4">
+                {driversData?.map((driver) => (
+                  <DriverManagementCard
+                    key={driver.id}
+                    driver={driver}
+                    onEdit={() => navigate(`/driver/${driver.id}`)}
+                    onDelete={(d) => {
+                      setDriverToDelete(d);
+                      setDeleteModalOpen(true);
+                    }}
+                  />
+                ))}
+              </div>
+            )}
+
+          </div>
           {Array.isArray(driversData) &&
             driversData.length > 0 ? (
             <div className="mt-4 sm:mt-4 border-t border-[#E9E9E9] pt-3 sm:pt-4">

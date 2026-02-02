@@ -5,15 +5,13 @@ import PageSubTitle from "../../../../components/ui/PageSubTitle";
 import SearchBar from "../../../../components/shared/SearchBar/SearchBar";
 import CardContainer from "../../../../components/shared/CardContainer";
 import CustomSelect from "../../../../components/ui/CustomSelect";
-import { STATUS_OPTIONS } from "../../../../constants/selectOptions";
+import { MAP_STATUS_OPTIONS } from "../../../../constants/selectOptions";
 
 const GOOGLE_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
 
 const MARKER_ICONS = {
-  online: "https://maps.google.com/mapfiles/ms/icons/green-dot.png",
-  offline: "https://maps.google.com/mapfiles/ms/icons/grey-dot.png",
-  active: "https://maps.google.com/mapfiles/ms/icons/blue-dot.png",
-  pending: "https://maps.google.com/mapfiles/ms/icons/yellow-dot.png",
+  idle: "https://maps.google.com/mapfiles/ms/icons/red-dot.png",
+  busy: "https://maps.google.com/mapfiles/ms/icons/green-dot.png",
 };
 
 const loadGoogleMaps = () => {
@@ -72,7 +70,7 @@ const animateMarker = (marker, newPosition, duration = 1000) => {
 const Map = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedStatus, setSelectedStatus] = useState(
-    STATUS_OPTIONS.find((o) => o.value === "all") ?? STATUS_OPTIONS[0]
+    MAP_STATUS_OPTIONS.find((o) => o.value === "all") ?? MAP_STATUS_OPTIONS[0]
   );
 
   const socket = useSocket();
@@ -159,18 +157,31 @@ const Map = () => {
         return;
       }
 
-      // Extract dispatcher_id, latitude, longitude from the data
-      const dispatcher_id = data?.dispatcher_id ?? data?.driver_id;
+      // Log the full data structure to debug
+      console.log("Full data object:", JSON.stringify(data, null, 2));
+
+      // Extract driver ID from the new data structure
+      const driverId = data?.id;
       const latitude = data?.latitude;
       const longitude = data?.longitude;
-      const status = data?.status || "online";
-      const name = data?.name || `Dispatcher ${dispatcher_id}`;
+      const drivingStatus = data?.driving_status; // This should be "busy" or "idle"
+      const name = data?.name || `Driver ${driverId}`;
+      const phoneNo = data?.phone_no || "";
+      const vehiclePlateNo = data?.plate_no || "";
 
-      console.log("Extracted values:", { dispatcher_id, latitude, longitude, status, name });
+      console.log("Extracted values:", {
+        driverId,
+        latitude,
+        longitude,
+        drivingStatus,
+        name,
+        rawDrivingStatus: data?.driving_status,
+        allKeys: Object.keys(data || {})
+      });
 
       // Validate that we have the required data
-      if (!dispatcher_id && dispatcher_id !== 0) {
-        console.warn("❌ No dispatcher_id found in data");
+      if (!driverId && driverId !== 0) {
+        console.warn("❌ No driver ID found in data");
         return;
       }
 
@@ -179,7 +190,18 @@ const Map = () => {
         return;
       }
 
-      console.log("✅ Processing dispatcher:", { dispatcher_id, latitude, longitude, status });
+      // If driving_status is not present or not valid, use a default
+      const validStatus = (drivingStatus === 'busy' || drivingStatus === 'idle')
+        ? drivingStatus
+        : 'idle'; // default to idle if status is missing or invalid
+
+      if (!drivingStatus) {
+        console.warn("⚠️ No driving_status found in data, using default 'idle'");
+      } else if (drivingStatus !== 'busy' && drivingStatus !== 'idle') {
+        console.warn(`⚠️ Invalid driving_status '${drivingStatus}', using default 'idle'`);
+      }
+
+      console.log("✅ Processing driver:", { driverId, latitude, longitude, drivingStatus: validStatus });
 
       const position = {
         lat: Number(latitude),
@@ -189,18 +211,15 @@ const Map = () => {
       // Store driver data for filtering
       setDriverData((prev) => ({
         ...prev,
-        [dispatcher_id]: { ...data, position, name, status },
+        [driverId]: { ...data, position, name, status: validStatus },
       }));
 
-      // Determine marker icon based on status
-      let markerIcon = MARKER_ICONS.online;
-      if (status === "offline") markerIcon = MARKER_ICONS.offline;
-      else if (status === "active" || status === "on_ride") markerIcon = MARKER_ICONS.active;
-      else if (status === "pending") markerIcon = MARKER_ICONS.pending;
+      // Determine marker icon based on driving_status
+      const markerIcon = MARKER_ICONS[validStatus] || MARKER_ICONS.idle;
 
-      if (markers.current[dispatcher_id]) {
+      if (markers.current[driverId]) {
         // Update existing marker with smooth animation
-        const marker = markers.current[dispatcher_id];
+        const marker = markers.current[driverId];
         const oldPosition = marker.getPosition();
         const oldLat = oldPosition.lat();
         const oldLng = oldPosition.lng();
@@ -224,16 +243,15 @@ const Map = () => {
         // Update info window content
         if (marker.infoWindow) {
           marker.infoWindow.setContent(`
-            <div style="padding: 8px;">
+            <div style="padding: 5px;">
               <strong>${name}</strong><br/>
-              ID: ${dispatcher_id}<br/>
-              Status: <span style="text-transform: capitalize;">${status}</span><br/>
-              Location: ${latitude.toFixed(4)}, ${longitude.toFixed(4)}
+              Phone: ${phoneNo}<br/>
+              Vehicle: ${vehiclePlateNo}<br/>
             </div>
           `);
         }
 
-        console.log(`✅ Animated dispatcher ${dispatcher_id} to:`, position);
+        console.log(`✅ Animated driver ${driverId} to:`, position);
       } else {
         // Create new marker
         const marker = new window.google.maps.Marker({
@@ -247,11 +265,10 @@ const Map = () => {
         // Add info window
         const infoWindow = new window.google.maps.InfoWindow({
           content: `
-            <div style="padding: 8px;">
+            <div style="padding: 5px;">
               <strong>${name}</strong><br/>
-              ID: ${dispatcher_id}<br/>
-              Status: <span style="text-transform: capitalize;">${status}</span><br/>
-              Location: ${latitude.toFixed(4)}, ${longitude.toFixed(4)}
+              Phone: ${phoneNo}<br/>
+              Vehicle: ${vehiclePlateNo}<br/>
             </div>
           `,
         });
@@ -265,8 +282,8 @@ const Map = () => {
         });
 
         marker.infoWindow = infoWindow;
-        markers.current[dispatcher_id] = marker;
-        console.log(`✅ Created marker for dispatcher ${dispatcher_id} at:`, position);
+        markers.current[driverId] = marker;
+        console.log(`✅ Created marker for driver ${driverId} at:`, position);
       }
 
       // Apply filter based on selected status
@@ -286,8 +303,8 @@ const Map = () => {
   }, [socket, selectedStatus, searchQuery]);
 
   const updateMarkerVisibility = () => {
-    Object.entries(markers.current).forEach(([dispatcherId, marker]) => {
-      const driver = driverData[dispatcherId];
+    Object.entries(markers.current).forEach(([driverId, marker]) => {
+      const driver = driverData[driverId];
       if (!driver) return;
 
       let visible = true;
@@ -300,7 +317,7 @@ const Map = () => {
         const query = searchQuery.toLowerCase();
         const matchesSearch =
           driver.name?.toLowerCase().includes(query) ||
-          dispatcherId.toString().includes(query);
+          driverId.toString().includes(query);
         visible = visible && matchesSearch;
       }
 
@@ -325,7 +342,7 @@ const Map = () => {
           <div className=" md:flex flex-row gap-3 sm:gap-5 w-full sm:w-auto">
             <CustomSelect
               variant={2}
-              options={STATUS_OPTIONS}
+              options={MAP_STATUS_OPTIONS}
               value={selectedStatus}
               onChange={setSelectedStatus}
               placeholder="Driver Status"
@@ -340,23 +357,13 @@ const Map = () => {
 
         <div className="flex justify-center gap-10 flex-wrap py-4 mt-3 border-t">
           <div className="flex items-center gap-2">
+            <span className="w-4 h-4 rounded-full bg-red-500" />
+            <span className="text-sm font-medium">Idle Drivers</span>
+          </div>
+
+          <div className="flex items-center gap-2">
             <span className="w-4 h-4 rounded-full bg-green-500" />
-            <span className="text-sm font-medium">Online Drivers</span>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <span className="w-4 h-4 rounded-full bg-gray-500" />
-            <span className="text-sm font-medium">Offline Drivers</span>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <span className="w-4 h-4 rounded-full bg-blue-600" />
-            <span className="text-sm font-medium">Active Ride</span>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <span className="w-4 h-4 rounded-full bg-yellow-500" />
-            <span className="text-sm font-medium">Ride Pending</span>
+            <span className="text-sm font-medium">Busy Drivers</span>
           </div>
         </div>
       </CardContainer>

@@ -7,6 +7,12 @@ export const STATUS_OPTIONS = [
   { value: "pending", label: "Pending" },
 ];
 
+export const MAP_STATUS_OPTIONS = [
+  { value: "all", label: "All Status" },
+  { value: "busy", label: "Busy" },
+  { value: "idle", label: "Idle" },
+];
+
 export const LOST_STATUS_OPTIONS = [
   { value: "all", label: "All Status" },
   { value: "Lost", label: "Lost" },

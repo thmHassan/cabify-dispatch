@@ -496,7 +496,7 @@ const DriverDetails = () => {
                     <h2 className="text-[22px] font-semibold">
                         Document Information
                     </h2>
-                    {Number(driverData?.document_approved_office) === 0 && (
+                    {Number(driverData?.document_approved_office) === 1 && (
                         <span className="bg-[#10B981] text-white text-sm px-3 py-1 rounded-full flex items-center gap-1">
                             <svg className="w-4 h-4 bg-white rounded-full text-[#10B981] font-semibold" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
