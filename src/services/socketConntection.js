@@ -8,11 +8,10 @@ const initSocket = () => {
     if (socket) return socket;
 
     const tenantId = getTenantId();
-    const dispatcherId = getDispatcherId();
     const token = getDecryptedToken();
 
     console.log("Socket database:", tenantId);
-    console.log("Socket dispatcherId:", dispatcherId);
+    console.log("Socket client_id:", tenantId);
     console.log("token===", token);
 
 
@@ -28,8 +27,8 @@ const initSocket = () => {
         reconnectionAttempts: 5,
         reconnectionDelay: 2000,
         query: {
-            role: "dispatcher",
-            dispatcher_id: dispatcherId,
+            role: "client",
+            client_id: tenantId,
             database: tenantId,
         },
         extraHeaders: {

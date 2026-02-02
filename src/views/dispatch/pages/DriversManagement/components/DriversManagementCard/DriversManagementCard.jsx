@@ -23,7 +23,7 @@ const DriverManagementCard = ({ driver, onEdit, onDelete, onStatusChange }) => {
 
     const actionOptions = [
         {
-            label: "Edit",
+            label: "View",
             onClick: () => onEdit(driver),
         },
         {

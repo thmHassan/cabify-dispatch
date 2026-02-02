@@ -149,7 +149,7 @@ const Pagination = ({
         </button>
       </div>
 
-      <div className="min-w-[90px] sm:min-w-[100px] 2xl:min-w-[120px]">
+      {/* <div className="min-w-[90px] sm:min-w-[100px] 2xl:min-w-[120px]">
         <CustomSelect
           variant={variant}
           options={itemsPerPageOptions}
@@ -161,7 +161,7 @@ const Pagination = ({
           isSearchable={false}
           className="min-w-[90px] sm:min-w-[100px] 2xl:min-w-[120px]"
         />
-      </div>
+      </div> */}
     </div>
   );
 };

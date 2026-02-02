@@ -9,6 +9,8 @@ import Button from "../../../../components/ui/Button/Button";
 import * as Yup from "yup";
 import { apiSendNotifiction } from "../../../../services/GeneralNotificationService";
 import { apiGetAllVehicleType } from "../../../../services/VehicleTypeServices";
+import toast from "react-hot-toast";
+
 
 const userOptions = [
   { value: "all_drivers", label: "All Drivers" },
@@ -56,7 +58,7 @@ const GeneralNotification = () => {
     <div className="px-4 py-5 sm:p-6 lg:p-10 min-h-[calc(100vh-85px)]">
       <div className="flex flex-col gap-2.5 sm:mb-[30px] mb-6">
         <PageTitle title="General Notification" />
-        <PageSubTitle title="Need content here" />
+        {/* <PageSubTitle title="Need content here" /> */}
       </div>
 
       <CardContainer className="!p-3 sm:!p-4 lg:!px-5 lg:!pt-[30px] lg:!pb-5 2xl:!p-10">
@@ -95,7 +97,9 @@ const GeneralNotification = () => {
               if (response?.data?.success === 1) {
                 resetForm();
               }
+              toast.success("Notification send successfully")
             } catch (error) {
+              toast.error("Notification send failed:", error)
               console.error("Notification send failed:", error);
             } finally {
               setSending(false);
