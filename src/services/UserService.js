@@ -20,7 +20,6 @@ export async function apiCreateUser(data) {
 
 export async function apiGetUser(params) {
     try {
-        console.log("Making API call to:", GET_USER_LIST, "with params:", params);
         return ApiService.fetchData({
             url: params ? replaceSlash(params, GET_USER_LIST) : GET_USER_LIST,
             method: METHOD_GET,

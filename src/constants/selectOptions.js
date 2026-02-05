@@ -1,4 +1,13 @@
-// Common select options for reuse across the application
+export const OVERVIEW_STATUS_OPTIONS = [
+  { value: "", label: "All Status" },
+  { value: "pending", label: "Pending" },
+  { value: "ongoing", label: "Ongoing" },
+  // { value: "arrived", label: "Arrived" },
+  // { value: "started", label: "Started" },
+  { value: "completed", label: "Completed" },
+  { value: "cancelled", label: "Cancelled" },
+  // { value: "no_show", label: "No Show" },
+];
 
 export const STATUS_OPTIONS = [
   { value: "all", label: "All Status" },
@@ -26,30 +35,6 @@ export const TICKET_STATUS_OPTIONS = [
   { value: "open", label: "Open" },
 ];
 
-export const PLAN_OPTIONS = [
-  { value: "all", label: "All Plans" },
-  { value: "basic", label: "Basic Plan" },
-  { value: "premium", label: "Premium Plan" },
-  { value: "enterprise", label: "Enterprise Plan" },
-  { value: "custom", label: "Custom Plan" },
-];
-
-export const PRIORITY_OPTIONS = [
-  { value: "all", label: "All Priorities" },
-  { value: "low", label: "Low" },
-  { value: "medium", label: "Medium" },
-  { value: "high", label: "High" },
-  { value: "urgent", label: "Urgent" },
-];
-
-export const SORT_OPTIONS = [
-  { value: "name_asc", label: "Name (A-Z)" },
-  { value: "name_desc", label: "Name (Z-A)" },
-  { value: "date_asc", label: "Date (Oldest)" },
-  { value: "date_desc", label: "Date (Newest)" },
-  { value: "status", label: "Status" },
-];
-
 export const PAGE_SIZE_OPTIONS = [
   { value: 10, label: "10 / page" },
   { value: 25, label: "25 / page" },
@@ -57,11 +42,3 @@ export const PAGE_SIZE_OPTIONS = [
   { value: 100, label: "100 / page" },
 ];
 
-export const COMPANY_OPTIONS = [
-  { value: 'all', label: 'All Sub Company' },
-  { value: 'company_a', label: 'Company A' },
-  { value: 'company_b', label: 'Company B' },
-  { value: 'company_c', label: 'Company C' },
-  { value: 'company_d', label: 'Company D' },
-  { value: 'company_e', label: 'Company E' },
-];

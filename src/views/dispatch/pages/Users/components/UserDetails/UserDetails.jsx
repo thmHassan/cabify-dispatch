@@ -47,11 +47,6 @@ const UserDetails = ({ user, onEdit, onDelete }) => {
                 </div>
             </div>
             <div className="flex items-center  gap-3">
-
-                {/* <div className="inline-flex flex-col px-4 py-2 rounded-full bg-[#EFEFEF] text-left whitespace-nowrap w-[100px]">
-                    <p className="text-xs text-center text-[#6C6C6C]">ID</p>
-                    <p className="text-[#333333] text-center font-semibold text-sm">{user.id}</p>
-                </div> */}
                 <div className="inline-flex w-52 flex-col px-4 py-2 rounded-full bg-[#EFEFEF] text-left break-all w-[250px]">
                     <p className="text-xs text-center text-[#6C6C6C]">Address</p>
                     <p className="text-[#333333] font-semibold text-center text-[12px]">{user.address || "-"}</p>
@@ -68,7 +63,6 @@ const UserDetails = ({ user, onEdit, onDelete }) => {
                     <p className="text-xs text-center text-[#6C6C6C]">Created At</p>
                     <p className="text-[#333333] text-center font-semibold text-sm">
                         {formatDate(user.created_at)}
-                        {/* {user?.createdAt ? formatDate(user.createdAt) : "12/12/2025"} */}
                     </p>
                 </div>
 

@@ -1,16 +1,16 @@
 import { ErrorMessage, Form, Formik } from "formik";
 import { useEffect, useState } from "react";
-import Maps from "./components/maps.jsx";
+import Maps from "./components/Maps";
 import { getTenantData } from "../../../../../../utils/functions/tokenEncryption";
 import { apiGetSubCompany } from "../../../../../../services/SubCompanyServices";
+import { apiGetAccount } from "../../../../../../services/AccountServices";
 import { apiGetDriverManagement } from "../../../../../../services/DriverManagementService";
 import { apiGetAllVehicleType } from "../../../../../../services/VehicleTypeServices";
 import Button from "../../../../../../components/ui/Button/Button";
 import { apiGetAllPlot, apiCreateCalculateFares, apiCreateBooking } from "../../../../../../services/AddBookingServices";
+import { apiGetDispatchSystem } from "../../../../../../services/SettingsConfigurationServices";
 import { unlockBodyScroll } from "../../../../../../utils/functions/common.function";
 import toast from 'react-hot-toast';
-import { getDispatcherId } from "../../../../../../utils/auth";
-import { apiGetAccount } from "../../../../../../services/AccountServices";
 
 const GOOGLE_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
 const BARIKOI_KEY = import.meta.env.VITE_BARIKOI_API_KEY;
@@ -95,24 +95,76 @@ const AddBooking = ({ setIsOpen }) => {
     const [isBookingLoading, setIsBookingLoading] = useState(false);
     const [isMultiBooking, setIsMultiBooking] = useState(false);
 
+    const [isManualDispatchOnly, setIsManualDispatchOnly] = useState(false);
+    const [loadingDispatchSystem, setLoadingDispatchSystem] = useState(true);
+
     const [alertModal, setAlertModal] = useState({
         isOpen: false,
         message: ''
     });
 
     const tenant = getTenantData();
-    const SEARCH_API = "google"
-    const COUNTRY_CODE = "IN"
-    // const SEARCH_API = tenant?.search_api || "google";
-    // const COUNTRY_CODE = tenant?.country_of_use?.toLowerCase() || "IN";
+    const SEARCH_API = tenant?.search_api;
+    const COUNTRY_CODE = tenant?.country_of_use?.toLowerCase();
 
     useEffect(() => {
         const tenant = getTenantData();
         if (tenant?.maps_api) {
             const mapType = tenant.maps_api.toLowerCase();
-            setMapsApi(mapType === "google")
-            // setMapsApi(mapType === "google" ? "google" : mapType === "barikoi" ? "barikoi" : "google");
+            setMapsApi(mapType === "google" ? "google" : mapType === "barikoi" ? "barikoi" : "google");
         }
+    }, []);
+
+    // Check dispatch system on mount
+    useEffect(() => {
+        const checkDispatchSystem = async () => {
+            try {
+                setLoadingDispatchSystem(true);
+                const response = await apiGetDispatchSystem();
+
+                let data = response?.data?.data || response?.data || response;
+
+                if (!Array.isArray(data)) {
+                    if (data && typeof data === 'object') {
+                        const possibleArrayKeys = ['items', 'results', 'dispatches', 'systems', 'list'];
+                        for (const key of possibleArrayKeys) {
+                            if (Array.isArray(data[key])) {
+                                data = data[key];
+                                break;
+                            }
+                        }
+                    }
+
+                    if (!Array.isArray(data)) {
+                        if (data && typeof data === 'object' && Object.keys(data).length > 0) {
+                            data = [data];
+                        } else {
+                            console.warn("❌ Could not convert data to array");
+                            setIsManualDispatchOnly(false);
+                            return;
+                        }
+                    }
+                }
+
+                // Check if manual_dispatch_only is enabled
+                const hasManualDispatchEnabled = data.some((item) => {
+                    const isManualDispatch = item.dispatch_system === "manual_dispatch_only";
+                    const isEnabled = item.status === "enable" || item.status === "enabled" || item.status === 1 || item.status === true;
+                    return isManualDispatch && isEnabled;
+                });
+
+                // console.log("🎯 Manual Dispatch Only Status:", hasManualDispatchEnabled);
+                setIsManualDispatchOnly(hasManualDispatchEnabled);
+
+            } catch (error) {
+                console.error("❌ Error fetching dispatch system:", error);
+                setIsManualDispatchOnly(false);
+            } finally {
+                setLoadingDispatchSystem(false);
+            }
+        };
+
+        checkDispatchSystem();
     }, []);
 
     useEffect(() => {
@@ -463,7 +515,6 @@ const AddBooking = ({ setIsOpen }) => {
             }
 
             const formData = new FormData();
-            const dispatcherId = getDispatcherId();
             formData.append('pickup_point[latitude]', pickupCoords.latitude.toString());
             formData.append('pickup_point[longitude]', pickupCoords.longitude.toString());
             formData.append('destination_point[latitude]', destinationCoords.latitude.toString());
@@ -484,8 +535,6 @@ const AddBooking = ({ setIsOpen }) => {
 
             formData.append('vehicle_id', values.vehicle);
             formData.append('journey', values.journey_type);
-            formData.append("dispatcher_id", dispatcherId);
-
 
             const response = await apiCreateCalculateFares(formData);
 
@@ -564,12 +613,10 @@ const AddBooking = ({ setIsOpen }) => {
         setIsBookingLoading(true);
 
         try {
-            const dispatcherId = getDispatcherId();
             const formData = new FormData();
 
             formData.append('sub_company', values.sub_company || '');
             formData.append('multi_booking', isMultiBooking ? 'yes' : 'no');
-            formData.append("dispatcher_id", dispatcherId);
 
             if (isMultiBooking) {
                 formData.append('multi_days', values.multi_days || '');
@@ -780,8 +827,8 @@ const AddBooking = ({ setIsOpen }) => {
                     driver: "",
                     journey_type: "one_way",
                     booking_system: "auto_dispatch",
-                    auto_dispatch: true,
-                    bidding: true,
+                    auto_dispatch: !isManualDispatchOnly,
+                    bidding: !isManualDispatchOnly,
                     pickup_time_type: "asap",
                     pickup_time: "",
                     booking_date: "",
@@ -813,6 +860,7 @@ const AddBooking = ({ setIsOpen }) => {
                             );
 
                             const totalCharges = fareData.calculate_fare + additionalCharges;
+                            // Format to 2 decimal places
                             setFieldValue("total_charges", parseFloat(totalCharges.toFixed(2)));
                         }
                     }, [fareData]);
@@ -828,6 +876,7 @@ const AddBooking = ({ setIsOpen }) => {
 
                             const baseFare = Number(values.base_fare || 0);
                             const totalCharges = baseFare + additionalCharges;
+                            // Format to 2 decimal places
                             setFieldValue("total_charges", parseFloat(totalCharges.toFixed(2)));
                         }, 0);
                     };
@@ -876,6 +925,7 @@ const AddBooking = ({ setIsOpen }) => {
                                     </div>
                                 </div>
 
+                                {/* Rest of the form - continuing with the vehicle and dispatch options section */}
                                 <div className="flex xl:flex-row lg:flex-row md:flex-col flex-col gap-4 mb-2">
                                     <div className="">
                                         {isMultiBooking && (
@@ -916,28 +966,12 @@ const AddBooking = ({ setIsOpen }) => {
                                                     </div>
                                                 </div>
 
-                                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-
-                                                    {/* <div className="flex flex-row gap-2 inline-flex">
-                                                        <label className="text-sm font-semibold md:w-20 w-20">Week</label>
-                                                        <select
-                                                            className="border-[1.5px] shadow-lg border-[#8D8D8D] rounded-[8px] px-3 py-2 text-sm w-full"
-                                                            value={values.week_pattern || ""}
-                                                            onChange={(e) =>
-                                                                setFieldValue("week_pattern", e.target.value)
-                                                            }
-                                                        >
-                                                            <option value="">Every Week</option>
-                                                            <option value="every">Every Week</option>
-                                                            <option value="alternate">Alternate Weeks</option>
-                                                        </select>
-                                                    </div> */}
-
+                                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-start">
                                                     <div className="flex flex-row gap-2 inline-flex">
-                                                        <label className="text-sm font-semibold md:w-9 w-20">Start At</label>
+                                                        <label className="text-sm font-semibold md:w-20 w-20">Start At</label>
                                                         <input
                                                             type="date"
-                                                            className="border-[1.5px] shadow-lg border-[#8D8D8D] rounded-[8px] px-3 py-2 text-sm w-full"
+                                                            className="border-[1.5px] shadow-lg border-[#8D8D8D] rounded-[8px] px-3 py-2 text-sm w-full md:w-full"
                                                             value={values.multi_start_at || ""}
                                                             onChange={(e) =>
                                                                 setFieldValue("multi_start_at", e.target.value)
@@ -1011,7 +1045,7 @@ const AddBooking = ({ setIsOpen }) => {
                                                                 onChange={(e) => setFieldValue("booking_type", e.target.value)}
                                                             >
 
-                                                                <option value="outstation">select type</option>
+                                                                <option value="outstation">Select type</option>
                                                                 <option value="local">Local</option>
                                                             </select>
                                                         </div>
@@ -1287,11 +1321,14 @@ const AddBooking = ({ setIsOpen }) => {
 
                                                         <div className="border mt-2 max-sm:w-full rounded-lg h-28 md:mt-0 px-4 py-4 bg-white shadow-sm">
                                                             <div className="flex flex-col gap-3">
-                                                                <label className={`flex items-center gap-2 ${shouldDisableDispatchOptions(values) ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                                                                <label className={`flex items-center gap-2 ${shouldDisableDispatchOptions(values) || isManualDispatchOnly
+                                                                    ? 'opacity-50 cursor-not-allowed'
+                                                                    : ''
+                                                                    }`}>
                                                                     <input
                                                                         type="checkbox"
                                                                         checked={values.auto_dispatch}
-                                                                        disabled={shouldDisableDispatchOptions(values)}
+                                                                        disabled={shouldDisableDispatchOptions(values) || isManualDispatchOnly}
                                                                         onChange={(e) => {
                                                                             setFieldValue("auto_dispatch", e.target.checked);
                                                                             if (e.target.checked) {
@@ -1300,13 +1337,19 @@ const AddBooking = ({ setIsOpen }) => {
                                                                         }}
                                                                     />
                                                                     Auto Dispatch
+                                                                    {isManualDispatchOnly && (
+                                                                        <span className="text-xs text-red-500"></span>
+                                                                    )}
                                                                 </label>
 
-                                                                <label className={`flex items-center gap-2 ${shouldDisableDispatchOptions(values) ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                                                                <label className={`flex items-center gap-2 ${shouldDisableDispatchOptions(values) || isManualDispatchOnly
+                                                                    ? 'opacity-50 cursor-not-allowed'
+                                                                    : ''
+                                                                    }`}>
                                                                     <input
                                                                         type="checkbox"
                                                                         checked={values.bidding}
-                                                                        disabled={shouldDisableDispatchOptions(values)}
+                                                                        disabled={shouldDisableDispatchOptions(values) || isManualDispatchOnly}
                                                                         onChange={(e) => {
                                                                             setFieldValue("bidding", e.target.checked);
                                                                             if (e.target.checked) {
@@ -1315,6 +1358,9 @@ const AddBooking = ({ setIsOpen }) => {
                                                                         }}
                                                                     />
                                                                     Bidding
+                                                                    {isManualDispatchOnly && (
+                                                                        <span className="text-xs text-red-500"></span>
+                                                                    )}
                                                                 </label>
                                                             </div>
                                                         </div>
@@ -1418,27 +1464,12 @@ const AddBooking = ({ setIsOpen }) => {
                                             >
                                                 {fareLoading ? "Calculating..." : "Calculate Fares"}
                                             </Button>
-                                            {/* <Button
-                                                btnSize="md"
-                                                type="filled"
-                                                className="px-4 py-3 text-xs text-white rounded"
-                                            >
-                                                Show Map
-                                            </Button> */}
                                         </div>
                                     </div>
 
                                     <div className="flex justify-between max-sm:flex-col gap-2">
                                         <div className="flex gap-4 items-center">
-
                                             <label className="flex items-center gap-2 text-sm">
-                                                {/* <input
-                                                    type="text"
-                                                    checked={values.quoted || false}
-                                                    onChange={(e) =>
-                                                        setFieldValue("quoted", e.target.checked)
-                                                    }
-                                                /> */}
                                                 Quoted
                                             </label>
 

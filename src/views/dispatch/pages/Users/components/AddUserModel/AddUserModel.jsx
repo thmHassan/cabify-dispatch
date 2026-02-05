@@ -32,13 +32,7 @@ const AddUserModel = ({ initialValue = {}, setIsOpen, onUserCreated }) => {
             formDataObj.append('phone_no', values.phoneNumber || '');
             formDataObj.append('address', values.address || '');
             formDataObj.append('city', values.city || '');
-
-            // Password handling: 
-            // - In create mode: always send the password
-            // - In edit mode: only send if password field has been changed (not empty)
-            //   Otherwise send the original password from initialValue
             if (isEditMode) {
-                // If user typed a new password, use it; otherwise use the original password
                 const passwordToSend = values.password.trim() !== ''
                     ? values.password
                     : initialValue.original_password || '';
@@ -47,7 +41,6 @@ const AddUserModel = ({ initialValue = {}, setIsOpen, onUserCreated }) => {
                     formDataObj.append('password', passwordToSend);
                 }
             } else {
-                // Create mode: password is required
                 formDataObj.append('password', values.password);
             }
 
@@ -56,7 +49,6 @@ const AddUserModel = ({ initialValue = {}, setIsOpen, onUserCreated }) => {
                 : await apiCreateUser(formDataObj);
 
             if (response?.data?.success === 1 || response?.status === 200) {
-                // Success toast
                 toast.success(
                     isEditMode ? 'User updated successfully!' : 'User created successfully!',
                 );
@@ -69,14 +61,12 @@ const AddUserModel = ({ initialValue = {}, setIsOpen, onUserCreated }) => {
             } else {
                 const errorMsg = response?.data?.message || `Failed to ${isEditMode ? 'update' : 'create'} user`;
                 setSubmitError(errorMsg);
-                // Error toast
                 toast.error(errorMsg, {
                 });
             }
         } catch (error) {
             const errorMsg = error?.response?.data?.message || error?.message || `Error ${isEditMode ? 'updating' : 'creating'} user`;
             setSubmitError(errorMsg);
-            // Error toast
             toast.error(errorMsg, {
             });
         } finally {
@@ -99,7 +89,7 @@ const AddUserModel = ({ initialValue = {}, setIsOpen, onUserCreated }) => {
                     name: initialValue.name || '',
                     email: initialValue.email || '',
                     phoneNumber: initialValue.phone_no || '',
-                    password: '', // Always empty - user will type new password if they want to change
+                    password: '', 
                     address: initialValue.address || '',
                     city: initialValue.city || '',
                     isEditMode,

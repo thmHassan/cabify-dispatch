@@ -5,7 +5,6 @@ import CancellationsIcon from "../../components/svg/CancellationsIcon";
 import UsersIcon from "../../components/svg/UsersIcon";
 import DriverIcon from "../../components/svg/DriverIcon";
 import RidesManagementIcon from "../../components/svg/RidesManagementIcon";
-import AccountIcon from "../../components/svg/AccountIcon";
 import TicketsIcon from "../../components/svg/TicketsIcon";
 import SosIcon from "../../components/svg/SosIcon";
 import LostFoundIcon from "../../components/svg/LostFoundIcon";
@@ -114,20 +113,6 @@ const userNavRoutes = [
         subMenu: [],
         isStatic: false,
       },
-      // {
-      //   key: KEY.ACCOUNTS_KEY,
-      //   title: "Accounts",
-      //   icon: {
-      //     active: AccountIcon,
-      //     component: AccountIcon,
-      //     size: 20,
-      //   },
-      //   route: PATH.ACCOUNTS_PATH,
-      //   active: [],
-      //   isSubMenu: false,
-      //   subMenu: [],
-      //   isStatic: false,
-      // },
       {
         key: KEY.TICKETS_KEY,
         title: "Tickets",

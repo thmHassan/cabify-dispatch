@@ -15,6 +15,9 @@ import NoShowIcon from "../../../../components/svg/NoShowIcon";
 import CancelledIcon from "../../../../components/svg/CancelledIcon";
 import AdvanceSearchIcon from "../../../../components/svg/AdvanceSearchIcon";
 import { useAppSelector } from "../../../../store";
+import { apiGetDispatchSystem } from "../../../../services/SettingsConfigurationServices";
+import { getDashboardCards } from "../../../../services/AddBookingServices";
+import CallQueueModel from "./components/CallQueueModel/CallQueueModel";
 
 const GOOGLE_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
 
@@ -86,16 +89,92 @@ const Overview = () => {
     isOpen: false,
   });
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [isAddBookingDisabled, setIsAddBookingDisabled] = useState(false);
+  const [isLoadingDispatchSystem, setIsLoadingDispatchSystem] = useState(true);
+  const [activeBookingFilter, setActiveBookingFilter] = useState("");
+  const [dashboardCounts, setDashboardCounts] = useState({
+    todaysBooking: 0,
+    preBookings: 0,
+    recentJobs: 0,
+    completed: 0,
+    noShow: 0,
+    cancelled: 0,
+  });
+
+  useEffect(() => {
+    const fetchDashboardCards = async () => {
+      try {
+        const res = await getDashboardCards();
+        if (res.data?.success) {
+          setDashboardCounts(res.data.data);
+        }
+      } catch (err) {
+        console.error("❌ Dashboard cards error:", err);
+      }
+    };
+
+    fetchDashboardCards();
+  }, []);
 
   const tabs = [
-    { id: "today", label: "TODAY'S BOOKING", count: 0, icon: TodayBookingIcon, color: "bg-[#1F41BB]" },
-    { id: "pre", label: "PRE BOOKINGS", count: 1, icon: PreBookingIcon, color: "bg-blue-500" },
-    { id: "recent", label: "RECENT JOBS", count: 0, icon: TodayBookingIcon, color: "bg-blue-500" },
-    { id: "completed", label: "COMPLETED", count: 0, icon: TodayBookingIcon, color: "bg-blue-500" },
-    { id: "noshow", label: "NO SHOW", count: 0, icon: NoShowIcon, color: "bg-blue-500" },
-    { id: "cancelled", label: "CANCELLED", count: 0, icon: CancelledIcon, color: "bg-blue-500" },
-    { id: "advance", label: "ADVANCE SEARCH", icon: AdvanceSearchIcon, color: "bg-blue-500" },
+    {
+      id: "today",
+      label: "TODAY'S BOOKING",
+      count: dashboardCounts.todaysBooking,
+      icon: TodayBookingIcon,
+      color: "bg-[#1F41BB]",
+    },
+    {
+      id: "pre",
+      label: "PRE BOOKINGS",
+      count: dashboardCounts.preBookings,
+      icon: PreBookingIcon,
+      color: "bg-blue-500",
+    },
+    {
+      id: "recent",
+      label: "RECENT JOBS",
+      count: dashboardCounts.recentJobs,
+      icon: TodayBookingIcon,
+      color: "bg-blue-500",
+    },
+    {
+      id: "completed",
+      label: "COMPLETED",
+      count: dashboardCounts.completed,
+      icon: TodayBookingIcon,
+      color: "bg-blue-500",
+    },
+    // {
+    //   id: "noshow",
+    //   label: "NO SHOW",
+    //   count: dashboardCounts.noShow,
+    //   icon: NoShowIcon,
+    //   color: "bg-blue-500",
+    // },
+    {
+      id: "cancelled",
+      label: "CANCELLED",
+      count: dashboardCounts.cancelled,
+      icon: CancelledIcon,
+      color: "bg-blue-500",
+    },
+    // {
+    //   id: "advance",
+    //   label: "ADVANCE SEARCH",
+    //   icon: AdvanceSearchIcon,
+    //   color: "bg-blue-500",
+    // },
   ];
+
+  const TAB_FILTER_MAP = {
+    today: "todays_booking",
+    pre: "pre_bookings",
+    recent: "recent_jobs",
+    completed: "completed",
+    noshow: "no_show",
+    cancelled: "cancelled",
+  };
 
   const socket = useSocket();
 
@@ -107,7 +186,6 @@ const Overview = () => {
   const [waitingDrivers, setWaitingDrivers] = useState([]);
   const [onJobDrivers, setOnJobDrivers] = useState([]);
 
-  // Calculate driver counts by status
   const driverCounts = React.useMemo(() => {
     const counts = {
       busy: 0,
@@ -134,6 +212,75 @@ const Overview = () => {
       ? user.name.charAt(0).toUpperCase() + user.name.slice(1)
       : "Admin";
 
+  const checkDispatchSystem = async () => {
+    try {
+      setIsLoadingDispatchSystem(true);
+      const response = await apiGetDispatchSystem()
+
+      let data = response?.data?.data || response?.data || response;
+
+      if (!Array.isArray(data)) {
+        console.warn("⚠️ Response data is not an array:", typeof data, data);
+
+        if (data && typeof data === 'object') {
+          const possibleArrayKeys = ['items', 'results', 'dispatches', 'systems', 'list'];
+          for (const key of possibleArrayKeys) {
+            if (Array.isArray(data[key])) {
+              data = data[key];
+              break;
+            }
+          }
+        }
+
+        if (!Array.isArray(data)) {
+          if (data && typeof data === 'object' && Object.keys(data).length > 0) {
+            data = [data];
+          } else {
+            console.warn("❌ Could not convert data to array, disabling button");
+            setIsAddBookingDisabled(true);
+            return;
+          }
+        }
+      }
+
+      // Check if either manual_dispatch_only or auto_dispatch_nearest_driver is enabled
+      const hasManualDispatchEnabled = data.some((item) => {
+        const isManualDispatch = item.dispatch_system === "manual_dispatch_only";
+        const isEnabled = item.status === "enable" || item.status === "enabled" || item.status === 1 || item.status === true;
+        return isManualDispatch && isEnabled;
+      });
+
+      const hasAutoDispatchNearestEnabled = data.some((item) => {
+        const isAutoDispatchNearest = item.dispatch_system === "auto_dispatch_nearest_driver";
+        const isEnabled = item.status === "enable" || item.status === "enabled" || item.status === 1 || item.status === true;
+        return isAutoDispatchNearest && isEnabled;
+      });
+
+      // Button should be enabled if at least one of these systems is enabled
+      const shouldEnableButton = hasManualDispatchEnabled || hasAutoDispatchNearestEnabled;
+
+      // console.log("🎯 Dispatch System Status:", {
+      //   manual_dispatch_only: hasManualDispatchEnabled,
+      //   auto_dispatch_nearest_driver: hasAutoDispatchNearestEnabled,
+      //   buttonEnabled: shouldEnableButton
+      // });
+
+      setIsAddBookingDisabled(!shouldEnableButton);
+
+    } catch (error) {
+      console.error("❌ Error fetching dispatch system:", error);
+      console.error("Error details:", {
+        message: error.message,
+        response: error.response,
+        data: error.response?.data
+      });
+
+      setIsAddBookingDisabled(true);
+    } finally {
+      setIsLoadingDispatchSystem(false);
+    }
+  };
+
   useEffect(() => {
     let isMounted = true;
 
@@ -156,6 +303,9 @@ const Overview = () => {
         console.log("Google Maps initialized");
       })
       .catch((err) => console.error("Google Maps load failed:", err));
+
+    // Check dispatch system on component mount
+    checkDispatchSystem();
 
     return () => {
       isMounted = false;
@@ -197,7 +347,6 @@ const Overview = () => {
 
       console.log("Received driver-location-update:", rawData);
 
-      // Parse JSON string if needed
       let data;
       try {
         if (typeof rawData === 'string') {
@@ -211,14 +360,12 @@ const Overview = () => {
         return;
       }
 
-      // Log the full data structure to debug
       console.log("Full data object:", JSON.stringify(data, null, 2));
 
-      // Extract driver ID from the new data structure
       const driverId = data?.id;
       const latitude = data?.latitude;
       const longitude = data?.longitude;
-      const drivingStatus = data?.driving_status; // This should be "busy" or "idle"
+      const drivingStatus = data?.driving_status;
       const name = data?.name || `Driver ${driverId}`;
       const phoneNo = data?.phone_no || "";
       const vehiclePlateNo = data?.plate_no || "";
@@ -233,68 +380,58 @@ const Overview = () => {
         allKeys: Object.keys(data || {})
       });
 
-      // Validate that we have the required data
       if (!driverId && driverId !== 0) {
-        console.warn("❌ No driver ID found in data");
+        console.warn("No driver ID found in data");
         return;
       }
 
       if (!latitude || !longitude) {
-        console.warn("❌ Could not extract location from data");
+        console.warn("Could not extract location from data");
         return;
       }
 
-      // If driving_status is not present or not valid, use a default
       const validStatus = (drivingStatus === 'busy' || drivingStatus === 'idle')
         ? drivingStatus
-        : 'idle'; // default to idle if status is missing or invalid
+        : 'idle';
 
       if (!drivingStatus) {
-        console.warn("⚠️ No driving_status found in data, using default 'idle'");
+        console.warn("No driving_status found in data, using default 'idle'");
       } else if (drivingStatus !== 'busy' && drivingStatus !== 'idle') {
-        console.warn(`⚠️ Invalid driving_status '${drivingStatus}', using default 'idle'`);
+        console.warn(`Invalid driving_status '${drivingStatus}', using default 'idle'`);
       }
 
-      console.log("✅ Processing driver:", { driverId, latitude, longitude, drivingStatus: validStatus });
+      console.log("Processing driver:", { driverId, latitude, longitude, drivingStatus: validStatus });
 
       const position = {
         lat: Number(latitude),
         lng: Number(longitude),
       };
 
-      // Store driver data for filtering
       setDriverData((prev) => ({
         ...prev,
         [driverId]: { ...data, position, name, status: validStatus },
       }));
 
-      // Determine marker icon based on driving_status
       const markerIcon = MARKER_ICONS[validStatus] || MARKER_ICONS.idle;
 
       if (markers.current[driverId]) {
-        // Update existing marker with smooth animation
         const marker = markers.current[driverId];
         const oldPosition = marker.getPosition();
         const oldLat = oldPosition.lat();
         const oldLng = oldPosition.lng();
 
-        // Calculate distance between old and new position
         const latDiff = Math.abs(oldLat - position.lat);
         const lngDiff = Math.abs(oldLng - position.lng);
         const distance = Math.sqrt(latDiff * latDiff + lngDiff * lngDiff);
 
-        // Only animate if distance is small (to avoid long animations across the map)
-        // 0.01 degrees is roughly 1 km
         if (distance < 0.01) {
-          animateMarker(marker, position, 1000); // 1 second smooth animation
+          animateMarker(marker, position, 1000);
         } else {
-          // For large jumps, just set position directly
           marker.setPosition(position);
         }
 
         marker.setIcon(markerIcon);
 
-        // Update info window content
         if (marker.infoWindow) {
           marker.infoWindow.setContent(`
             <div style="padding: 5px;">
@@ -305,9 +442,8 @@ const Overview = () => {
           `);
         }
 
-        console.log(`✅ Animated driver ${driverId} to:`, position);
+        console.log(`Animated driver ${driverId} to:`, position);
       } else {
-        // Create new marker
         const marker = new window.google.maps.Marker({
           position,
           map: mapInstance.current,
@@ -316,7 +452,6 @@ const Overview = () => {
           animation: window.google.maps.Animation.DROP,
         });
 
-        // Add info window
         const infoWindow = new window.google.maps.InfoWindow({
           content: `
             <div style="padding: 5px;">
@@ -328,7 +463,6 @@ const Overview = () => {
         });
 
         marker.addListener("click", () => {
-          // Close all other info windows
           Object.values(markers.current).forEach((m) => {
             if (m.infoWindow) m.infoWindow.close();
           });
@@ -337,13 +471,11 @@ const Overview = () => {
 
         marker.infoWindow = infoWindow;
         markers.current[driverId] = marker;
-        console.log(`✅ Created marker for driver ${driverId} at:`, position);
+        console.log(`Created marker for driver ${driverId} at:`, position);
       }
 
-      // Apply filter based on selected status
       updateMarkerVisibility();
 
-      // Auto-fit map to show all markers (only on first marker)
       if (Object.keys(markers.current).length <= 1) {
         setTimeout(() => fitMapToMarkers(), 100);
       }
@@ -377,76 +509,63 @@ const Overview = () => {
 
       let data;
       try {
-        // First try to parse if it's a JSON string
         if (typeof rawData === 'string') {
           try {
             data = JSON.parse(rawData);
-            console.log("✅ Parsed JSON string:", data);
+            console.log("Parsed JSON string:", data);
           } catch (parseError) {
-            // If parsing fails, it might be just a simple string
-            console.log("⚠️ String is not JSON, treating as single value:", rawData);
+            console.log("String is not JSON, treating as single value:", rawData);
             data = rawData;
           }
         } else {
           data = rawData;
         }
       } catch (error) {
-        console.error("❌ Failed to process waiting drivers data:", error);
+        console.error("Failed to process waiting drivers data:", error);
         return;
       }
 
-      console.log("✅ Processed waiting drivers data:", data);
+      console.log("Processed waiting drivers data:", data);
 
-      // Handle different data structures
       if (Array.isArray(data)) {
-        // Array of drivers
         setWaitingDrivers(data);
       } else if (data?.drivers && Array.isArray(data.drivers)) {
-        // Object with drivers array
         setWaitingDrivers(data.drivers);
       } else if (data?.data && Array.isArray(data.data)) {
-        // Object with data array
         setWaitingDrivers(data.data);
       } else if (data?.driverName || data?.driver_name) {
-        // Single driver object with driverName or driver_name field
-        console.log("✅ Received single driver object with driverName/driver_name");
+        console.log("Received single driver object with driverName/driver_name");
         const driverObj = {
           id: Date.now(),
           name: data.driverName || data.driver_name,
           plot: data.plot || data.plot_id || data.plot_name || 'N/A',
           vehicle: data.vehicle || data.vehicle_type || data.vehicle_name || 'N/A',
           rank: data.rank || data.ranking || 1,
-          ...data // Include all other fields
+          ...data
         };
-        // Add to existing array instead of replacing
         setWaitingDrivers((prev) => {
-          // Check if driver already exists
           const exists = prev.some(d =>
             (d.name === driverObj.name && d.plot === driverObj.plot) ||
             (d.id === driverObj.id)
           );
           if (exists) {
-            // Update existing driver
             return prev.map(d =>
               (d.name === driverObj.name && d.plot === driverObj.plot)
                 ? driverObj
                 : d
             );
           }
-          // Add new driver
           return [...prev, driverObj];
         });
       } else if (typeof data === 'string') {
-        // If it's just a string, create a simple object
-        console.log("⚠️ Received simple string, creating basic driver object");
+        console.log("Received simple string, creating basic driver object");
         const driverObj = { name: data, id: Date.now(), plot: 'N/A', vehicle: 'N/A', rank: 1 };
         setWaitingDrivers((prev) => [...prev, driverObj]);
       } else if (typeof data === 'object' && data !== null) {
-        // If it's a single object without driverName, wrap it in an array
-        console.log("⚠️ Received single object, wrapping in array");
+        console.log("Received single object, wrapping in array");
         setWaitingDrivers([{ ...data, id: data.id || Date.now() }]);
       } else {
-        console.warn("⚠️ Unknown data structure for waiting drivers:", data);
+        console.warn("Unknown data structure for waiting drivers:", data);
         setWaitingDrivers([]);
       }
     };
@@ -462,81 +581,68 @@ const Overview = () => {
     if (!socket) return;
 
     const handleOnJobDrivers = (rawData) => {
-      console.log("Received on-job-driver-event:", rawData);
-      console.log("Type of rawData:", typeof rawData);
-      console.log("Raw data structure:", JSON.stringify(rawData, null, 2));
+      // console.log("Received on-job-driver-event:", rawData);
+      // console.log("Type of rawData:", typeof rawData);
+      // console.log("Raw data structure:", JSON.stringify(rawData, null, 2));
 
       let data;
       try {
-        // First try to parse if it's a JSON string
         if (typeof rawData === 'string') {
           try {
             data = JSON.parse(rawData);
-            console.log("✅ Parsed JSON string:", data);
+            console.log("Parsed JSON string:", data);
           } catch (parseError) {
-            // If parsing fails, it might be just a simple string (like "Jatin")
-            console.log("⚠️ String is not JSON, treating as single value:", rawData);
+            console.log("String is not JSON, treating as single value:", rawData);
             data = rawData;
           }
         } else {
           data = rawData;
         }
       } catch (error) {
-        console.error("❌ Failed to process on-job drivers data:", error);
+        console.error("Failed to process on-job drivers data:", error);
         return;
       }
 
-      console.log("✅ Processed on-job drivers data:", data);
+      console.log("Processed on-job drivers data:", data);
 
-      // Handle different data structures
       if (Array.isArray(data)) {
-        // Array of drivers
         setOnJobDrivers(data);
       } else if (data?.drivers && Array.isArray(data.drivers)) {
-        // Object with drivers array
         setOnJobDrivers(data.drivers);
       } else if (data?.data && Array.isArray(data.data)) {
-        // Object with data array
         setOnJobDrivers(data.data);
       } else if (data?.driverName || data?.driver_name) {
-        // Single driver object with driverName or driver_name field
-        console.log("✅ Received single driver object with driverName/driver_name");
+        console.log("Received single driver object with driverName/driver_name");
         const driverObj = {
           id: Date.now(),
           name: data.driverName || data.driver_name,
           job_id: data.job_id || data.booking_id || data.ride_id || 'N/A',
           plot: data.plot || data.plot_id || data.plot_name,
-          ...data // Include all other fields
+          ...data
         };
-        // Add to existing array instead of replacing
         setOnJobDrivers((prev) => {
-          // Check if driver already exists
           const exists = prev.some(d =>
             (d.name === driverObj.name && d.job_id === driverObj.job_id) ||
             (d.id === driverObj.id)
           );
           if (exists) {
-            // Update existing driver
             return prev.map(d =>
               (d.name === driverObj.name)
                 ? driverObj
                 : d
             );
           }
-          // Add new driver
           return [...prev, driverObj];
         });
       } else if (typeof data === 'string') {
-        // If it's just a string (like "Jatin"), create a simple object
-        console.log("⚠️ Received simple string, creating basic driver object");
+        console.log("Received simple string, creating basic driver object");
         const driverObj = { name: data, id: Date.now(), job_id: 'N/A' };
         setOnJobDrivers((prev) => [...prev, driverObj]);
       } else if (typeof data === 'object' && data !== null) {
-        // If it's a single object without driverName, wrap it in an array
-        console.log("⚠️ Received single object, wrapping in array");
+        console.log("Received single object, wrapping in array");
         setOnJobDrivers([{ ...data, id: data.id || Date.now() }]);
       } else {
-        console.warn("⚠️ Unknown data structure for on-job drivers:", data);
+        console.warn("Unknown data structure for on-job drivers:", data);
         setOnJobDrivers([]);
       }
     };
@@ -632,10 +738,21 @@ const Overview = () => {
             type="filled"
             btnSize="md"
             onClick={() => {
-              lockBodyScroll();
-              setIsBookingModelOpen({ isOpen: true, type: "new" });
+              if (!isAddBookingDisabled && !isLoadingDispatchSystem) {
+                lockBodyScroll();
+                setIsBookingModelOpen({ isOpen: true, type: "new" });
+              }
             }}
-            className="w-full sm:w-auto -mb-2 sm:-mb-3 lg:-mb-3 !py-3.5 sm:!py-3 lg:!py-3"
+            disabled={isAddBookingDisabled || isLoadingDispatchSystem}
+            className={`w-full sm:w-auto -mb-2 sm:-mb-3 lg:-mb-3 !py-3.5 sm:!py-3 lg:!py-3 ${isAddBookingDisabled || isLoadingDispatchSystem
+              ? '!bg-gray-400 !cursor-not-allowed opacity-60 hover:!bg-gray-400'
+              : ''
+              }`}
+            style={
+              isAddBookingDisabled || isLoadingDispatchSystem
+                ? { pointerEvents: 'none' }
+                : {}
+            }
           >
             <div className="flex gap-2 sm:gap-[15px] items-center justify-center whitespace-nowrap">
               <span className="hidden sm:inline-block">
@@ -644,7 +761,9 @@ const Overview = () => {
               <span className="sm:hidden">
                 <PlusIcon height={16} width={16} />
               </span>
-              <span>Create Booking</span>
+              <span>
+                {isLoadingDispatchSystem ? 'Create Booking' : 'Create Booking'}
+              </span>
             </div>
           </Button>
         </div>
@@ -699,7 +818,6 @@ const Overview = () => {
                     <tr key={driver.id || driver.driver_id || i} className="border-t">
                       <td className="py-1">{i + 1}</td>
                       <td>{driver.plot || driver.location || driver.plot_name || 'N/A'}</td>
-                      {/* <td>{driver.vehicle || driver.vehicle_type || driver.vehicle_name || 'N/A'}</td> */}
                       <td>{driver.name || driver.driver_name || `Driver ${i + 1}`}</td>
                       <td className="text-right">{driver.rank || driver.ranking || i + 1}</td>
                     </tr>
@@ -734,7 +852,6 @@ const Overview = () => {
                     <tr key={driver.id || driver.driver_id || i} className="border-t">
                       <td className="py-1">{i + 1}</td>
                       <td>{driver.name || driver.driver_name || `Driver ${i + 1}`}</td>
-                      {/* <td>{driver.job_id || driver.booking_id || driver.ride_id || 'N/A'}</td> */}
                     </tr>
                   ))
                 ) : (
@@ -767,42 +884,24 @@ const Overview = () => {
       </div>
 
       <div className="px-4 sm:p-6 ">
-        <OverViewDetails />
+        <OverViewDetails filter={activeBookingFilter} />
       </div>
 
       <div
-        className="
-    grid gap-3
-    grid-cols-2
-    sm:grid-cols-3
-    md:grid-cols-4
-    lg:grid-cols-7
-  "
+        className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-0.5 overflow-hidden rounded-lg"
       >
         {tabs.map((tab) => (
           <button
             key={tab.id}
-            className={`
-        flex items-center justify-center gap-2
-        px-3 py-2.5
-        rounded-lg
-        font-semibold text-white text-[11px] sm:text-xs
-        transition-all duration-200
-        hover:opacity-90 hover:shadow-md
-        ${tab.color}
-      `}
+            onClick={() => {
+              const backendFilter = TAB_FILTER_MAP[tab.id] || "";
+              setActiveBookingFilter(backendFilter);
+            }}
+            className={`flex items-center justify-center gap-2 px-3 py-2.5 font-semibold text-white text-[11px] ${tab.color}`}
           >
             {tab.icon && <tab.icon className="w-4 h-4" />}
-
-            <span className="uppercase tracking-wide text-center">
-              {tab.label}
-            </span>
-
-            {tab.count !== undefined && (
-              <span className="bg-white/30 px-2 py-0.5 rounded-full text-[10px]">
-                ({tab.count})
-              </span>
-            )}
+            <span>{tab.label}</span>
+            {tab.count !== undefined && <span>({tab.count})</span>}
           </button>
         ))}
       </div>
@@ -818,7 +917,7 @@ const Overview = () => {
       </Modal>
 
       <Modal isOpen={isMessageModelOpen.isOpen}>
-        <MessageModel
+        <CallQueueModel
           setIsOpen={setIsMessageModelOpen}
           onClose={() => setIsMessageModelOpen({ isOpen: false })}
           refreshList={() => setRefreshTrigger(prev => prev + 1)}

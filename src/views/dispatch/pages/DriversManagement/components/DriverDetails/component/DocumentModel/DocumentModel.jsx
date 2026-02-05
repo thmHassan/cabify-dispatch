@@ -1,10 +1,10 @@
-import { ErrorMessage, Field, Form, Formik } from "formik";
-import React, { useEffect, useState } from "react";
+import { Field, Form, Formik } from "formik";
+import { useEffect, useState } from "react";
 import FormLabel from "../../../../../../../../components/ui/FormLabel";
 import Button from "../../../../../../../../components/ui/Button/Button";
 import { unlockBodyScroll } from "../../../../../../../../utils/functions/common.function";
 
-const DocumentModel = ({ initialValue = {}, setIsOpen, onDocumentCreated }) => {
+const DocumentModel = ({ initialValue = {}, setIsOpen, }) => {
     const [submitError, setSubmitError] = useState(null);
     const [isLoading, setIsLoading] = useState(false);
     const [isEditMode, setIsEditMode] = useState(false);
@@ -56,63 +56,108 @@ const DocumentModel = ({ initialValue = {}, setIsOpen, onDocumentCreated }) => {
                                     </div>
                                 )}
                                 <div className="mb-6">
-                                    <div className="w-full mb-4">
-                                        <FormLabel htmlFor="documentName">Document Name</FormLabel>
-                                        <div className="h-12">
-                                            <Field
-                                                type="text"
-                                                name="documentName"
-                                                disabled={isEditMode}
-                                                className="px-4 py-3 border border-[#8D8D8D] rounded-lg w-full h-full placeholder:text-[#6C6C6C] text-sm font-medium disabled:bg-gray-100 disabled:text-gray-600"
-                                                placeholder="Enter Document Name"
-                                            />
-                                        </div>
-                                    </div>
-
-                                    <div className="w-full mb-4">
-                                        <FormLabel htmlFor="issueDate">Issue Date</FormLabel>
-                                        <div className="h-12">
-                                            <Field
-                                                type="text"
-                                                name="issueDate"
-                                                disabled={isEditMode}
-                                                className="px-4 py-3 border border-[#8D8D8D] rounded-lg w-full h-full placeholder:text-[#6C6C6C] text-sm font-medium disabled:bg-gray-100 disabled:text-gray-600"
-                                                placeholder="Issue Date"
-                                            />
-                                        </div>
-                                    </div>
-
-                                    <div className="w-full mb-4">
-                                        <FormLabel htmlFor="expiryDate">Expiry Date</FormLabel>
-                                        <div className="h-12">
-                                            <Field
-                                                type="text"
-                                                name="expiryDate"
-                                                disabled={isEditMode}
-                                                className="px-4 py-3 border border-[#8D8D8D] rounded-lg w-full h-full placeholder:text-[#6C6C6C] text-sm font-medium disabled:bg-gray-100 disabled:text-gray-600"
-                                                placeholder="Expiry Date"
-                                            />
-                                        </div>
-                                    </div>
-
-                                    <div className="grid grid-cols-3 gap-4 mt-4">
-                                        {values.profilePhoto && (
-                                            <div className="flex flex-col items-center">
-                                                <FormLabel>Profile Photo</FormLabel>
-                                                <div className="w-24 h-24 border border-gray-300 rounded-lg overflow-hidden bg-gray-100 flex items-center justify-center">
-                                                    {values.profilePhoto === 'image' ? (
-                                                        <span className="text-xs text-gray-500">Image</span>
-                                                    ) : (
-                                                        <img
-                                                            src={values.profilePhoto}
-                                                            alt="Profile"
-                                                            className="w-full h-full object-cover"
-                                                        />
-                                                    )}
-                                                </div>
+                                    {values.documentName && (
+                                        <div className="w-full mb-4">
+                                            <FormLabel htmlFor="documentName">Document Name</FormLabel>
+                                            <div className="h-12">
+                                                <Field
+                                                    type="text"
+                                                    name="documentName"
+                                                    disabled={isEditMode}
+                                                    className="px-4 py-3 border border-[#8D8D8D] rounded-lg w-full h-full placeholder:text-[#6C6C6C] text-sm font-medium disabled:bg-gray-100 disabled:text-gray-600"
+                                                    placeholder="Enter Document Name"
+                                                />
                                             </div>
-                                        )}
-                                    </div>
+                                        </div>
+                                    )}
+
+                                    {values.issueDate && (
+                                        <div className="w-full mb-4">
+                                            <FormLabel htmlFor="issueDate">Issue Date</FormLabel>
+                                            <div className="h-12">
+                                                <Field
+                                                    type="text"
+                                                    name="issueDate"
+                                                    disabled={isEditMode}
+                                                    className="px-4 py-3 border border-[#8D8D8D] rounded-lg w-full h-full placeholder:text-[#6C6C6C] text-sm font-medium disabled:bg-gray-100 disabled:text-gray-600"
+                                                    placeholder="Issue Date"
+                                                />
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {values.expiryDate && (
+                                        <div className="w-full mb-4">
+                                            <FormLabel htmlFor="expiryDate">Expiry Date</FormLabel>
+                                            <div className="h-12">
+                                                <Field
+                                                    type="text"
+                                                    name="expiryDate"
+                                                    disabled={isEditMode}
+                                                    className="px-4 py-3 border border-[#8D8D8D] rounded-lg w-full h-full placeholder:text-[#6C6C6C] text-sm font-medium disabled:bg-gray-100 disabled:text-gray-600"
+                                                    placeholder="Expiry Date"
+                                                />
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {values.numberField && (
+                                        <div className="w-full mb-4">
+                                            <FormLabel htmlFor="numberField">Number</FormLabel>
+                                            <div className="h-12">
+                                                <Field
+                                                    type="text"
+                                                    name="numberField"
+                                                    disabled={isEditMode}
+                                                    className="px-4 py-3 border border-[#8D8D8D] rounded-lg w-full h-full placeholder:text-[#6C6C6C] text-sm font-medium disabled:bg-gray-100 disabled:text-gray-600"
+                                                    placeholder="Number"
+                                                />
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {(values.frontPhoto || values.backPhoto || values.profilePhoto) && (
+                                        <div className="grid grid-cols-3 gap-4 mt-4">
+                                            {values.frontPhoto && (
+                                                <div className="flex flex-col items-center">
+                                                    <FormLabel>Front Photo</FormLabel>
+                                                    <div className="w-24 h-24 border border-gray-300 rounded-lg overflow-hidden bg-gray-100 flex items-center justify-center">
+                                                        <img
+                                                            src={`${import.meta.env.VITE_BACKEND_URL}${values.frontPhoto}`}
+                                                            className="w-full h-full object-cover"
+                                                            alt="vehicle"
+                                                        />
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {values.backPhoto && (
+                                                <div className="flex flex-col items-center">
+                                                    <FormLabel>Back Photo</FormLabel>
+                                                    <div className="w-24 h-24 border border-gray-300 rounded-lg overflow-hidden bg-gray-100 flex items-center justify-center">
+                                                        <img
+                                                            src={`${import.meta.env.VITE_BACKEND_URL}${values.backPhoto}`}
+                                                            className="w-full h-full object-cover"
+                                                            alt="vehicle"
+                                                        />
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {values.profilePhoto && (
+                                                <div className="flex flex-col items-center">
+                                                    <FormLabel>Profile Photo</FormLabel>
+                                                    <div className="w-24 h-24 border border-gray-300 rounded-lg overflow-hidden bg-gray-100 flex items-center justify-center">
+                                                        <img
+                                                            src={`${import.meta.env.VITE_BACKEND_URL}${values.profilePhoto}`}
+                                                            className="w-full h-full object-cover"
+                                                            alt="vehicle"
+                                                        />
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
                                 </div>
 
                                 <div className="flex flex-col sm:flex-row gap-3 sm:gap-5 justify-end">

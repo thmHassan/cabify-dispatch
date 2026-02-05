@@ -1,11 +1,13 @@
 import React, { useEffect, useRef, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useSocket } from "../../../../components/routes/SocketProvider";
 import PageTitle from "../../../../components/ui/PageTitle/PageTitle";
 import PageSubTitle from "../../../../components/ui/PageSubTitle";
-import SearchBar from "../../../../components/shared/SearchBar/SearchBar";
 import CardContainer from "../../../../components/shared/CardContainer";
 import CustomSelect from "../../../../components/ui/CustomSelect";
 import { MAP_STATUS_OPTIONS } from "../../../../constants/selectOptions";
+import toast from "react-hot-toast";
+import { followDriverTracking } from "../../../../services/AddBookingServices";
 
 const GOOGLE_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
 
@@ -49,7 +51,6 @@ const animateMarker = (marker, newPosition, duration = 1000) => {
     const elapsed = Date.now() - startTime;
     const progress = Math.min(elapsed / duration, 1);
 
-    // Easing function for smooth animation (ease-in-out)
     const easeProgress = progress < 0.5
       ? 2 * progress * progress
       : 1 - Math.pow(-2 * progress + 2, 2) / 2;
@@ -68,17 +69,19 @@ const animateMarker = (marker, newPosition, duration = 1000) => {
 };
 
 const Map = () => {
-  const [searchQuery, setSearchQuery] = useState("");
   const [selectedStatus, setSelectedStatus] = useState(
     MAP_STATUS_OPTIONS.find((o) => o.value === "all") ?? MAP_STATUS_OPTIONS[0]
   );
 
+  const location = useLocation();
+  const navigate = useNavigate();
   const socket = useSocket();
 
   const mapRef = useRef(null);
   const mapInstance = useRef(null);
   const markers = useRef({});
   const [driverData, setDriverData] = useState({});
+  const [trackingBooking, setTrackingBooking] = useState(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -108,6 +111,181 @@ const Map = () => {
     };
   }, []);
 
+  useEffect(() => {
+    if (location.state?.trackingBookingId) {
+      const { trackingBookingId, driverId, driverName, bookingReference } = location.state;
+
+      console.log("Starting driver tracking for booking:", trackingBookingId);
+
+      setTrackingBooking({
+        id: trackingBookingId,
+        driverId,
+        driverName,
+        bookingReference
+      });
+
+      startDriverTracking(trackingBookingId);
+
+      navigate(location.pathname, { replace: true, state: {} });
+    }
+  }, [location.state]);
+
+  const startDriverTracking = async (bookingId) => {
+    try {
+      const response = await followDriverTracking(bookingId);
+
+      if (response.data?.success) {
+        console.log("Driver tracking started:", response.data);
+
+        const driverData = response.data.data.driver;
+
+        if (driverData.latitude && driverData.longitude && mapInstance.current) {
+          const position = {
+            lat: Number(driverData.latitude),
+            lng: Number(driverData.longitude)
+          };
+
+          mapInstance.current.setCenter(position);
+          mapInstance.current.setZoom(15);
+
+          createOrUpdateDriverMarker({
+            id: driverData.id,
+            name: driverData.name,
+            latitude: driverData.latitude,
+            longitude: driverData.longitude,
+            driving_status: driverData.status,
+            phone_no: driverData.phone_no,
+            plate_no: "",
+          }, true);
+
+          // toast.success(`Now tracking ${driverData.name}`);
+        }
+      }
+    } catch (error) {
+      console.error("Error starting driver tracking:", error);
+      toast.error("Failed to start driver tracking");
+    }
+  };
+
+  const createOrUpdateDriverMarker = (data, isTracked = false) => {
+    if (!mapInstance.current) return;
+
+    const driverId = data.id;
+    const latitude = data.latitude;
+    const longitude = data.longitude;
+    const drivingStatus = data.driving_status || data.status || 'idle';
+    const name = data.name || `Driver ${driverId}`;
+    const phoneNo = data.phone_no || "";
+    const vehiclePlateNo = data.plate_no || "";
+
+    if (!latitude || !longitude) {
+      console.warn("No location data");
+      return;
+    }
+
+    const validStatus = (drivingStatus === 'busy' || drivingStatus === 'idle')
+      ? drivingStatus
+      : 'idle';
+
+    const position = {
+      lat: Number(latitude),
+      lng: Number(longitude),
+    };
+
+    setDriverData((prev) => ({
+      ...prev,
+      [driverId]: { ...data, position, name, status: validStatus },
+    }));
+
+    const isTrackedDriver = trackingBooking && driverId === trackingBooking.driverId;
+
+    let markerIcon;
+    if (validStatus === 'busy') {
+      markerIcon = MARKER_ICONS.busy;
+    } else {
+      markerIcon = MARKER_ICONS.idle;
+    }
+
+    if (isTrackedDriver || isTracked) {
+      markerIcon = {
+        url: validStatus === 'busy' ? MARKER_ICONS.busy : MARKER_ICONS.idle,
+        scaledSize: new window.google.maps.Size(40, 40),
+      };
+    }
+
+    if (markers.current[driverId]) {
+      const marker = markers.current[driverId];
+      const oldPosition = marker.getPosition();
+      const oldLat = oldPosition.lat();
+      const oldLng = oldPosition.lng();
+
+      const latDiff = Math.abs(oldLat - position.lat);
+      const lngDiff = Math.abs(oldLng - position.lng);
+      const distance = Math.sqrt(latDiff * latDiff + lngDiff * lngDiff);
+
+      if (distance < 0.01) {
+        animateMarker(marker, position, 1000);
+      } else {
+        marker.setPosition(position);
+      }
+
+      marker.setIcon(markerIcon);
+
+      if (isTrackedDriver && mapInstance.current) {
+        mapInstance.current.setCenter(position);
+      }
+
+      if (marker.infoWindow) {
+        marker.infoWindow.setContent(`
+          <div style="padding: 8px;">
+            <strong style="font-size: 14px;">${name}</strong>
+            <br/>
+            <span style="font-size: 12px;">Phone: ${phoneNo}</span><br/>
+          </div>
+        `);
+      }
+    } else {
+      const marker = new window.google.maps.Marker({
+        position,
+        map: mapInstance.current,
+        title: name,
+        icon: markerIcon,
+        animation: window.google.maps.Animation.DROP,
+      });
+
+      const infoWindow = new window.google.maps.InfoWindow({
+        content: `
+          <div style="padding: 8px;">
+            <strong style="font-size: 14px;">${name}</strong>
+            ${isTrackedDriver || isTracked ? '<span style="background: #3B82F6; color: white; padding: 2px 8px; border-radius: 4px; font-size: 10px; margin-left: 5px; font-weight: bold;">TRACKING</span>' : ''}
+            <br/>
+            <span style="font-size: 12px;">Phone: ${phoneNo}</span><br/>
+            ${vehiclePlateNo ? `<span style="font-size: 12px;">Vehicle: ${vehiclePlateNo}</span><br/>` : ''}
+            <span style="font-size: 12px;">Status: 
+              <span style="color: ${validStatus === 'busy' ? 'green' : 'red'}; font-weight: bold;">
+                ${validStatus.toUpperCase()}
+              </span>
+            </span>
+          </div>
+        `,
+      });
+
+      marker.addListener("click", () => {
+        Object.values(markers.current).forEach((m) => {
+          if (m.infoWindow) m.infoWindow.close();
+        });
+        infoWindow.open(mapInstance.current, marker);
+      });
+
+      marker.infoWindow = infoWindow;
+      markers.current[driverId] = marker;
+
+      if (isTrackedDriver || isTracked) {
+        infoWindow.open(mapInstance.current, marker);
+      }
+    }
+  };
+
   const fitMapToMarkers = () => {
     if (!mapInstance.current || Object.keys(markers.current).length === 0) return;
 
@@ -124,7 +302,6 @@ const Map = () => {
     if (hasVisibleMarkers) {
       mapInstance.current.fitBounds(bounds);
 
-      // Prevent zooming in too much for single marker
       const zoom = mapInstance.current.getZoom();
       if (zoom > 15) {
         mapInstance.current.setZoom(15);
@@ -143,153 +320,21 @@ const Map = () => {
 
       console.log("Received driver-location-update:", rawData);
 
-      // Parse JSON string if needed
       let data;
       try {
         if (typeof rawData === 'string') {
           data = JSON.parse(rawData);
-          console.log("✅ Parsed JSON data:", data);
         } else {
           data = rawData;
         }
       } catch (error) {
-        console.error("❌ Failed to parse JSON:", error);
+        console.error("Failed to parse JSON:", error);
         return;
       }
 
-      // Log the full data structure to debug
-      console.log("Full data object:", JSON.stringify(data, null, 2));
-
-      // Extract driver ID from the new data structure
-      const driverId = data?.id;
-      const latitude = data?.latitude;
-      const longitude = data?.longitude;
-      const drivingStatus = data?.driving_status; // This should be "busy" or "idle"
-      const name = data?.name || `Driver ${driverId}`;
-      const phoneNo = data?.phone_no || "";
-      const vehiclePlateNo = data?.plate_no || "";
-
-      console.log("Extracted values:", {
-        driverId,
-        latitude,
-        longitude,
-        drivingStatus,
-        name,
-        rawDrivingStatus: data?.driving_status,
-        allKeys: Object.keys(data || {})
-      });
-
-      // Validate that we have the required data
-      if (!driverId && driverId !== 0) {
-        console.warn("❌ No driver ID found in data");
-        return;
-      }
-
-      if (!latitude || !longitude) {
-        console.warn("❌ Could not extract location from data");
-        return;
-      }
-
-      // If driving_status is not present or not valid, use a default
-      const validStatus = (drivingStatus === 'busy' || drivingStatus === 'idle')
-        ? drivingStatus
-        : 'idle'; // default to idle if status is missing or invalid
-
-      if (!drivingStatus) {
-        console.warn("⚠️ No driving_status found in data, using default 'idle'");
-      } else if (drivingStatus !== 'busy' && drivingStatus !== 'idle') {
-        console.warn(`⚠️ Invalid driving_status '${drivingStatus}', using default 'idle'`);
-      }
-
-      console.log("✅ Processing driver:", { driverId, latitude, longitude, drivingStatus: validStatus });
-
-      const position = {
-        lat: Number(latitude),
-        lng: Number(longitude),
-      };
-
-      // Store driver data for filtering
-      setDriverData((prev) => ({
-        ...prev,
-        [driverId]: { ...data, position, name, status: validStatus },
-      }));
-
-      // Determine marker icon based on driving_status
-      const markerIcon = MARKER_ICONS[validStatus] || MARKER_ICONS.idle;
-
-      if (markers.current[driverId]) {
-        // Update existing marker with smooth animation
-        const marker = markers.current[driverId];
-        const oldPosition = marker.getPosition();
-        const oldLat = oldPosition.lat();
-        const oldLng = oldPosition.lng();
-
-        // Calculate distance between old and new position
-        const latDiff = Math.abs(oldLat - position.lat);
-        const lngDiff = Math.abs(oldLng - position.lng);
-        const distance = Math.sqrt(latDiff * latDiff + lngDiff * lngDiff);
-
-        // Only animate if distance is small (to avoid long animations across the map)
-        // 0.01 degrees is roughly 1 km
-        if (distance < 0.01) {
-          animateMarker(marker, position, 1000); // 1 second smooth animation
-        } else {
-          // For large jumps, just set position directly
-          marker.setPosition(position);
-        }
-
-        marker.setIcon(markerIcon);
-
-        // Update info window content
-        if (marker.infoWindow) {
-          marker.infoWindow.setContent(`
-            <div style="padding: 5px;">
-              <strong>${name}</strong><br/>
-              Phone: ${phoneNo}<br/>
-              Vehicle: ${vehiclePlateNo}<br/>
-            </div>
-          `);
-        }
-
-        console.log(`✅ Animated driver ${driverId} to:`, position);
-      } else {
-        // Create new marker
-        const marker = new window.google.maps.Marker({
-          position,
-          map: mapInstance.current,
-          title: name,
-          icon: markerIcon,
-          animation: window.google.maps.Animation.DROP,
-        });
-
-        // Add info window
-        const infoWindow = new window.google.maps.InfoWindow({
-          content: `
-            <div style="padding: 5px;">
-              <strong>${name}</strong><br/>
-              Phone: ${phoneNo}<br/>
-              Vehicle: ${vehiclePlateNo}<br/>
-            </div>
-          `,
-        });
-
-        marker.addListener("click", () => {
-          // Close all other info windows
-          Object.values(markers.current).forEach((m) => {
-            if (m.infoWindow) m.infoWindow.close();
-          });
-          infoWindow.open(mapInstance.current, marker);
-        });
-
-        marker.infoWindow = infoWindow;
-        markers.current[driverId] = marker;
-        console.log(`✅ Created marker for driver ${driverId} at:`, position);
-      }
-
-      // Apply filter based on selected status
+      createOrUpdateDriverMarker(data);
       updateMarkerVisibility();
 
-      // Auto-fit map to show all markers (only on first marker)
       if (Object.keys(markers.current).length <= 1) {
         setTimeout(() => fitMapToMarkers(), 100);
       }
@@ -300,7 +345,7 @@ const Map = () => {
     return () => {
       socket.off("driver-location-update", handleDriverUpdate);
     };
-  }, [socket, selectedStatus, searchQuery]);
+  }, [socket, selectedStatus, trackingBooking]);
 
   const updateMarkerVisibility = () => {
     Object.entries(markers.current).forEach(([driverId, marker]) => {
@@ -313,14 +358,6 @@ const Map = () => {
         visible = driver.status === selectedStatus.value;
       }
 
-      if (searchQuery.trim()) {
-        const query = searchQuery.toLowerCase();
-        const matchesSearch =
-          driver.name?.toLowerCase().includes(query) ||
-          driverId.toString().includes(query);
-        visible = visible && matchesSearch;
-      }
-
       marker.setVisible(visible);
     });
   };
@@ -328,7 +365,7 @@ const Map = () => {
   useEffect(() => {
     updateMarkerVisibility();
     setTimeout(() => fitMapToMarkers(), 100);
-  }, [selectedStatus, searchQuery, driverData]);
+  }, [selectedStatus, driverData]);
 
   return (
     <div className="px-4 py-5 sm:p-6 lg:p-10 min-h-[calc(100vh-85px)]">
@@ -339,7 +376,7 @@ const Map = () => {
 
       <CardContainer className="p-4 bg-[#F5F5F5]">
         <div className="flex flex-row items-stretch sm:items-center gap-3 sm:gap-5 justify-end mb-4 sm:mb-0 pb-4">
-          <div className=" md:flex flex-row gap-3 sm:gap-5 w-full sm:w-auto">
+          <div className="md:flex flex-row gap-3 sm:gap-5 w-full sm:w-auto">
             <CustomSelect
               variant={2}
               options={MAP_STATUS_OPTIONS}

@@ -1,16 +1,14 @@
 import { useEffect, useState } from "react";
 import PageTitle from "../../../../components/ui/PageTitle/PageTitle";
-import PageSubTitle from "../../../../components/ui/PageSubTitle/PageSubTitle";
 import CardContainer from "../../../../components/shared/CardContainer/CardContainer";
 import { ErrorMessage, Field, Form, Formik } from "formik";
 import FormLabel from "../../../../components/ui/FormLabel/FormLabel";
 import FormSelection from "../../../../components/ui/FormSelection/FormSelection";
 import Button from "../../../../components/ui/Button/Button";
-import * as Yup from "yup";
 import { apiSendNotifiction } from "../../../../services/GeneralNotificationService";
 import { apiGetAllVehicleType } from "../../../../services/VehicleTypeServices";
 import toast from "react-hot-toast";
-
+import { NOTIFICATION_VALIDATION_SCHEMA } from "../../validators/pages/generalNotification.validation";
 
 const userOptions = [
   { value: "all_drivers", label: "All Drivers" },
@@ -19,13 +17,6 @@ const userOptions = [
   { value: "approved_drivers", label: "Approved Drivers" },
   { value: "rejected_drivers", label: "Rejected Drivers" },
 ];
-
-const validationSchema = Yup.object({
-  title: Yup.string().required("Title is required"),
-  body: Yup.string().required("Body is required"),
-  type: Yup.mixed().required("User type is required"),
-  vehicleType: Yup.mixed().nullable(),
-});
 
 const GeneralNotification = () => {
   const [vehicleList, setVehicleList] = useState([]);
@@ -69,7 +60,7 @@ const GeneralNotification = () => {
             type: "",
             vehicleType: "",
           }}
-          validationSchema={validationSchema}
+          validationSchema={NOTIFICATION_VALIDATION_SCHEMA}
           onSubmit={async (values, { resetForm }) => {
             try {
               setSending(true);
