@@ -360,7 +360,7 @@ const Overview = () => {
         return;
       }
 
-      console.log("Full data object:", JSON.stringify(data, null, 2));
+      // console.log("Full data object:", JSON.stringify(data, null, 2));
 
       const driverId = data?.id;
       const latitude = data?.latitude;
