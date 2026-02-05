@@ -1,12 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import PageTitle from "../../../../components/ui/PageTitle/PageTitle";
-import PageSubTitle from "../../../../components/ui/PageSubTitle/PageSubTitle";
 import Button from "../../../../components/ui/Button/Button";
 import PlusIcon from "../../../../components/svg/PlusIcon";
 import CardContainer from "../../../../components/shared/CardContainer";
 import SearchBar from "../../../../components/shared/SearchBar/SearchBar";
-import CustomSelect from "../../../../components/ui/CustomSelect";
 import { useAppSelector } from "../../../../store";
 import { PAGE_SIZE_OPTIONS, STATUS_OPTIONS } from "../../../../constants/selectOptions";
 import AddUserModel from "./components/AddUserModel";
@@ -19,13 +17,11 @@ import { apiDeleteUser, apiEditUserStatus, apiGetUser } from "../../../../servic
 import { getDispatcherId } from "../../../../utils/auth";
 
 const Users = () => {
-  const navigate = useNavigate();
   const [isUserModalOpen, setIsUserModalOpen] = useState({
     type: "new",
     isOpen: false,
   });
   const [_searchQuery, setSearchQuery] = useState("");
-  const [tableLoading, setTableLoading] = useState(false);
   const [_selectedStatus, setSelectedStatus] = useState(
     STATUS_OPTIONS.find((o) => o.value === "all") ?? STATUS_OPTIONS[0]
   );
@@ -207,7 +203,7 @@ const Users = () => {
       <div className="flex justify-between sm:flex-row flex-col items-start sm:items-center gap-3 sm:gap-0">
         <div className="flex flex-col gap-2.5">
           <PageTitle title="Users" />
-          <PageSubTitle title="Reviews By Customers & Drivers" />
+          {/* <PageSubTitle title="Reviews By Customers & Drivers" /> */}
         </div>
 
         <Button
@@ -290,7 +286,7 @@ const Users = () => {
         />
       </Modal>
 
-      <Modal isOpen={deleteModalOpen} className="p-6 sm:p-8 w-full max-w-md">
+      <Modal isOpen={deleteModalOpen} className="p-10">
         <div className="text-center">
           <h2 className="text-xl font-semibold mb-3">Delete User?</h2>
           <p className="text-gray-600 mb-6">
@@ -304,7 +300,7 @@ const Users = () => {
                 setDeleteModalOpen(false);
                 setUserToDelete(null);
               }}
-              className="px-6 py-2"
+              className="px-6 py-2 rounded-md"
             >
               Cancel
             </Button>
@@ -313,7 +309,7 @@ const Users = () => {
               type="filledRed"
               onClick={handleDeleteUser}
               disabled={isDeleting}
-              className="px-6 py-2"
+              className="px-6 py-2 rounded-md"
             >
               {isDeleting ? "Deleting..." : "Delete"}
             </Button>

@@ -5,7 +5,6 @@ import { PAGE_SIZE_OPTIONS, LOST_STATUS_OPTIONS } from '../../../../constants/se
 import { useAppSelector } from '../../../../store';
 import CardContainer from '../../../../components/shared/CardContainer';
 import SearchBar from '../../../../components/shared/SearchBar/SearchBar';
-import CustomSelect from '../../../../components/ui/CustomSelect';
 import LostFoundCard from './components/LostFoundCard/LostFoundCard';
 import Pagination from '../../../../components/ui/Pagination/Pagination';
 import { apiChangeLostFoundStatus, apiGetLostFoundList } from '../../../../services/LostFoundServices';
@@ -14,7 +13,6 @@ import toast from "react-hot-toast";
 import AppLogoLoader from '../../../../components/shared/AppLogoLoader';
 
 const LostFound = () => {
-  const navigate = useNavigate()
   const [_searchQuery, setSearchQuery] = useState("");
   const [tableLoading, setTableLoading] = useState(false);
   const [_selectedStatus, setSelectedStatus] = useState(
@@ -74,7 +72,6 @@ const LostFound = () => {
     fetchLostFoundList();
   }, [currentPage, itemsPerPage, debouncedSearchQuery, fetchLostFoundList, refreshTrigger]);
 
-  // Filter lost found data based on selected status
   const filteredLostFoundData = _selectedStatus.value === "all"
     ? lostFoundData
     : lostFoundData.filter(item => item.status === _selectedStatus.value);
@@ -88,18 +85,16 @@ const LostFound = () => {
     setCurrentPage(1);
   };
 
-  // Handle search change
   const handleSearchChange = (value) => {
     setSearchQuery(value);
   };
 
-  // Handle status filter change
   const handleStatusFilterChange = (newStatus) => {
     setSelectedStatus(newStatus);
-    setCurrentPage(1); // Reset to first page when filter changes
+    setCurrentPage(1); 
   };
 
-  // Handle status update for individual items
+
   const handleItemStatusChange = async (id, status) => {
     const toastId = toast.loading("Updating status...");
 

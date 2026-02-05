@@ -319,56 +319,6 @@ const DriverDetails = () => {
                                 className="w-full h-11 rounded-lg border border-gray-300 px-4 text-sm bg-gray-100 text-gray-600"
                             />
                         </div>
-                        {/* <div className="flex flex-col gap-8">
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">
-                                    Sub Company
-                                </label>
-                                <select
-                                    value={formData.sub_company}
-                                    onChange={(e) => handleInputChange("sub_company", e.target.value)}
-                                    disabled={loadingSubCompanies}
-                                    className="w-full h-11 rounded-lg border border-gray-300 px-4 text-sm focus:ring-1 focus:ring-blue-600 focus:outline-none"
-                                >
-                                    <option value="">
-                                        {loadingSubCompanies ? "Loading..." : "Select Sub Company"}
-                                    </option>
-
-                                    {subCompanyList.map((company) => (
-                                        <option key={company.value} value={company.value}>
-                                            {company.label}
-                                        </option>
-                                    ))}
-                                </select>
-                            </div>
-                            <div className=" ">
-                                <label className="block text-sm font-medium text-gray-700 mb-2">
-                                    Profile Image <span className="text-red-500">*</span>
-                                </label>
-
-                                <div className="flex items-center gap-4 border border-gray-300 rounded-lg px-4 py-3">
-                                    <label className="cursor-pointer px-4 py-1.5 text-sm text-blue-700 border border-blue-700 rounded-md hover:bg-blue-50">
-                                        Choose File
-                                        <input
-                                            type="file"
-                                            className="hidden"
-                                            accept="image/*"
-                                            onChange={handleFileChange}
-                                        />
-                                    </label>
-                                    <span className="text-sm text-gray-500">
-                                        {profileImageFile ? profileImageFile.name : profileImage ? "Image selected" : "No File Chosen"}
-                                    </span>
-                                    {profileImage && (
-                                        <img
-                                            src={profileImage}
-                                            alt="Profile"
-                                            className="w-12 h-12 rounded object-cover"
-                                        />
-                                    )}
-                                </div>
-                            </div>
-                        </div> */}
                     </div>
                 </CardContainer>
             </div>

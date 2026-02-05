@@ -8,7 +8,6 @@ import Button from "../../../../components/ui/Button/Button";
 import CardContainer from "../../../../components/shared/CardContainer";
 import SearchBar from "../../../../components/shared/SearchBar/SearchBar";
 import CustomSelect from "../../../../components/ui/CustomSelect";
-import Loading from "../../../../components/shared/Loading/Loading";
 import DriverManagementCard from "./components/DriversManagementCard/DriversManagementCard";
 import Pagination from "../../../../components/ui/Pagination/Pagination";
 import {

@@ -4,7 +4,6 @@ import { GET_SUB_COMPANY_LIST } from "../constants/api.route.constant";
 
 export async function apiGetSubCompany(params) {
     try {
-        console.log("Making API call to:", GET_SUB_COMPANY_LIST, "with params:", params);
         return ApiService.fetchData({
             url: GET_SUB_COMPANY_LIST,
             method: METHOD_GET,

@@ -3,29 +3,6 @@ import * as KEY from "../../../constants/routes.key.constant/auth.route.key.cons
 import * as PATH from "../../../constants/routes.path.constant/auth.route.path.constant";
 
 const authRoute = [
-  // {
-  //   key: KEY.USER_SELECTION_KEY,
-  //   path: PATH.SELECTION_PATH,
-  //   component: lazy(() => import("../../templates/UserSelection")),
-  //   authority: [],
-  // },
-  // {
-  //   key: KEY.CLIENT_SIGN_IN_KEY,
-  //   path: PATH.CLIENT_SIGN_IN_PATH,
-  //   component: lazy(
-  //     () => import("../../../views/auth/pages/SignIn/components/ClientSignIn")
-  //   ),
-  //   authority: [],
-  // },
-  // {
-  //   key: KEY.DISPATCHER_SIGN_IN_KEY,
-  //   path: PATH.DISPATCHER_SIGN_IN_PATH,
-  //   component: lazy(
-  //     () =>
-  //       import("../../../views/auth/pages/SignIn/components/DispatcherSignIn")
-  //   ),
-  //   authority: [],
-  // },
   {
     key: KEY.SIGN_IN_KEY,
     path: PATH.SIGN_IN_PATH,
@@ -50,22 +27,6 @@ const authRoute = [
     component: lazy(() => import("../../../views/auth/pages/ResetPassword")),
     authority: [],
   },
-  // {
-  //   key: KEY.VERIFY_IDENTITY_KEY,
-  //   path: PATH.VERIFY_IDENTITY_PATH,
-  //   component: lazy(() =>
-  //     import("../../../views/auth/pages/ForgotPassword/pages/VerifyIdentity")
-  //   ),
-  //   authority: [],
-  // },
-  // {
-  //   key: KEY.OTP_VERIFIER,
-  //   path: PATH.OTP_VERIFIER,
-  //   component: lazy(() =>
-  //     import("../../../views/auth/pages/ForgotPassword/pages/OtpVerifier")
-  //   ),
-  //   authority: [],
-  // },
 ];
 
 export default authRoute;

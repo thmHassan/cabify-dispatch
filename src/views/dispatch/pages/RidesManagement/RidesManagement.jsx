@@ -6,7 +6,6 @@ import { PAGE_SIZE_OPTIONS, STATUS_OPTIONS } from '../../../../constants/selectO
 import Button from '../../../../components/ui/Button/Button';
 import CardContainer from '../../../../components/shared/CardContainer';
 import SearchBar from '../../../../components/shared/SearchBar/SearchBar';
-import Loading from '../../../../components/shared/Loading/Loading';
 import Pagination from '../../../../components/ui/Pagination/Pagination';
 import RidesManagementCard from './components/RidesManagementCard';
 import { apiGetRidesManagement } from '../../../../services/RidesManagementServices';
@@ -119,16 +118,6 @@ const RidesManagement = () => {
         >
           All
         </Button>
-
-        {/* <Button
-          type="filled"
-          btnSize="2xl"
-          className={`${activeTab === "pob" ? "!bg-[#1F41BB] !text-white" : "!bg-transparent !text-black"}`}
-          onClick={() => setActiveTab("pob")}
-        >
-          POB
-        </Button> */}
-
         <Button
           type="filled"
           btnSize="2xl"
@@ -147,15 +136,6 @@ const RidesManagement = () => {
           Ongoing
         </Button>
 
-        {/* <Button
-          type="filled"
-          btnSize="2xl"
-          className={`${activeTab === "arrived" ? "!bg-[#1F41BB] !text-white" : "!bg-transparent !text-black"}`}
-          onClick={() => setActiveTab("arrived")}
-        >
-          Arrived
-        </Button> */}
-
         <Button
           type="filled"
           btnSize="2xl"
@@ -164,15 +144,6 @@ const RidesManagement = () => {
         >
           Cancelled
         </Button>
-
-        {/* <Button
-          type="filled"
-          btnSize="2xl"
-          className={`${activeTab === "no-show" ? "!bg-[#1F41BB] !text-white" : "!bg-transparent !text-black"}`}
-          onClick={() => setActiveTab("no-show")}
-        >
-          No-show
-        </Button> */}
       </div>
       <div>
         <CardContainer className="p-3 sm:p-4 lg:p-5 bg-[#F5F5F5]">
@@ -201,13 +172,6 @@ const RidesManagement = () => {
               />
             </div>
           </div>
-          {/* <Loading loading={tableLoading} type="cover">
-            <div className="flex flex-col gap-4 pt-4">
-              {filteredRides.map((ride) => (
-                <RidesManagementCard key={ride.id} ride={ride} />
-              ))}
-            </div>
-          </Loading> */}
           <div className="flex flex-col gap-4 pt-4">
             {tableLoading ? (
               <div className="flex items-center justify-center py-10">
