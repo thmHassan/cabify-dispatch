@@ -5,13 +5,18 @@ import { apiReplyTicket } from "../../../../../../services/TicketServices";
 const AddTicketModel = ({ ticket, onClose, refreshList }) => {
     const [message, setMessage] = useState("");
     const [loading, setLoading] = useState(false);
+    const [error, setError] = useState("");
 
     const isViewOnly = ticket.reply_message !== null && ticket.reply_message !== "";
 
     const handleReplySubmit = async () => {
-        if (!message.trim()) return alert("Please enter a reply message");
+        if (!message.trim()) {
+            setError("Reply message is required");
+            return;
+        }
 
         setLoading(true);
+        setError("");
 
         try {
             const formData = new FormData();
@@ -24,12 +29,10 @@ const AddTicketModel = ({ ticket, onClose, refreshList }) => {
                 refreshList();
                 onClose();
             } else {
-                alert("Failed to submit reply");
+                setError("Failed to submit reply");
             }
-
-        } catch (error) {
-            console.error("Reply API Error:", error);
-            alert("Something went wrong");
+        } catch (err) {
+            setError("Something went wrong");
         } finally {
             setLoading(false);
         }
@@ -65,15 +68,25 @@ const AddTicketModel = ({ ticket, onClose, refreshList }) => {
 
             {/* ONLY SHOW TEXTAREA IF NO REPLY */}
             {!isViewOnly && (
-                <>
+                <div>
                     <textarea
-                        className="w-full border rounded-full px-4 py-3 text-sm outline-none shadow-sm resize-none"
+                        className={`w-full border rounded-full px-4 py-3 text-sm outline-none shadow-sm resize-none`}
                         rows="2"
                         placeholder="Write here..."
                         value={message}
-                        onChange={(e) => setMessage(e.target.value)}
-                    ></textarea>
-                </>
+                        onChange={(e) => {
+                            setMessage(e.target.value);
+                            setError("");
+                        }}
+                    />
+
+                    {/* ErrorMessage equivalent */}
+                    {error && (
+                        <div className="text-red-500 text-sm mt-1">
+                            {error}
+                        </div>
+                    )}
+                </div>
             )}
 
             <div className="flex justify-end gap-3 mt-5">
