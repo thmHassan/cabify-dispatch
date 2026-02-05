@@ -470,7 +470,15 @@ const DriverDetails = () => {
                                 <span className="font-medium">{doc.displayName}</span>
 
                                 <div className="flex items-center gap-3">
-                                    <select
+                                    <input
+                                        value={
+                                            doc.status
+                                                ? doc.status.charAt(0).toUpperCase() + doc.status.slice(1)
+                                                : "Pending"
+                                        }
+                                        className="border w-24 border-gray-300 rounded text-center py-1.5 text-sm"
+                                    />
+                                    {/* <select
                                         value={doc.status || "pending"}
                                         onChange={(e) => handleDocumentStatusChange(doc.id, e.target.value)}
                                         className="border border-gray-300 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-600"
@@ -478,7 +486,7 @@ const DriverDetails = () => {
                                         <option value="pending">Pending</option>
                                         <option value="verified">Approved</option>
                                         <option value="rejected">Rejected</option>
-                                    </select>
+                                    </select> */}
                                     <Button
                                         type="filled"
                                         className="py-1.5 px-4 rounded-md leading-[25px]"

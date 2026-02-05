@@ -32,24 +32,24 @@ const DriverManagementCard = ({ driver, onEdit, onDelete, onStatusChange }) => {
         },
     ];
 
-    const getStatusOptions = () => {
-        const allStatuses = [
-            {
-                label: "Accepted",
-                onClick: () => handleStatusChange("accepted"),
-            },
-            {
-                label: "Rejected",
-                onClick: () => handleStatusChange("rejected"),
-            },
-            {
-                label: "Pending",
-                onClick: () => handleStatusChange("pending"),
-            },
-        ];
+    // const getStatusOptions = () => {
+    //     const allStatuses = [
+    //         {
+    //             label: "Accepted",
+    //             onClick: () => handleStatusChange("accepted"),
+    //         },
+    //         {
+    //             label: "Rejected",
+    //             onClick: () => handleStatusChange("rejected"),
+    //         },
+    //         {
+    //             label: "Pending",
+    //             onClick: () => handleStatusChange("pending"),
+    //         },
+    //     ];
 
-        return allStatuses.filter(option => option.label.toLowerCase() !== status);
-    };
+    //     return allStatuses.filter(option => option.label.toLowerCase() !== status);
+    // };
 
     const handleStatusChange = async (newStatus) => {
         if (newStatus === status) return;
@@ -129,7 +129,19 @@ const DriverManagementCard = ({ driver, onEdit, onDelete, onStatusChange }) => {
                     <p className="text-black text-center text-[#1F41BB] font-semibold text-sm"> {currencySymbol} {driver.wallet_balance || "0"}</p>
                 </div>
 
-                <UserDropdown options={getStatusOptions()} itemData={driver}>
+                <div
+                    className={`${status === "accepted"
+                        ? "bg-[#10B981] text-white"
+                        : status === "rejected"
+                            ? "bg-[#FF4747] text-white"
+                            : "bg-[#F5C60B] text-white"
+                        } text-center xl:h-10 lg:h-10 md:h-10 h-10 w-28 xl:py-3 lg:py-3 md:py-3 py-1 rounded-full flex items-center justify-center`}
+                >
+                    <p className="font-semibold text-sm">
+                        {loading ? "Updating..." : status.charAt(0).toUpperCase() + status.slice(1)}
+                    </p>
+                </div>
+                {/* <UserDropdown options={getStatusOptions()} itemData={driver}>
                     <div
                         className={`${status === "accepted"
                             ? "bg-[#10B981] text-white"
@@ -151,7 +163,7 @@ const DriverManagementCard = ({ driver, onEdit, onDelete, onStatusChange }) => {
                             <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
                         </svg>
                     </div>
-                </UserDropdown>
+                </UserDropdown> */}
 
                 <UserDropdown options={actionOptions} itemData={driver}>
                     <Button className="w-10 h-10 bg-[#EFEFEF] rounded-full flex justify-center items-center">

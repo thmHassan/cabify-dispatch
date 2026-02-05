@@ -10,6 +10,7 @@ import { OVERVIEW_STATUS_OPTIONS } from "../../../../../../constants/selectOptio
 import { useNavigate } from "react-router-dom";
 import StatusMenu from "./StatusMenu";
 import AllocateDriverModal from "./AllocateDriverModal";
+import AppLogoLoader from "../../../../../../components/shared/AppLogoLoader";
 
 const statusColor = {
     pending: "text-orange-500",
@@ -41,6 +42,7 @@ const OverViewDetails = ({ filter }) => {
     const [selectedSubCompany, setSelectedSubCompany] = useState("");
     const [subCompanyList, setSubCompanyList] = useState([]);
     const [loadingSubCompanies, setLoadingSubCompanies] = useState(false);
+    const [tableLoading, setTableLoading] = useState(false);
 
     useEffect(() => {
         const fetchSubCompanies = async () => {
@@ -68,25 +70,32 @@ const OverViewDetails = ({ filter }) => {
     }, []);
 
     useEffect(() => {
+        setTableLoading(true);
         const fetchBookings = async () => {
-            const params = {
-                page,
-                limit,
-            };
+            try {
+                const params = {
+                    page,
+                    limit,
+                };
 
-            if (search) params.search = search;
-            if (selectedStatus) params.status = selectedStatus;
-            if (selectedSubCompany) params.sub_company = selectedSubCompany;
-            if (filter) params.filter = filter;
+                if (search) params.search = search;
+                if (selectedStatus) params.status = selectedStatus;
+                if (selectedSubCompany) params.sub_company = selectedSubCompany;
+                if (filter) params.filter = filter;
 
-            const res = await getBookings(params);
+                const res = await getBookings(params);
 
-            if (res?.data?.success) {
-                setBookings(res.data.data || []);
-                setTotalPages(res.data.pagination?.total_pages || 1);
+                if (res?.data?.success) {
+                    setBookings(res.data.data || []);
+                    setTotalPages(res.data.pagination?.total_pages || 1);
+                }
+            } catch (error) {
+                console.error("Error fetching booking:", error);
+                setBookings([]);
+            } finally {
+                setTableLoading(false);
             }
-        };
-
+        }
         fetchBookings();
     }, [
         page,
@@ -211,111 +220,123 @@ const OverViewDetails = ({ filter }) => {
                 </div>
 
                 <div className="border-t">
-                    <div className="overflow-x-auto">
-                        <div className="min-w-max">
-                            <div className="flex border-b text-sm font-semibold text-gray-700 bg-gray-50">
-                                <Col w="w-[80px]">Lead</Col>
-                                <Col w="w-[120px]">Pickup Date</Col>
-                                <Col w="w-[100px]">Time</Col>
-                                <Col w="w-[100px]">Passenger</Col>
-                                <Col w="w-[180px]">Mobile No.</Col>
-                                <Col w="w-[220px]">Pickup</Col>
-                                <Col w="w-[220px]">Destination</Col>
-                                <Col w="w-[130px]">Fare</Col>
-                                <Col w="w-[170px]">Vehicle</Col>
-                                <Col w="w-[170px]">Sub Company</Col>
-                                <Col w="w-[170px]">Status</Col>
-                            </div>
-
-                            {bookings.length === 0 ? (
-                                <div className="p-8 text-center text-gray-500">
-                                    {search || selectedStatus || selectedSubCompany
-                                        ? "No bookings found matching your filters"
-                                        : "No bookings found"}
-                                </div>
-                            ) : (
-                                bookings.map((b) => {
-                                    const btnRef = getButtonRef(b.id);
-
-                                    return (
-                                        <div key={b.id} className="flex border-b text-sm bg-white hover:bg-gray-50 transition-colors">
-                                            <Col w="w-[80px]">{b.id}</Col>
-
-                                            <Col w="w-[120px]">
-                                                {b.booking_date
-                                                    ? new Date(b.booking_date).toLocaleDateString("en-GB")
-                                                    : "—"}
-                                            </Col>
-
-                                            <Col w="w-[100px]">
-                                                {b.pickup_time === "asap" ? "ASAP" : b.pickup_time}
-                                            </Col>
-
-                                            <Col w="w-[100px]">{b.passenger ?? 1}</Col>
-
-                                            <Col w="w-[180px]">{b.phone_no ?? "N/A"}</Col>
-
-                                            <Col w="w-[220px]" className="truncate" title={b.pickup_location}>
-                                                {b.pickup_location ?? "N/A"}
-                                            </Col>
-
-                                            <Col w="w-[220px]" className="truncate" title={b.destination_location}>
-                                                {b.destination_location ?? "N/A"}
-                                            </Col>
-
-                                            <Col w="w-[130px]">
-                                                <div className="flex flex-col">
-                                                    <span>{b.recommended_amount ?? b.booking_amount ?? "0.00"}</span>
-                                                    <span className="text-xs text-gray-500">{formatStatus(b.payment_method)}</span>
-                                                </div>
-                                            </Col>
-
-                                            <Col w="w-[170px]">
-                                                <div className="flex flex-col">
-                                                    <span>{b.vehicleDetail?.vehicle_type_name ?? "-"}</span>
-                                                    <span className="text-xs text-gray-500">{b.vehicleDetail?.vehicle_type_service ?? ""}</span>
-                                                </div>
-                                            </Col>
-
-                                            <Col w="w-[170px]">
-                                                <div className="flex flex-col">
-                                                    <span>{b.subCompanyDetail?.name ?? "-"}</span>
-                                                    <span className="text-xs text-gray-500">{b.subCompanyDetail?.email ?? ""}</span>
-                                                </div>
-                                            </Col>
-
-                                            <Col w="w-[170px]">
-                                                <button
-                                                    ref={(el) => (btnRef.current = el)}
-                                                    onClick={() =>
-                                                        setOpenMenu(openMenu === b.id ? null : b.id)
-                                                    }
-                                                    className="w-full flex justify-between items-center border rounded px-3 py-1"
-                                                >
-                                                    <span className={statusColor[b.booking_status]}>
-                                                        ● {b.booking_status}
-                                                    </span>
-                                                    ▾
-                                                </button>
-
-                                                {openMenu === b.id && (
-                                                    <StatusMenu
-                                                        anchorRef={btnRef}
-                                                        bookingId={b.id}
-                                                        bookingData={b}
-                                                        navigate={navigate}
-                                                        onClose={() => setOpenMenu(null)}
-                                                        onStatusUpdate={handleBookingUpdate}
-                                                        onOpenAllocateModal={handleOpenAllocateModal}
-                                                    />
-                                                )}
-                                            </Col>
-                                        </div>
-                                    );
-                                })
-                            )}
+                    {tableLoading ? (
+                        <div className="flex justify-center py-8">
+                            <AppLogoLoader />
                         </div>
-                    </div>
+                    ) : bookings.length === 0 ? (
+                        <div className="p-8 text-center text-gray-500">
+                            {search || selectedStatus || selectedSubCompany
+                                ? "No bookings found matching your filters"
+                                : "No bookings found"}
+                        </div>
+                    ) : (
+                        <div className="overflow-x-auto">
+                            <div className="min-w-max">
+                                <div className="flex border-b text-sm font-semibold text-gray-700 bg-gray-50">
+                                    <Col w="w-[80px]">Lead</Col>
+                                    <Col w="w-[120px]">Pickup Date</Col>
+                                    <Col w="w-[100px]">Time</Col>
+                                    <Col w="w-[100px]">Passenger</Col>
+                                    <Col w="w-[180px]">Mobile No.</Col>
+                                    <Col w="w-[220px]">Pickup</Col>
+                                    <Col w="w-[220px]">Destination</Col>
+                                    <Col w="w-[130px]">Fare</Col>
+                                    <Col w="w-[170px]">Vehicle</Col>
+                                    <Col w="w-[170px]">Sub Company</Col>
+                                    <Col w="w-[170px]">Status</Col>
+                                </div>
+
+                                {bookings.length === 0 ? (
+                                    <div className="p-8 text-center text-gray-500">
+                                        {search || selectedStatus || selectedSubCompany
+                                            ? "No bookings found matching your filters"
+                                            : "No bookings found"}
+                                    </div>
+                                ) : (
+                                    bookings.map((b) => {
+                                        const btnRef = getButtonRef(b.id);
+
+                                        return (
+                                            <div key={b.id} className="flex border-b text-sm bg-white hover:bg-gray-50 transition-colors">
+                                                <Col w="w-[80px]">{b.id}</Col>
+
+                                                <Col w="w-[120px]">
+                                                    {b.booking_date
+                                                        ? new Date(b.booking_date).toLocaleDateString("en-GB")
+                                                        : "—"}
+                                                </Col>
+
+                                                <Col w="w-[100px]">
+                                                    {b.pickup_time === "asap" ? "ASAP" : b.pickup_time}
+                                                </Col>
+
+                                                <Col w="w-[100px]">{b.passenger ?? 1}</Col>
+
+                                                <Col w="w-[180px]">{b.phone_no ?? "N/A"}</Col>
+
+                                                <Col w="w-[220px]" className="truncate" title={b.pickup_location}>
+                                                    {b.pickup_location ?? "N/A"}
+                                                </Col>
+
+                                                <Col w="w-[220px]" className="truncate" title={b.destination_location}>
+                                                    {b.destination_location ?? "N/A"}
+                                                </Col>
+
+                                                <Col w="w-[130px]">
+                                                    <div className="flex flex-col">
+                                                        <span>{b.recommended_amount ?? b.booking_amount ?? "0.00"}</span>
+                                                        <span className="text-xs text-gray-500">{formatStatus(b.payment_method)}</span>
+                                                    </div>
+                                                </Col>
+
+                                                <Col w="w-[170px]">
+                                                    <div className="flex flex-col">
+                                                        <span>{b.vehicleDetail?.vehicle_type_name ?? "-"}</span>
+                                                        <span className="text-xs text-gray-500">{b.vehicleDetail?.vehicle_type_service ?? ""}</span>
+                                                    </div>
+                                                </Col>
+
+                                                <Col w="w-[170px]">
+                                                    <div className="flex flex-col">
+                                                        <span>{b.subCompanyDetail?.name ?? "-"}</span>
+                                                        <span className="text-xs text-gray-500">{b.subCompanyDetail?.email ?? ""}</span>
+                                                    </div>
+                                                </Col>
+
+                                                <Col w="w-[170px]">
+                                                    <button
+                                                        ref={(el) => (btnRef.current = el)}
+                                                        onClick={() =>
+                                                            setOpenMenu(openMenu === b.id ? null : b.id)
+                                                        }
+                                                        className="w-full flex justify-between items-center border rounded px-3 py-1"
+                                                    >
+                                                        <span className={statusColor[b.booking_status]}>
+                                                            ● {b.booking_status}
+                                                        </span>
+                                                        ▾
+                                                    </button>
+
+                                                    {openMenu === b.id && (
+                                                        <StatusMenu
+                                                            anchorRef={btnRef}
+                                                            bookingId={b.id}
+                                                            bookingData={b}
+                                                            navigate={navigate}
+                                                            onClose={() => setOpenMenu(null)}
+                                                            onStatusUpdate={handleBookingUpdate}
+                                                            onOpenAllocateModal={handleOpenAllocateModal}
+                                                        />
+                                                    )}
+                                                </Col>
+                                            </div>
+                                        );
+                                    })
+                                )}
+                            </div>
+                        </div>
+                    )}
 
                     {bookings.length > 0 && (
                         <div className="p-4 flex items-center justify-between">
@@ -327,6 +348,7 @@ const OverViewDetails = ({ filter }) => {
                         </div>
                     )}
                 </div>
+
             </CardContainer>
 
             {/* Allocate Driver Modal */}

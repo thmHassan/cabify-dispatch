@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import useAuth from "../../../utils/hooks/useAuth";
 import SettingIcon from "../../svg/SettingIcon";
 import NotificationIcon from "../../svg/NotificationIcon";
@@ -18,16 +18,122 @@ import DrawerIcon from "../../svg/DrawerIcon";
 import CloseIcon from "../../svg/CloseIcon";
 import PageSubTitle from "../../ui/PageSubTitle/PageSubTitle";
 import { PlainSwitch } from "../../ui/Switch/Switch ";
+import { useSocket, useSocketStatus} from "../../routes/SocketProvider";
 
 const UserPageContainer = ({ children }) => {
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false);
 
+    const [notifications, setNotifications] = useState([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [isNotificationOpen, setIsNotificationOpen] = useState(false);
+  const notificationRef = useRef(null);
+
   const { signOut } = useAuth();
   const user = useAppSelector((state) => state.auth.user);
   const navigate = useNavigate();
   const location = useLocation();
+  const socket = useSocket();
+  const isConnected = useSocketStatus();
+
+   useEffect(() => {
+    if (!socket) return;
+
+  console.log("📢 RECEIVED send-reminder:");
+
+  const handleSendReminder = (data) => {
+    console.log("📢 RECEIVED send-reminder event:", data);
+    console.log("📢 Data type:", typeof data);
+    console.log("📢 Data keys:", Object.keys(data));
+    
+    setNotifications((prev) => {
+      const newNotification = {
+        id: Date.now(),
+        ...data,
+        timestamp: new Date(),
+        read: false
+      };
+      console.log("✅ Adding notification:", newNotification);
+      return [newNotification, ...prev];
+    });
+    
+    if (Notification.permission === "granted") {
+      new Notification("New Reminder", {
+        body: data.description || data.message || "You have a new reminder",
+        icon: "/notification-icon.png"
+      });
+    }
+  };
+
+  const handleConnect = () => {
+    console.log("🔌 Socket connected in component:", socket.id);
+    console.log("🔌 Registering send-reminder listener on connect");
+  };
+
+  const handleDisconnect = () => {
+    console.log("❌ Socket disconnected");
+  };
+
+  // Register listeners
+  socket.on("connect", handleConnect);
+  socket.on("disconnect", handleDisconnect);
+  socket.on("send-reminder", handleSendReminder);
+
+  console.log("🔌 All listeners registered");
+
+  return () => {
+    console.log("🔌 Cleaning up listeners");
+    socket.off("connect", handleConnect);
+    socket.off("disconnect", handleDisconnect);
+    socket.off("send-reminder", handleSendReminder);
+    socket.offAny();
+  };
+}, [socket]);
+
+  useEffect(() => {
+    if (Notification.permission === "default") {
+      Notification.requestPermission();
+    }
+  }, []);
+
+  const handleNotificationClick = () => {
+    setIsNotificationOpen(!isNotificationOpen);
+    // Mark all as read when opening the dropdown
+    if (!isNotificationOpen) {
+      setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+    }
+  };
+
+  const handleClearAll = () => {
+    setNotifications([]);
+    setUnreadCount(0);
+  };
+
+  useEffect(() => {
+    const actualUnreadCount = notifications.filter(n => !n.read).length;
+    setUnreadCount(actualUnreadCount);
+  }, [notifications]);
+
+  const handleDeleteNotification = (id) => {
+    setNotifications((prev) => prev.filter((n) => n.id !== id));
+  };
+
+  const formatTimestamp = (timestamp) => {
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMins = Math.floor(diffMs / 60000);
+    
+    if (diffMins < 1) return "Just now";
+    if (diffMins < 60) return `${diffMins}m ago`;
+    
+    const diffHours = Math.floor(diffMins / 60);
+    if (diffHours < 24) return `${diffHours}h ago`;
+    
+    const diffDays = Math.floor(diffHours / 24);
+    return `${diffDays}d ago`;
+  };
 
   // Close sidebar on route change for small screens
   useEffect(() => {
@@ -138,14 +244,115 @@ const UserPageContainer = ({ children }) => {
             </button>
           </div>
           <div className="flex gap-1.5 sm:gap-3 lg:gap-5 items-center flex-shrink-0">
-            <div className="flex min-w-[40px] h-[40px] sm:min-w-[50px] sm:h-[50px] rounded-full bg-[#FFFFFF] justify-center items-center">
-              <div className="w-[18px] h-[20px] sm:w-[22px] sm:h-[24px] flex items-center justify-center">
-                <NotificationIcon
-                  width={18}
-                  height={20}
-                  className="w-full h-full"
-                />
-              </div>
+             <div className="relative" ref={notificationRef}>
+              <button
+                onClick={handleNotificationClick}
+                className="flex min-w-[40px] h-[40px] sm:min-w-[50px] sm:h-[50px] rounded-full bg-[#FFFFFF] justify-center items-center relative hover:bg-gray-50 transition-colors"
+              >
+                <div className="w-[18px] h-[20px] sm:w-[22px] sm:h-[24px] flex items-center justify-center">
+                  <NotificationIcon
+                    width={18}
+                    height={20}
+                    className="w-full h-full"
+                  />
+                </div>
+                {unreadCount > 0 && (
+                  <div className="absolute -top-1 -right-1 bg-red-500 text-white text-xs font-bold rounded-full min-w-[20px] h-[20px] flex items-center justify-center px-1">
+                    {unreadCount > 99 ? '99+' : unreadCount}
+                  </div>
+                )}
+              </button>
+
+              {/* Notification Dropdown */}
+              {isNotificationOpen && (
+                <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-white rounded-lg shadow-xl border border-gray-200 z-[100] max-h-[500px] overflow-hidden flex flex-col">
+                  {/* Header */}
+                  <div className="flex items-center justify-between p-4 border-b border-gray-200">
+                    <h3 className="text-lg font-semibold text-gray-800">Notifications</h3>
+                    {notifications.length > 0 && (
+                      <button
+                        onClick={handleClearAll}
+                        className="text-sm text-red-500 hover:text-red-700 font-medium"
+                      >
+                        Clear All
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Notification List */}
+                  <div className="overflow-y-auto max-h-[400px]">
+                    {notifications.length === 0 ? (
+                      <div className="p-8 text-center text-gray-500">
+                        <svg
+                          className="mx-auto h-12 w-12 text-gray-400 mb-3"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"
+                          />
+                        </svg>
+                        <p className="text-sm">No notifications yet</p>
+                      </div>
+                    ) : (
+                      notifications.map((notification) => (
+                        <div
+                          key={notification.id}
+                          className={`p-4 border-b border-gray-100 hover:bg-gray-50 transition-colors ${
+                            !notification.read ? 'bg-blue-50' : ''
+                          }`}
+                        >
+                          <div className="flex justify-between items-start gap-3">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-start justify-between mb-1">
+                                <h4 className="text-sm font-semibold text-gray-900 truncate">
+                                  {notification.title}
+                                </h4>
+                                {!notification.read && (
+                                  <span className="ml-2 w-2 h-2 bg-blue-500 rounded-full flex-shrink-0 mt-1"></span>
+                                )}
+                              </div>
+                              <p className="text-sm text-gray-600 mb-2 line-clamp-2">
+                                {notification.description}
+                              </p>
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs text-gray-500">
+                                  Client: {notification.client_id}
+                                </span>
+                                <span className="text-xs text-gray-400">
+                                  {formatTimestamp(notification.timestamp)}
+                                </span>
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => handleDeleteNotification(notification.id)}
+                              className="text-gray-400 hover:text-red-500 transition-colors flex-shrink-0"
+                            >
+                              <svg
+                                className="w-4 h-4"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth={2}
+                                  d="M6 18L18 6M6 6l12 12"
+                                />
+                              </svg>
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
             <UserDropdown
               options={[
