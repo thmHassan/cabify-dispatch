@@ -1,6 +1,6 @@
 import { ErrorMessage, Form, Formik } from "formik";
 import { useEffect, useState } from "react";
-import Maps from "./components/Maps";
+import Maps from "./components/maps";
 import { getTenantData } from "../../../../../../utils/functions/tokenEncryption";
 import { apiGetSubCompany } from "../../../../../../services/SubCompanyServices";
 import { apiGetAccount } from "../../../../../../services/AccountServices";
