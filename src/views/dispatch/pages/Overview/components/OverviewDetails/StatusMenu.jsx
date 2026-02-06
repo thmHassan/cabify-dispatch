@@ -98,24 +98,133 @@ const StatusMenu = ({ anchorRef, bookingId, onClose, onStatusUpdate, bookingData
 
             if (action === "Copy Booking") {
                 try {
+                    // Parse via points if they exist
+                    let viaPoints = [];
+                    let viaLatitudes = [];
+                    let viaLongitudes = [];
+
+                    if (bookingData.via_location) {
+                        try {
+                            const viaLocArray = typeof bookingData.via_location === 'string'
+                                ? JSON.parse(bookingData.via_location)
+                                : bookingData.via_location;
+                            viaPoints = Array.isArray(viaLocArray) ? viaLocArray : [];
+                        } catch (e) {
+                            console.error("Error parsing via_location:", e);
+                        }
+                    }
+
+                    if (bookingData.via_point) {
+                        try {
+                            const viaPointArray = typeof bookingData.via_point === 'string'
+                                ? JSON.parse(bookingData.via_point)
+                                : bookingData.via_point;
+
+                            if (Array.isArray(viaPointArray)) {
+                                viaLatitudes = viaPointArray.map(point => point.latitude || "");
+                                viaLongitudes = viaPointArray.map(point => point.longitude || "");
+                            }
+                        } catch (e) {
+                            console.error("Error parsing via_point:", e);
+                        }
+                    }
+
+                    // Parse pickup and destination coordinates from "lat, lng" format
+                    let pickupLat = "";
+                    let pickupLng = "";
+                    if (bookingData.pickup_point) {
+                        const [lat, lng] = bookingData.pickup_point.split(',').map(s => s.trim());
+                        pickupLat = lat || "";
+                        pickupLng = lng || "";
+                    }
+
+                    let destLat = "";
+                    let destLng = "";
+                    if (bookingData.destination_point) {
+                        const [lat, lng] = bookingData.destination_point.split(',').map(s => s.trim());
+                        destLat = lat || "";
+                        destLng = lng || "";
+                    }
+
+                    // Format pickup_time (remove seconds if present)
+                    let formattedPickupTime = "";
+                    if (bookingData.pickup_time && bookingData.pickup_time !== "asap") {
+                        const timeParts = bookingData.pickup_time.split(':');
+                        formattedPickupTime = `${timeParts[0]}:${timeParts[1]}`;
+                    }
+
+                    // Format booking_date (convert from ISO to YYYY-MM-DD)
+                    let formattedDate = "";
+                    if (bookingData.booking_date) {
+                        const date = new Date(bookingData.booking_date);
+                        formattedDate = date.toISOString().split('T')[0];
+                    }
+
                     const copiedData = {
-                        ...bookingData,
-                        id: undefined,
-                        booking_id: undefined,
-                        booking_status: "pending",
-                        created_at: undefined,
-                        updated_at: undefined,
-                        driver: null,
-                        driverDetail: null,
+                        sub_company: bookingData.sub_company?.toString() || "",
+                        pickup_point: bookingData.pickup_location || "",
+                        destination: bookingData.destination_location || "",
+                        pickup_latitude: pickupLat,
+                        pickup_longitude: pickupLng,
+                        destination_latitude: destLat,
+                        destination_longitude: destLng,
+                        pickup_plot_id: bookingData.pickup_plot_id || null,
+                        destination_plot_id: bookingData.destination_plot_id || null,
+
+                        via_points: viaPoints,
+                        via_latitude: viaLatitudes,
+                        via_longitude: viaLongitudes,
+                        via_plot_id: [],
+
+                        booking_date: formattedDate,
+                        pickup_time: formattedPickupTime,
+                        pickup_time_type: bookingData.pickup_time === "asap" ? "asap" : "time",
+                        booking_type: bookingData.booking_type || "outstation",
+
+                        name: bookingData.name || "",
+                        email: bookingData.email || "",
+                        phone_no: bookingData.phone_no || "",
+                        tel_no: bookingData.tel_no || "",
+
+                        journey_type: bookingData.journey_type || "one_way",
+                        account: bookingData.account?.toString() || "",
+                        vehicle: bookingData.vehicle?.toString() || "",
+                        passenger: parseInt(bookingData.passenger) || 0,
+                        luggage: parseInt(bookingData.luggage) || 0,
+                        hand_luggage: parseInt(bookingData.hand_luggage) || 0,
+                        special_request: bookingData.special_request || "",
+                        payment_reference: bookingData.payment_reference || "",
+                        payment_method: bookingData.payment_method || "cash",
+
+                        fares: parseFloat(bookingData.fares) || 0,
+                        return_fares: parseFloat(bookingData.return_fares) || 0,
+                        parking_charges: parseFloat(bookingData.parking_charge) || 0,
+                        waiting_charges: parseFloat(bookingData.waiting_charge) || 0,
+                        ac_fares: parseFloat(bookingData.ac_fares) || 0,
+                        return_ac_fares: parseFloat(bookingData.return_ac_fares) || 0,
+                        ac_parking_charges: parseFloat(bookingData.ac_parking_charge) || 0,
+                        ac_waiting_charges: parseFloat(bookingData.ac_waiting_charge) || 0,
+                        extra_charges: parseFloat(bookingData.extra_charge) || 0,
+                        congestion_toll: parseFloat(bookingData.toll) || 0,
+                        booking_fee_charges: 0,
+                        total_charges: parseFloat(bookingData.booking_amount) || 0,
+
+                        // Don't copy these fields
+                        driver: "",
+                        booking_system: "auto_dispatch",
+                        auto_dispatch: true,
+                        bidding: false,
                     };
 
-                    await navigator.clipboard.writeText(
-                        JSON.stringify(copiedData, null, 2)
-                    );
+                    localStorage.setItem('copiedBookingData', JSON.stringify(copiedData));
 
-                    toast.success("Booking details copied to clipboard");
+                    toast.success("Booking copied! Opening booking form...");
                     onClose();
+
+                    // Trigger opening of AddBooking modal
+                    window.dispatchEvent(new CustomEvent('openAddBookingModal'));
                 } catch (err) {
+                    console.error("Copy booking error:", err);
                     toast.error("Failed to copy booking");
                 }
                 setUpdating(false);
