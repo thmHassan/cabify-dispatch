@@ -103,9 +103,59 @@ const AddBooking = ({ setIsOpen }) => {
         message: ''
     });
 
+    const [initialFormValues, setInitialFormValues] = useState({
+        pickup_point: "",
+        destination: "",
+        via_points: [],
+        via_latitude: [],
+        via_longitude: [],
+        pickup_latitude: "",
+        pickup_longitude: "",
+        destination_latitude: "",
+        destination_longitude: "",
+        pickup_plot_id: null,
+        destination_plot_id: null,
+        via_plot_id: [],
+        sub_company: "",
+        account: "",
+        vehicle: "",
+        driver: "",
+        journey_type: "one_way",
+        booking_system: "auto_dispatch",
+        auto_dispatch: true,
+        bidding: false,
+        pickup_time_type: "asap",
+        pickup_time: "",
+        booking_date: "",
+        booking_type: "outstation",
+        name: "",
+        email: "",
+        phone_no: "",
+        tel_no: "",
+        passenger: 0,
+        luggage: 0,
+        hand_luggage: 0,
+        special_request: "",
+        payment_reference: "",
+        payment_method: "cash",
+        base_fare: 0,
+        fares: 0,
+        return_fares: 0,
+        parking_charges: 0,
+        booking_fee_charges: 0,
+        ac_fares: 0,
+        return_ac_fares: 0,
+        ac_parking_charges: 0,
+        waiting_charges: 0,
+        extra_charges: 0,
+        congestion_toll: 0,
+        ac_waiting_charges: 0,
+        total_charges: 0,
+    });
+
     const tenant = getTenantData();
-    const SEARCH_API = tenant?.search_api;
-    const COUNTRY_CODE = tenant?.country_of_use?.toLowerCase();
+    const SEARCH_API = tenant?.search_api || "google";
+    const COUNTRY_CODE = tenant?.country_of_use?.toLowerCase() || "IN";
 
     useEffect(() => {
         const tenant = getTenantData();
@@ -115,7 +165,6 @@ const AddBooking = ({ setIsOpen }) => {
         }
     }, []);
 
-    // Check dispatch system on mount
     useEffect(() => {
         const checkDispatchSystem = async () => {
             try {
@@ -800,6 +849,55 @@ const AddBooking = ({ setIsOpen }) => {
         return selectedDateTime > now;
     };
 
+    useEffect(() => {
+        const storedData = localStorage.getItem('copiedBookingData');
+        if (storedData) {
+            try {
+                const parsedData = JSON.parse(storedData);
+                setInitialFormValues(parsedData);
+
+                if (parsedData.pickup_latitude && parsedData.pickup_longitude) {
+                    fetchPlotName(parsedData.pickup_latitude, parsedData.pickup_longitude)
+                        .then(plotData => {
+                            console.log("📍 Pickup plot:", plotData);
+                            setPickupPlotData(plotData);
+                        });
+                }
+
+                if (parsedData.destination_latitude && parsedData.destination_longitude) {
+                    fetchPlotName(parsedData.destination_latitude, parsedData.destination_longitude)
+                        .then(plotData => {
+                            console.log("📍 Destination plot:", plotData);
+                            setDestinationPlotData(plotData);
+                        });
+                }
+
+                if (parsedData.via_latitude && parsedData.via_latitude.length > 0) {
+                    parsedData.via_latitude.forEach((lat, index) => {
+                        const lng = parsedData.via_longitude[index];
+                        if (lat && lng) {
+                            fetchPlotName(lat, lng).then(plotData => {
+                                console.log(`📍 Via ${index + 1} plot:`, plotData);
+                                setViaPlotData(prev => ({ ...prev, [index]: plotData }));
+                            });
+                        }
+                    });
+                }
+
+                // Clear localStorage
+                localStorage.removeItem('copiedBookingData');
+
+                // Show success toast
+                toast.success("Booking data loaded successfully!");
+
+            } catch (err) {
+                console.error("❌ Error parsing copied booking data:", err);
+                localStorage.removeItem('copiedBookingData');
+                toast.error("Failed to load booking data");
+            }
+        }
+    }, []);
+
     return (
         <>
             <AlertModal
@@ -813,43 +911,14 @@ const AddBooking = ({ setIsOpen }) => {
             />
 
             <Formik
-                initialValues={{
-                    pickup_point: "",
-                    destination: "",
-                    via_points: [],
-                    via_latitude: [],
-                    via_longitude: [],
-                    pickup_plot_id: null,
-                    destination_plot_id: null,
-                    via_plot_id: [],
-                    account: "",
-                    vehicle: "",
-                    driver: "",
-                    journey_type: "one_way",
-                    booking_system: "auto_dispatch",
-                    auto_dispatch: !isManualDispatchOnly,
-                    bidding: !isManualDispatchOnly,
-                    pickup_time_type: "asap",
-                    pickup_time: "",
-                    booking_date: "",
-                    booking_type: "outstation",
-                    base_fare: 0,
-                    fares: 0,
-                    return_fares: 0,
-                    parking_charges: 0,
-                    booking_fee_charges: 0,
-                    ac_fares: 0,
-                    return_ac_fares: 0,
-                    ac_parking_charges: 0,
-                    waiting_charges: 0,
-                    extra_charges: 0,
-                    congestion_toll: 0,
-                    ac_waiting_charges: 0,
-                    total_charges: 0,
-                }}
+                initialValues={initialFormValues}
+                key={initialFormValues.pickup_point || 'new'}
                 onSubmit={handleCreateBooking}
             >
                 {({ values, setFieldValue }) => {
+                    useEffect(() => {
+                        console.log("📝 Current Formik values:", values);
+                    }, [values]);
                     useEffect(() => {
                         if (fareData?.calculate_fare) {
                             setFieldValue('base_fare', fareData.calculate_fare);

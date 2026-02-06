@@ -91,7 +91,7 @@ const Overview = () => {
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [isAddBookingDisabled, setIsAddBookingDisabled] = useState(false);
   const [isLoadingDispatchSystem, setIsLoadingDispatchSystem] = useState(true);
-  const [activeBookingFilter, setActiveBookingFilter] = useState("");
+  const [activeBookingFilter, setActiveBookingFilter] = useState("todays_booking");
   const [dashboardCounts, setDashboardCounts] = useState({
     todaysBooking: 0,
     preBookings: 0,
@@ -100,6 +100,8 @@ const Overview = () => {
     noShow: 0,
     cancelled: 0,
   });
+
+  const socket = useSocket();
 
   useEffect(() => {
     const fetchDashboardCards = async () => {
@@ -116,13 +118,43 @@ const Overview = () => {
     fetchDashboardCards();
   }, []);
 
+  // Socket listener for real-time dashboard cards updates
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleDashboardCardsUpdate = (data) => {
+      console.log("📊 Dashboard cards updated:", data);
+      setDashboardCounts(data);
+    };
+
+    socket.on("dashboard-cards-update", handleDashboardCardsUpdate);
+
+    return () => {
+      socket.off("dashboard-cards-update", handleDashboardCardsUpdate);
+    };
+  }, [socket]);
+
+  useEffect(() => {
+    const handleOpenModal = () => {
+      console.log("📋 Opening AddBooking modal from copy event");
+      lockBodyScroll();
+      setIsBookingModelOpen({ isOpen: true, type: "new" });
+    };
+
+    window.addEventListener('openAddBookingModal', handleOpenModal);
+
+    return () => {
+      window.removeEventListener('openAddBookingModal', handleOpenModal);
+    };
+  }, []);
+
   const tabs = [
     {
       id: "today",
       label: "TODAY'S BOOKING",
       count: dashboardCounts.todaysBooking,
       icon: TodayBookingIcon,
-      color: "bg-[#1F41BB]",
+      color: "bg-blue-500",
     },
     {
       id: "pre",
@@ -175,8 +207,6 @@ const Overview = () => {
     noshow: "no_show",
     cancelled: "cancelled",
   };
-
-  const socket = useSocket();
 
   const mapRef = useRef(null);
   const mapInstance = useRef(null);
@@ -243,7 +273,6 @@ const Overview = () => {
         }
       }
 
-      // Check if either manual_dispatch_only or auto_dispatch_nearest_driver is enabled
       const hasManualDispatchEnabled = data.some((item) => {
         const isManualDispatch = item.dispatch_system === "manual_dispatch_only";
         const isEnabled = item.status === "enable" || item.status === "enabled" || item.status === 1 || item.status === true;
@@ -256,10 +285,9 @@ const Overview = () => {
         return isAutoDispatchNearest && isEnabled;
       });
 
-      // Button should be enabled if at least one of these systems is enabled
       const shouldEnableButton = hasManualDispatchEnabled || hasAutoDispatchNearestEnabled;
 
-      // console.log("🎯 Dispatch System Status:", {
+      // console.log("Dispatch System Status:", {
       //   manual_dispatch_only: hasManualDispatchEnabled,
       //   auto_dispatch_nearest_driver: hasAutoDispatchNearestEnabled,
       //   buttonEnabled: shouldEnableButton
@@ -581,9 +609,7 @@ const Overview = () => {
     if (!socket) return;
 
     const handleOnJobDrivers = (rawData) => {
-      // console.log("Received on-job-driver-event:", rawData);
-      // console.log("Type of rawData:", typeof rawData);
-      // console.log("Raw data structure:", JSON.stringify(rawData, null, 2));
+      console.log("Received on-job-driver-event:", rawData);
 
       let data;
       try {
@@ -661,28 +687,16 @@ const Overview = () => {
 
   return (
     <div className="h-full">
-      <div className="px-5 pt-5 flex justify-between sm:flex-row flex-col items-start sm:items-center gap-3 sm:gap-0 2xl:mb-6 1.5xl:mb-10 mb-0">
-        <div className="sm:mb-[30px] mb-1 sm:w-[calc(100%-240px)] w-full flex gap-5 items-center">          <div className="flex flex-col gap-2.5 w-[calc(100%-100px)]">
-          <PageTitle title="Dashboard overview" />
-          <PageSubTitle
-            title={`Welcome back! ${displayName}, Here's what's happening with your transportation business today.`}
-          />
+      <div className="px-5 pt-10 flex flex-col sm:flex-row sm:justify-between items-center sm:items-start gap-4 sm:gap-02 xl:mb-6 1.5xl:mb-10">
+        <div className="w-full sm:w-[calc(100%-240px)] flex justify-center sm:justify-start">
+          <div className="flex flex-col gap-2.5 text-center sm:text-left">
+            <PageTitle title="Dashboard overview" />
+            <PageSubTitle
+              title={`Welcome back! ${displayName}, Here's what's happening with your transportation business today.`}
+            />
+          </div>
         </div>
-        </div>
-        <div className="flex flex-row gap-3">
-          {/* <Button
-            className="w-full sm:w-auto px-3 py-1.5 border border-[#ff4747] rounded-full"
-          >
-            <div className="flex gap-1 items-center justify-center whitespace-nowrap">
-              <span className="hidden sm:inline-block">
-                <PlusIcon fill={"#ff4747"} height={13} width={13} />
-              </span>
-              <span className="sm:hidden">
-                <PlusIcon height={8} width={8} />
-              </span>
-              <span className="text-[#252525]">SOS/Job Late</span>
-            </div>
-          </Button> */}
+        <div className="flex flex-col sm:flex-row gap-3 items-center justify-center w-full sm:w-auto">
           <Button
             className="w-full sm:w-auto px-3 py-1.5 border border-[#1f41bb] rounded-full"
             onClick={() => {
@@ -700,40 +714,7 @@ const Overview = () => {
               <span>Call Queue</span>
             </div>
           </Button>
-          {/* <Button
-            className="w-full sm:w-auto px-3 py-1.5 bg-[#F9F9F9] rounded-full"
-          >
-            <div className="flex gap-1 items-center justify-center whitespace-nowrap">
-              <span className="hidden sm:inline-block">
-                <PlusIcon fill={"#1f1f1f"} height={13} width={13} />
-              </span>
-              <span className="sm:hidden">
-                <PlusIcon height={8} width={8} />
-              </span>
-              <span>Log Out</span>
-            </div>
-          </Button> */}
-          {/* <Button
-            className="w-full sm:w-auto px-3 py-1.5 bg-[#AAC0FB] rounded-full"
-            onClick={() => {
-              lockBodyScroll();
-              setIsMessageModelOpen({ isOpen: true, type: "new" });
-            }}
-          >
-            <div className="flex gap-1 items-center justify-center whitespace-nowrap">
-              <span className="hidden sm:inline-block">
-                <PlusIcon height={13} width={13} />
-              </span>
-              <span className="sm:hidden">
-                <PlusIcon height={8} width={8} />
-              </span>
-              <span>Message Driver</span>
-            </div>
-          </Button> */}
-        </div>
-      </div>
-      <div className="px-5 flex justify-end">
-        <div className="sm:w-auto xs:w-auto w-full sm:mb-[50px]">
+
           <Button
             type="filled"
             btnSize="md"
@@ -745,7 +726,7 @@ const Overview = () => {
             }}
             disabled={isAddBookingDisabled || isLoadingDispatchSystem}
             className={`w-full sm:w-auto -mb-2 sm:-mb-3 lg:-mb-3 !py-3.5 sm:!py-3 lg:!py-3 ${isAddBookingDisabled || isLoadingDispatchSystem
-              ? '!bg-gray-400 !cursor-not-allowed opacity-60 hover:!bg-gray-400'
+              ? '!bg-gray-400 !cursor-not-allowed opacity-60 hover:!bg-gray-400 sm:w-auto xs:w-auto w-full sm:mb-[50px]'
               : ''
               }`}
             style={
@@ -783,10 +764,6 @@ const Overview = () => {
                   {driverCounts.idle} Offline (Inactive)
                 </div>
               </div>
-              {/* <div className="flex gap-2 max-sm:flex-col">
-                <Button type="filled" className="px-3 py-2 rounded-md flex justify-center">Plot</Button>
-                <Button type="filled" className="px-3 py-2 rounded-md flex justify-center">Map</Button>
-              </div> */}
             </div>
 
             <div className="flex-1 rounded-xl overflow-hidden">
@@ -807,7 +784,6 @@ const Overview = () => {
                 <tr className="">
                   <th className="text-left py-1 text-[11px]">Sr No</th>
                   <th className="text-left text-[11px]">Plot</th>
-                  {/* <th className="text-left text-[11px]">Vehicle</th> */}
                   <th className="text-left text-[11px]">Driver</th>
                   <th className="text-right text-[11px]">Rank</th>
                 </tr>
@@ -843,7 +819,6 @@ const Overview = () => {
                 <tr>
                   <th className="text-left py-1">Sr</th>
                   <th className="text-left">Driver</th>
-                  {/* <th className="text-left">Job ID</th> */}
                 </tr>
               </thead>
               <tbody>
@@ -864,22 +839,6 @@ const Overview = () => {
               </tbody>
             </table>
           </div>
-
-          {/* <div className="flex-[1.6] bg-purple-50 rounded-2xl shadow p-3">
-            <h3 className="font-semibold mb-2">Messages</h3>
-            <div className="space-y-2 text-xs">
-              {Array.from({ length: 5 }).map((_, i) => (
-                <div key={i} className="bg-white p-2 rounded flex-col flex">
-                  <span>Sit amet, consectetur...</span>
-                  <div className="flex gap-1 justify-end ">
-                    <button className="text-red-500">✕</button>
-                    <button className="text-blue-500">↺</button>
-                  </div>
-                </div>
-              ))}
-              <button className="text-indigo-600 text-xs mt-2">Clear Messages</button>
-            </div>
-          </div> */}
         </div>
       </div>
 
@@ -887,23 +846,26 @@ const Overview = () => {
         <OverViewDetails filter={activeBookingFilter} />
       </div>
 
-      <div
-        className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-0.5 overflow-hidden rounded-lg"
-      >
-        {tabs.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => {
-              const backendFilter = TAB_FILTER_MAP[tab.id] || "";
-              setActiveBookingFilter(backendFilter);
-            }}
-            className={`flex items-center justify-center gap-2 px-3 py-2.5 font-semibold text-white text-[11px] ${tab.color}`}
-          >
-            {tab.icon && <tab.icon className="w-4 h-4" />}
-            <span>{tab.label}</span>
-            {tab.count !== undefined && <span>({tab.count})</span>}
-          </button>
-        ))}
+      <div className="sticky bottom-0 left-0 right-0 z-50 bg-white shadow-lg">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-0.5 overflow-hidden">
+          {tabs.map((tab) => {
+            const backendFilter = TAB_FILTER_MAP[tab.id] || "";
+            const isActive = activeBookingFilter === backendFilter;
+
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveBookingFilter(backendFilter)}
+                className={`flex items-center justify-center gap-2 px-3 py-2.5 font-semibold text-white text-[11px] transition-colors ${isActive ? 'bg-[#1F41BB]' : 'bg-blue-500'
+                  }`}
+              >
+                {tab.icon && <tab.icon className="w-4 h-4" />}
+                <span>{tab.label}</span>
+                {tab.count !== undefined && <span>({tab.count})</span>}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       <Modal
@@ -911,7 +873,6 @@ const Overview = () => {
         className="p-4 sm:p-6 lg:p-10"
       >
         <AddBooking
-          // initialValue={isBookingModelOpen.type === "edit" ? isBookingModelOpen.accountData : {}}
           setIsOpen={setIsBookingModelOpen}
         />
       </Modal>
