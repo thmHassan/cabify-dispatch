@@ -18,7 +18,7 @@ const VARIANT_CONFIG = {
 };
 
 const CustomSelect = ({
-  variant,
+  variant = 0,
   options = [],
   value,
   onChange,
@@ -26,10 +26,14 @@ const CustomSelect = ({
   isSearchable = false,
   className = "",
   mobileBgColor,
-  mobileBorder, // accepts full CSS border or just a color; color will be converted
+  mobileBorder,
   forceMobile = false,
+  styles: externalStyles = {},
+  menuPortalTarget,
+
   ...props
 }) => {
+
   const isSmallScreen =
     typeof window !== "undefined" && window.matchMedia
       ? window.matchMedia("(max-width: 767px)").matches
@@ -38,13 +42,14 @@ const CustomSelect = ({
   const resolveMobileBorder = () => {
     if (!mobileBorder) return VARIANT_CONFIG[variant]?.border;
     const value = String(mobileBorder);
-    if (value.includes(" ")) return value; // already a full border declaration
-    return `1px solid ${value}`; // treat as a color
+    if (value.includes(" ")) return value;
+    return `1px solid ${value}`;
   };
 
-  const useMobileStyles = (forceMobile || isSmallScreen) && (mobileBgColor || mobileBorder);
+  const useMobileStyles =
+    (forceMobile || isSmallScreen) && (mobileBgColor || mobileBorder);
 
-  const customSelectStyles = {
+  const defaultStyles = {
     control: (provided) => ({
       ...provided,
       minHeight: "54px",
@@ -53,78 +58,86 @@ const CustomSelect = ({
       boxShadow: "none",
       cursor: "pointer",
       "&:hover": useMobileStyles
-        ? {
-            border: resolveMobileBorder(),
-          }
-        : {
-            border: "none",
-          },
+        ? { border: resolveMobileBorder() }
+        : { border: "none" },
       ...(useMobileStyles
         ? {
-            backgroundColor: mobileBgColor || VARIANT_CONFIG[variant]?.backgroundColor,
-            border: resolveMobileBorder(),
-          }
+          backgroundColor:
+            mobileBgColor ||
+            VARIANT_CONFIG[variant]?.backgroundColor,
+          border: resolveMobileBorder(),
+        }
         : VARIANT_CONFIG[variant]),
     }),
+
     valueContainer: (provided) => ({
       ...provided,
       height: "54px",
       padding: "0 16px",
     }),
+
     input: (provided) => ({
       ...provided,
-      margin: "0",
-      padding: "0",
+      margin: 0,
+      padding: 0,
     }),
+
     indicatorSeparator: () => ({
       display: "none",
     }),
+
     dropdownIndicator: (provided) => ({
       ...provided,
-      color: "#000000",
+      color: "#000",
       padding: "0 16px",
     }),
+
     placeholder: (provided) => ({
       ...provided,
       color: "#6C6C6C",
-      fontWeight: "500",
+      fontWeight: 500,
       fontSize: "14px",
-      "@media (min-width: 640px)": {
-        fontSize: "16px",
-      },
     }),
+
     singleValue: (provided) => ({
       ...provided,
       color: "#6C6C6C",
-      fontWeight: "500",
+      fontWeight: 500,
       fontSize: "14px",
-      "@media (min-width: 640px)": {
-        fontSize: "16px",
-      },
     }),
+
     menu: (provided) => ({
       ...provided,
       borderRadius: "10px",
       boxShadow:
-        "0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)",
+        "0 4px 6px rgba(0,0,0,0.1)",
       border: "none",
+      zIndex: 9999,
     }),
+
+    menuPortal: (provided) => ({
+      ...provided,
+      zIndex: 9999,
+    }),
+
     option: (provided, state) => ({
       ...provided,
       backgroundColor: state.isSelected
         ? "#1F41BB"
         : state.isFocused
-        ? "#f3f4f6"
-        : "white",
+          ? "#f3f4f6"
+          : "white",
       color: state.isSelected ? "white" : "#374151",
       padding: "12px 16px",
       cursor: "pointer",
       fontSize: "14px",
-      "@media (min-width: 640px)": {
-        fontSize: "16px",
-      },
-      fontWeight: "500",
+      fontWeight: 500,
     }),
+  };
+
+  const mergedStyles = {
+    ...defaultStyles,
+    ...externalStyles,
   };
 
   return (
@@ -134,11 +147,14 @@ const CustomSelect = ({
         value={value}
         onChange={onChange}
         placeholder={placeholder}
-        styles={customSelectStyles}
+        styles={mergedStyles}
         isSearchable={isSearchable}
         components={{ DropdownIndicator }}
         className="react-select-container"
         classNamePrefix="react-select"
+
+        menuPortalTarget={menuPortalTarget}
+
         {...props}
       />
     </div>

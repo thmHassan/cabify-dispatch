@@ -51,7 +51,7 @@ const Cancellations = () => {
       const response = await apiGetCancelledBooking(params);
 
       if (response?.data?.success === 1) {
-        const listData = response?.data?.list;
+        const listData = response?.data?.bookings; 
         setCancellationsData(listData?.data || []);
         setTotalItems(listData?.total || 0);
         setTotalPages(listData?.last_page || 1);

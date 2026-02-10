@@ -208,13 +208,25 @@ const OverViewDetails = ({ filter }) => {
                             onChange={handleSubCompanyChange}
                             value={subCompanyList.find(opt => opt.value === selectedSubCompany)}
                             isDisabled={loadingSubCompanies}
+                            menuPortalTarget={document.body}
+                            styles={{
+                                menuPortal: base => ({ ...base, zIndex: 9999 }),
+                                menu: base => ({ ...base, zIndex: 9999 })
+                            }}
                         />
+
                         <CustomSelect
                             variant={2}
                             options={OVERVIEW_STATUS_OPTIONS}
                             placeholder="All Status"
                             onChange={handleStatusChange}
                             value={OVERVIEW_STATUS_OPTIONS.find(opt => opt.value === selectedStatus)}
+
+                            menuPortalTarget={document.body}
+                            styles={{
+                                menuPortal: base => ({ ...base, zIndex: 9999 }),
+                                menu: base => ({ ...base, zIndex: 9999 })
+                            }}
                         />
                     </div>
                 </div>

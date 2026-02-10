@@ -8,12 +8,30 @@ import CustomSelect from "../../../../components/ui/CustomSelect";
 import { MAP_STATUS_OPTIONS } from "../../../../constants/selectOptions";
 import toast from "react-hot-toast";
 import { followDriverTracking } from "../../../../services/AddBookingServices";
+import { renderToString } from "react-dom/server";
+import RedCarIcon from "../../../../components/svg/RedCarIcon";
+import GreenCarIcon from "../../../../components/svg/GreenCarIcon";
 
 const GOOGLE_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
 
+const svgToDataUrl = (SvgComponent, width = 40, height = 40) => {
+  const svgString = renderToString(
+    <SvgComponent width={width} height={height} />
+  );
+  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svgString)}`;
+};
+
 const MARKER_ICONS = {
-  idle: "https://maps.google.com/mapfiles/ms/icons/red-dot.png",
-  busy: "https://maps.google.com/mapfiles/ms/icons/green-dot.png",
+  idle: {
+    url: svgToDataUrl(RedCarIcon, 40, 40),
+    scaledSize: { width: 40, height: 40 },
+    anchor: { x: 20, y: 20 },
+  },
+  busy: {
+    url: svgToDataUrl(GreenCarIcon, 40, 40),
+    scaledSize: { width: 40, height: 40 },
+    anchor: { x: 20, y: 20 },
+  },
 };
 
 const loadGoogleMaps = () => {
@@ -394,13 +412,13 @@ const Map = () => {
 
         <div className="flex justify-center gap-10 flex-wrap py-4 mt-3 border-t">
           <div className="flex items-center gap-2">
-            <span className="w-4 h-4 rounded-full bg-red-500" />
+            <RedCarIcon width={30} height={30} />
             <span className="text-sm font-medium">Idle Drivers</span>
           </div>
 
           <div className="flex items-center gap-2">
-            <span className="w-4 h-4 rounded-full bg-green-500" />
-            <span className="text-sm font-medium">Busy Drivers</span>
+            <GreenCarIcon width={30} height={30} />
+            <span className="text-sm font-medium">Active Drivers</span>
           </div>
         </div>
       </CardContainer>

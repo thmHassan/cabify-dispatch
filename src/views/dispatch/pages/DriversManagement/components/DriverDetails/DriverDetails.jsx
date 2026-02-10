@@ -5,7 +5,7 @@ import Button from "../../../../../../components/ui/Button/Button";
 import PageTitle from "../../../../../../components/ui/PageTitle/PageTitle";
 import { lockBodyScroll } from "../../../../../../utils/functions/common.function";
 import Loading from "../../../../../../components/shared/Loading/Loading";
-import { apiEditDriverManagement, apiGetDriverDocumentById, apiGetDriverDocumentList, apiGetDriverManagementById } from "../../../../../../services/DriverManagementService";
+import { apiGetDriverDocumentById, apiGetDriverDocumentList, apiGetDriverManagementById } from "../../../../../../services/DriverManagementService";
 import DocumentModel from "./component/DocumentModel";
 import Modal from "../../../../../../components/shared/Modal/Modal";
 
@@ -82,9 +82,7 @@ const DriverDetails = () => {
         iban_no: "",
     });
     const [profileImage, setProfileImage] = useState(null);
-    const [profileImageFile, setProfileImageFile] = useState(null);
     const [isLoading, setIsLoading] = useState(false);
-    const [isSaving, setIsSaving] = useState(false);
     const [driverData, setDriverData] = useState(null);
     const [documents, setDocuments] = useState([]);
     const [isLoadingDocuments, setIsLoadingDocuments] = useState(false);
@@ -100,6 +98,17 @@ const DriverDetails = () => {
             if (response?.data?.success === 1 || response?.status === 200) {
                 const data = response?.data?.driver || response?.data?.data || response?.data || {};
                 setDriverData(data);
+
+                const hasChangeRequest = Number(data.vehicle_change_request) !== 0;
+
+                const getVehicleRegistrationDate = () => {
+                    const dateStr = hasChangeRequest
+                        ? data.change_vehicle_registration_date
+                        : data.vehicle_registration_date;
+                    if (!dateStr) return "";
+                    return dateStr.split('T')[0];
+                };
+
                 setFormData({
                     name: data.name || "",
                     email: data.email || "",
@@ -109,20 +118,23 @@ const DriverDetails = () => {
                     assigned_vehicle: data.assigned_vehicle || "",
                     joined_date: data.joined_date ? data.joined_date.split('T')[0] : "",
                     sub_company: data.sub_company ? data.sub_company.toString() : "",
+                    // Vehicle fields — based on vehicle_change_request
                     vehicle_name: data.vehicle_name || "",
-                    vehicle_type: data.vehicle_type || "",
-                    vehicle_service: data.vehicle_service || "",
-                    seats: data.seats || "",
-                    color: data.color || "",
+                    vehicle_type: hasChangeRequest ? (data.change_vehicle_type || "") : (data.vehicle_type || ""),
+                    vehicle_service: hasChangeRequest ? (data.change_vehicle_service || "") : (data.vehicle_service || ""),
+                    seats: hasChangeRequest ? (data.change_seats || "") : (data.seats || ""),
+                    color: hasChangeRequest ? (data.change_color || "") : (data.color || ""),
                     capacity: data.capacity || "",
-                    plate_no: data.plate_no || "",
-                    vehicle_registration_date: data.vehicle_registration_date ? data.vehicle_registration_date.split('T')[0] : "",
+                    plate_no: hasChangeRequest ? (data.change_plate_no || "") : (data.plate_no || ""),
+                    vehicle_registration_date: getVehicleRegistrationDate(),
+                    // Bank fields
                     bank_name: data.bank_name || "",
                     bank_account_number: data.bank_account_number || "",
                     account_holder_name: data.account_holder_name || "",
                     bank_phone_no: data.bank_phone_no || "",
                     iban_no: data.iban_no || "",
                 });
+
                 if (data.profile_image) {
                     setProfileImage(data.profile_image);
                 }
@@ -200,38 +212,15 @@ const DriverDetails = () => {
         }
     };
 
-    const handleSave = async () => {
-        setIsSaving(true);
-        try {
-            const formDataObj = new FormData();
-            formDataObj.append('id', driverId);
-            formDataObj.append('name', formData.name || '');
-            formDataObj.append('email', formData.email || '');
-            formDataObj.append('phone_no', formData.phone_no || '');
-            formDataObj.append('address', formData.address || '');
-            formDataObj.append('driver_license', formData.driver_license || '');
-            formDataObj.append('assigned_vehicle', formData.assigned_vehicle || '');
-            const joinedDate = formData.joined_date ? `${formData.joined_date} 00:00:00` : '';
-            formDataObj.append('joined_date', joinedDate);
-            formDataObj.append('sub_company', formData.sub_company || '');
-
-            if (profileImageFile) {
-                formDataObj.append('profile_image', profileImageFile);
-            }
-
-            const response = await apiEditDriverManagement(formDataObj);
-
-            if (response?.data?.success === 1 || response?.status === 200) {
-                await loadDriverData();
-            } else {
-                console.error(response?.data?.message || "Failed to update driver");
-            }
-        } catch (error) {
-            console.error("Error saving driver:", error);
-        } finally {
-            setIsSaving(false);
-        }
-    };
+    const vehicleFields = [
+        { label: "Vehicle Name", field: "vehicle_name" },
+        { label: "Vehicle Type", field: "vehicle_type" },
+        { label: "Vehicle Service", field: "vehicle_service" },
+        { label: "Seats", field: "seats" },
+        { label: "Color", field: "color" },
+        { label: "Plate Number", field: "plate_no" },
+        { label: "Vehicle Registration Date", field: "vehicle_registration_date" },
+    ];
 
     return (
         <div className="px-4 py-5 sm:p-6 lg:p-10 min-h-[calc(100vh-85px)]">
@@ -329,70 +318,19 @@ const DriverDetails = () => {
                         Vehicle Information
                     </h2>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <FormField
-                            label="Vehicle Name"
-                            placeholder="Enter Vehicle Name"
-                            value={formData.vehicle_name}
-                            onChange={(e) => handleInputChange('vehicle_name', e.target.value)}
-                            name="vehicle_name"
-                        />
-
-                        <FormField
-                            label="Vehicle Type"
-                            type="select"
-                            placeholder="Select Vehicle Type"
-                            options={["Sedan", "SUV", "Hatchback", "Van"]}
-                            value={formData.vehicle_type}
-                            onChange={(e) => handleInputChange('vehicle_type', e.target.value)}
-                            name="vehicle_type"
-                        />
-
-                        <FormField
-                            label="Vehicle Service"
-                            type="select"
-                            placeholder="Select Vehicle Service"
-                            options={["Taxi", "Rental", "Delivery"]}
-                            value={formData.vehicle_service}
-                            onChange={(e) => handleInputChange('vehicle_service', e.target.value)}
-                            name="vehicle_service"
-                        />
-
-                        <FormField
-                            label="Seats"
-                            type="select"
-                            placeholder="Select Seats"
-                            options={["2", "4", "5", "7", "8"]}
-                            value={formData.seats}
-                            onChange={(e) => handleInputChange('seats', e.target.value)}
-                            name="seats"
-                        />
-
-                        <FormField
-                            label="Color"
-                            type="select"
-                            placeholder="Select Color"
-                            options={["Black", "White", "Red", "Blue", "Silver"]}
-                            value={formData.color}
-                            onChange={(e) => handleInputChange('color', e.target.value)}
-                            name="color"
-                        />
-
-                        <FormField
-                            label="Plate Number"
-                            placeholder="Enter Plate Number"
-                            value={formData.plate_no}
-                            onChange={(e) => handleInputChange('plate_no', e.target.value)}
-                            name="plate_no"
-                        />
-
-                        <FormField
-                            label="Vehicle Registration Date"
-                            type="date"
-                            value={formData.vehicle_registration_date}
-                            onChange={(e) => handleInputChange('vehicle_registration_date', e.target.value)}
-                            name="vehicle_registration_date"
-                        />
-
+                        {vehicleFields.map(({ label, field }) => (
+                            <div key={field} className="flex flex-col gap-1">
+                                <label className="text-sm font-medium text-gray-700">
+                                    {label}
+                                </label>
+                                <FormField
+                                    type="text"
+                                    value={formData[field] || "-"}
+                                    readOnly
+                                    className="border border-gray-300 rounded-lg px-4 py-3 bg-gray-50 text-gray-700 focus:outline-none cursor-default"
+                                />
+                            </div>
+                        ))}
                     </div>
                 </CardContainer>
             </div>
@@ -401,7 +339,6 @@ const DriverDetails = () => {
                 <h2 className="text-[22px] font-semibold mb-4">
                     Bank Information
                 </h2>
-
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <FormField
                         label="Bank Name"
@@ -476,17 +413,10 @@ const DriverDetails = () => {
                                                 ? doc.status.charAt(0).toUpperCase() + doc.status.slice(1)
                                                 : "Pending"
                                         }
-                                        className="border w-24 border-gray-300 rounded text-center py-1.5 text-sm"
+                                        readOnly
+                                        disabled
+                                        className="border w-24 border-gray-300 rounded text-center py-1.5 text-sm bg-gray-50 cursor-default"
                                     />
-                                    {/* <select
-                                        value={doc.status || "pending"}
-                                        onChange={(e) => handleDocumentStatusChange(doc.id, e.target.value)}
-                                        className="border border-gray-300 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-600"
-                                    >
-                                        <option value="pending">Pending</option>
-                                        <option value="verified">Approved</option>
-                                        <option value="rejected">Rejected</option>
-                                    </select> */}
                                     <Button
                                         type="filled"
                                         className="py-1.5 px-4 rounded-md leading-[25px]"
