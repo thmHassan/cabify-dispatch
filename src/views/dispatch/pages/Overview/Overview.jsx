@@ -18,12 +18,30 @@ import { useAppSelector } from "../../../../store";
 import { apiGetDispatchSystem } from "../../../../services/SettingsConfigurationServices";
 import { getDashboardCards } from "../../../../services/AddBookingServices";
 import CallQueueModel from "./components/CallQueueModel/CallQueueModel";
+import RedCarIcon from "../../../../components/svg/RedCarIcon";
+import GreenCarIcon from "../../../../components/svg/GreenCarIcon";
+import { renderToString } from "react-dom/server";
 
 const GOOGLE_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
 
+const svgToDataUrl = (SvgComponent, width = 40, height = 40) => {
+  const svgString = renderToString(
+    <SvgComponent width={width} height={height} />
+  );
+  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svgString)}`;
+};
+
 const MARKER_ICONS = {
-  idle: "https://maps.google.com/mapfiles/ms/icons/red-dot.png",
-  busy: "https://maps.google.com/mapfiles/ms/icons/green-dot.png",
+  idle: {
+    url: svgToDataUrl(RedCarIcon, 40, 40),
+    scaledSize: { width: 40, height: 40 },
+    anchor: { x: 20, y: 20 },
+  },
+  busy: {
+    url: svgToDataUrl(GreenCarIcon, 40, 40),
+    scaledSize: { width: 40, height: 40 },
+    anchor: { x: 20, y: 20 },
+  },
 };
 
 const loadGoogleMaps = () => {
@@ -136,7 +154,7 @@ const Overview = () => {
 
   useEffect(() => {
     const handleOpenModal = () => {
-      console.log("📋 Opening AddBooking modal from copy event");
+      console.log("Opening AddBooking modal from copy event");
       lockBodyScroll();
       setIsBookingModelOpen({ isOpen: true, type: "new" });
     };
@@ -757,11 +775,11 @@ const Overview = () => {
               <div className="flex flex-wrap gap-4 text-sm">
                 <div className="flex items-center gap-1 text-green-600">
                   <span className="w-2 h-2 rounded-full bg-green-600"></span>
-                  {driverCounts.busy} Online (Active)
+                  {driverCounts.busy} Active Drivers
                 </div>
                 <div className="flex items-center gap-1 text-red-500">
                   <span className="w-2 h-2 rounded-full bg-red-500"></span>
-                  {driverCounts.idle} Offline (Inactive)
+                  {driverCounts.idle} Idle Drivers
                 </div>
               </div>
             </div>
@@ -846,7 +864,7 @@ const Overview = () => {
         <OverViewDetails filter={activeBookingFilter} />
       </div>
 
-      <div className="sticky bottom-0 left-0 right-0 z-50 bg-white shadow-lg">
+      <div className="sticky bottom-0 left-0 right-0 z-30 bg-white shadow-lg">
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-0.5 overflow-hidden">
           {tabs.map((tab) => {
             const backendFilter = TAB_FILTER_MAP[tab.id] || "";

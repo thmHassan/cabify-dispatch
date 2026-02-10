@@ -117,41 +117,41 @@ const DocumentModel = ({ initialValue = {}, setIsOpen, }) => {
                                     )}
 
                                     {(values.frontPhoto || values.backPhoto || values.profilePhoto) && (
-                                        <div className="grid grid-cols-3 gap-4 mt-4">
+                                        <div className="flex flex-col gap-4 mt-4">
                                             {values.frontPhoto && (
-                                                <div className="flex flex-col items-center">
+                                                <div className="w-full">
                                                     <FormLabel>Front Photo</FormLabel>
-                                                    <div className="w-24 h-24 border border-gray-300 rounded-lg overflow-hidden bg-gray-100 flex items-center justify-center">
+                                                    <div className="w-full border border-gray-300 rounded-lg overflow-hidden bg-gray-100">
                                                         <img
                                                             src={`${import.meta.env.VITE_BACKEND_URL}${values.frontPhoto}`}
-                                                            className="w-full h-full object-cover"
-                                                            alt="vehicle"
+                                                            className="w-full h-48 object-cover"
+                                                            alt="Front"
                                                         />
                                                     </div>
                                                 </div>
                                             )}
 
                                             {values.backPhoto && (
-                                                <div className="flex flex-col items-center">
+                                                <div className="w-full">
                                                     <FormLabel>Back Photo</FormLabel>
-                                                    <div className="w-24 h-24 border border-gray-300 rounded-lg overflow-hidden bg-gray-100 flex items-center justify-center">
+                                                    <div className="w-full border border-gray-300 rounded-lg overflow-hidden bg-gray-100">
                                                         <img
                                                             src={`${import.meta.env.VITE_BACKEND_URL}${values.backPhoto}`}
-                                                            className="w-full h-full object-cover"
-                                                            alt="vehicle"
+                                                            className="w-full h-48 object-cover"
+                                                            alt="Back"
                                                         />
                                                     </div>
                                                 </div>
                                             )}
 
                                             {values.profilePhoto && (
-                                                <div className="flex flex-col items-center">
+                                                <div className="w-full">
                                                     <FormLabel>Profile Photo</FormLabel>
-                                                    <div className="w-24 h-24 border border-gray-300 rounded-lg overflow-hidden bg-gray-100 flex items-center justify-center">
+                                                    <div className="w-full border border-gray-300 rounded-lg overflow-hidden bg-gray-100">
                                                         <img
                                                             src={`${import.meta.env.VITE_BACKEND_URL}${values.profilePhoto}`}
-                                                            className="w-full h-full object-cover"
-                                                            alt="vehicle"
+                                                            className="w-full h-48 object-cover"
+                                                            alt="Profile"
                                                         />
                                                     </div>
                                                 </div>

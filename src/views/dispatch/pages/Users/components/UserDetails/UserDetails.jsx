@@ -48,8 +48,8 @@ const UserDetails = ({ user, onEdit, onDelete }) => {
             </div>
             <div className="flex items-center  gap-3">
                 <div className="inline-flex w-52 flex-col px-4 py-2 rounded-full bg-[#EFEFEF] text-left break-all w-[250px]">
-                    <p className="text-xs text-center text-[#6C6C6C]">Address</p>
-                    <p className="text-[#333333] font-semibold text-center text-[12px]">{user.address || "-"}</p>
+                    <p className="text-xs text-center texdt-[#6C6C6C]">Address</p>
+                    <p className="text-[#333333] font-semibold text-center text-[12px]">{user.address ? `${user.address}, ${user.city || ''}` : "-"}</p>
                 </div>
                 <div className="inline-flex flex-col px-4 py-2 rounded-full bg-[#EFEFEF] text-left whitespace-nowrap w-[107px]">
                     <p className="text-xs text-center text-[#6C6C6C]">Device</p>
@@ -57,7 +57,7 @@ const UserDetails = ({ user, onEdit, onDelete }) => {
                 </div>
                 <div className="inline-flex flex-col px-4 py-2 rounded-full bg-[#EFEFEF] text-left whitespace-nowrap w-[107px]">
                     <p className="text-xs text-center text-[#6C6C6C]">Rating</p>
-                    <p className="text-[#333333] text-center font-semibold text-sm">{user.ratings || 3.5}</p>
+                    <p className="text-[#333333] text-center font-semibold text-sm">{user.rating || "0.0"}</p>
                 </div>
                 <div className="inline-flex flex-col px-4 py-2 rounded-full bg-[#EFEFEF] text-left whitespace-nowrap">
                     <p className="text-xs text-center text-[#6C6C6C]">Created At</p>
