@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import useAuth from "../../../utils/hooks/useAuth";
 import SettingIcon from "../../svg/SettingIcon";
 import NotificationIcon from "../../svg/NotificationIcon";
@@ -19,9 +19,11 @@ import CloseIcon from "../../svg/CloseIcon";
 import PageSubTitle from "../../ui/PageSubTitle/PageSubTitle";
 import { PlainSwitch } from "../../ui/Switch/Switch ";
 import { useSocket, useSocketStatus} from "../../routes/SocketProvider";
+import { filterNavByTenantFeatures } from "../../../utils/functions/featureVisibilityFilter";
+import { getTenantData } from "../../../utils/functions/tokenEncryption";
 
 const UserPageContainer = ({ children }) => {
-  const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);  
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false);
 
@@ -33,9 +35,16 @@ const UserPageContainer = ({ children }) => {
   const { signOut } = useAuth();
   const user = useAppSelector((state) => state.auth.user);
   const navigate = useNavigate();
+  const rawTenant = getTenantData();
+  const tenantData = rawTenant?.data || {};
   const location = useLocation();
   const socket = useSocket();
   const isConnected = useSocketStatus();
+
+  const filteredNavElements = useMemo(
+    () => filterNavByTenantFeatures(NAV_ELEMENTS, tenantData),
+    [tenantData]
+  );
 
    useEffect(() => {
     if (!socket) return;
@@ -194,7 +203,7 @@ const UserPageContainer = ({ children }) => {
 </button>
         </div>
         <div className="flex flex-col gap-[30px]">
-          {NAV_ELEMENTS.map(({ title, routes }, index) => (
+          {filteredNavElements.map(({ title, routes }, index) => (
             <div key={index}>
               <div className={`${isSidebarOpen ? "block" : "hidden"} text-[#7A7A7A] px-6 lg:px-8 text-sm leading-[19px] font-semibold mb-[18px]`}>
                 {title}

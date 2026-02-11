@@ -11,6 +11,7 @@ import { apiGetAllPlot, apiCreateCalculateFares, apiCreateBooking } from "../../
 import { apiGetDispatchSystem } from "../../../../../../services/SettingsConfigurationServices";
 import { unlockBodyScroll } from "../../../../../../utils/functions/common.function";
 import toast from 'react-hot-toast';
+import { getDispatcherId } from "../../../../../../utils/auth";
 
 const GOOGLE_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
 const BARIKOI_KEY = import.meta.env.VITE_BARIKOI_API_KEY;
@@ -97,6 +98,7 @@ const AddBooking = ({ setIsOpen }) => {
 
     const [isManualDispatchOnly, setIsManualDispatchOnly] = useState(false);
     const [loadingDispatchSystem, setLoadingDispatchSystem] = useState(true);
+    const dispatcherId = getDispatcherId();
 
     const [alertModal, setAlertModal] = useState({
         isOpen: false,
@@ -151,17 +153,30 @@ const AddBooking = ({ setIsOpen }) => {
         congestion_toll: 0,
         ac_waiting_charges: 0,
         total_charges: 0,
+        distance: "",
     });
 
-    const tenant = getTenantData();
-    const SEARCH_API = tenant?.search_api || "google";
-    const COUNTRY_CODE = tenant?.country_of_use?.toLowerCase() || "IN";
+    const rawTenant = getTenantData();
+    const tenant = rawTenant?.data || {};
+
+    const SEARCH_API = tenant?.search_api;
+    const COUNTRY_CODE = tenant?.country_of_use?.toLowerCase();
+
 
     useEffect(() => {
-        const tenant = getTenantData();
+        const rawTenant = getTenantData();
+        const tenant = rawTenant?.data || {};
+
         if (tenant?.maps_api) {
             const mapType = tenant.maps_api.toLowerCase();
-            setMapsApi(mapType === "google" ? "google" : mapType === "barikoi" ? "barikoi" : "google");
+
+            if (mapType === "google") {
+                setMapsApi("google");
+            } else if (mapType === "barikoi") {
+                setMapsApi("barikoi");
+            } else {
+                setMapsApi("google");
+            }
         }
     }, []);
 
@@ -520,7 +535,7 @@ const AddBooking = ({ setIsOpen }) => {
         }
     };
 
-    const handleCalculateFares = async (values) => {
+    const handleCalculateFares = async (values, setFieldValue) => {
         setFareLoading(true);
         setFareError(null);
 
@@ -590,6 +605,12 @@ const AddBooking = ({ setIsOpen }) => {
             if (response?.data?.success === 1) {
                 setFareData(response.data);
                 setFareCalculated(true);
+
+                if (response.data.distance) {
+                    const distanceInKm = (response.data.distance / 1000).toFixed(2);
+                    setFieldValue('distance', distanceInKm);
+                }
+
                 toast.success("Fare calculated successfully");
                 console.log("Fare calculation successful:", response.data);
             } else {
@@ -685,6 +706,7 @@ const AddBooking = ({ setIsOpen }) => {
 
             formData.append('booking_date', values.booking_date || '');
             formData.append('booking_type', values.booking_type || '');
+            formData.append("dispatcher_id", dispatcherId);
 
             const pickupCoords = await getCoordinatesFromAddress(values.pickup_point);
             const destinationCoords = await getCoordinatesFromAddress(values.destination);
@@ -1390,14 +1412,14 @@ const AddBooking = ({ setIsOpen }) => {
 
                                                         <div className="border mt-2 max-sm:w-full rounded-lg h-28 md:mt-0 px-4 py-4 bg-white shadow-sm">
                                                             <div className="flex flex-col gap-3">
-                                                                <label className={`flex items-center gap-2 ${shouldDisableDispatchOptions(values) || isManualDispatchOnly
+                                                                <label className={`flex items-center gap-2 ${shouldDisableDispatchOptions(values) || isManualDispatchOnly || values.driver
                                                                     ? 'opacity-50 cursor-not-allowed'
                                                                     : ''
                                                                     }`}>
                                                                     <input
                                                                         type="checkbox"
                                                                         checked={values.auto_dispatch}
-                                                                        disabled={shouldDisableDispatchOptions(values) || isManualDispatchOnly}
+                                                                        disabled={shouldDisableDispatchOptions(values) || isManualDispatchOnly || values.driver}
                                                                         onChange={(e) => {
                                                                             setFieldValue("auto_dispatch", e.target.checked);
                                                                             if (e.target.checked) {
@@ -1411,14 +1433,14 @@ const AddBooking = ({ setIsOpen }) => {
                                                                     )}
                                                                 </label>
 
-                                                                <label className={`flex items-center gap-2 ${shouldDisableDispatchOptions(values) || isManualDispatchOnly
+                                                                <label className={`flex items-center gap-2 ${shouldDisableDispatchOptions(values) || isManualDispatchOnly || values.driver
                                                                     ? 'opacity-50 cursor-not-allowed'
                                                                     : ''
                                                                     }`}>
                                                                     <input
                                                                         type="checkbox"
                                                                         checked={values.bidding}
-                                                                        disabled={shouldDisableDispatchOptions(values) || isManualDispatchOnly}
+                                                                        disabled={shouldDisableDispatchOptions(values) || isManualDispatchOnly || values.driver}
                                                                         onChange={(e) => {
                                                                             setFieldValue("bidding", e.target.checked);
                                                                             if (e.target.checked) {
@@ -1515,6 +1537,23 @@ const AddBooking = ({ setIsOpen }) => {
                                                         lng: parseFloat(lng)
                                                     } : null;
                                                 }).filter(Boolean)}
+                                                setFieldValue={setFieldValue}
+                                                fetchPlotName={fetchPlotName}
+                                                setPickupPlotData={setPickupPlotData}
+                                                setDestinationPlotData={setDestinationPlotData}
+                                                SEARCH_API={SEARCH_API}
+                                            />
+                                        </div>
+                                        <div className="mt-4">
+                                            <label className="text-sm font-semibold text-left md:w-16 w-16">
+                                                Distance
+                                            </label>
+                                            <input
+                                                type="text"
+                                                placeholder="Distance will be shown here"
+                                                readOnly
+                                                value={values.distance ? `${values.distance} km` : ""}
+                                                className="border-[1.5px] shadow-lg border-[#8D8D8D] rounded-[8px] px-3 py-2 w-full bg-gray-50"
                                             />
                                         </div>
                                     </div>
@@ -1528,7 +1567,7 @@ const AddBooking = ({ setIsOpen }) => {
                                                 btnSize="md"
                                                 type="filled"
                                                 className="px-4 py-3 text-xs text-white rounded"
-                                                onClick={() => handleCalculateFares(values)}
+                                                onClick={() => handleCalculateFares(values, setFieldValue)}
                                                 disabled={fareLoading}
                                             >
                                                 {fareLoading ? "Calculating..." : "Calculate Fares"}
@@ -1543,12 +1582,13 @@ const AddBooking = ({ setIsOpen }) => {
                                             </label>
 
                                             <select
-                                                value={values.payment_method || "cash"}
+                                                value={values.payment_method}
                                                 onChange={(e) =>
                                                     setFieldValue("payment_method", e.target.value)
                                                 }
                                                 className="border rounded px-2 py-1 w-48"
                                             >
+                                                <option value="">Select Method</option>
                                                 <option value="cash">Cash</option>
                                                 <option value="online">Online</option>
                                             </select>

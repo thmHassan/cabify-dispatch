@@ -53,7 +53,7 @@ const UserDetails = ({ user, onEdit, onDelete }) => {
                 </div>
                 <div className="inline-flex flex-col px-4 py-2 rounded-full bg-[#EFEFEF] text-left whitespace-nowrap w-[107px]">
                     <p className="text-xs text-center text-[#6C6C6C]">Device</p>
-                    <p className="text-[#333333] text-center font-semibold text-sm">{user.device || 12}</p>
+                    <p className="text-[#333333] text-center font-semibold text-sm">{user.device_count || "0"}</p>
                 </div>
                 <div className="inline-flex flex-col px-4 py-2 rounded-full bg-[#EFEFEF] text-left whitespace-nowrap w-[107px]">
                     <p className="text-xs text-center text-[#6C6C6C]">Rating</p>

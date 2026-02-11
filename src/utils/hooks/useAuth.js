@@ -21,6 +21,7 @@ import {
   clearAllAuthData,
   isAuthenticated,
   storeTenantId,
+  storeTenantData,
 } from "../functions/tokenEncryption";
 
 function useAuth() {
@@ -93,6 +94,15 @@ function useAuth() {
 
     if (tenantId) {
       storeTenantId(tenantId);
+    }
+
+    const companyData =
+      data.company_data ||
+      data.data?.company_data ||
+      null;
+
+    if (companyData) {
+      storeTenantData(companyData);
     }
 
     navigate(
