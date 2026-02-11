@@ -153,19 +153,9 @@ const Map = () => {
       const response = await followDriverTracking(bookingId);
 
       if (response.data?.success) {
-        console.log("Driver tracking started:", response.data);
-
         const driverData = response.data.data.driver;
 
-        if (driverData.latitude && driverData.longitude && mapInstance.current) {
-          const position = {
-            lat: Number(driverData.latitude),
-            lng: Number(driverData.longitude)
-          };
-
-          mapInstance.current.setCenter(position);
-          mapInstance.current.setZoom(15);
-
+        if (driverData.latitude && driverData.longitude) {
           createOrUpdateDriverMarker({
             id: driverData.id,
             name: driverData.name,
@@ -175,8 +165,6 @@ const Map = () => {
             phone_no: driverData.phone_no,
             plate_no: "",
           }, true);
-
-          // toast.success(`Now tracking ${driverData.name}`);
         }
       }
     } catch (error) {
@@ -215,21 +203,16 @@ const Map = () => {
       [driverId]: { ...data, position, name, status: validStatus },
     }));
 
+    // ✅ FIXED: Google Maps Size instance વાપરો
+    const markerIcon = {
+      url: validStatus === 'busy'
+        ? svgToDataUrl(GreenCarIcon, 40, 40)
+        : svgToDataUrl(RedCarIcon, 40, 40),
+      scaledSize: new window.google.maps.Size(40, 40),
+      anchor: new window.google.maps.Point(20, 20),
+    };
+
     const isTrackedDriver = trackingBooking && driverId === trackingBooking.driverId;
-
-    let markerIcon;
-    if (validStatus === 'busy') {
-      markerIcon = MARKER_ICONS.busy;
-    } else {
-      markerIcon = MARKER_ICONS.idle;
-    }
-
-    if (isTrackedDriver || isTracked) {
-      markerIcon = {
-        url: validStatus === 'busy' ? MARKER_ICONS.busy : MARKER_ICONS.idle,
-        scaledSize: new window.google.maps.Size(40, 40),
-      };
-    }
 
     if (markers.current[driverId]) {
       const marker = markers.current[driverId];
@@ -247,9 +230,10 @@ const Map = () => {
         marker.setPosition(position);
       }
 
+      // ✅ Icon update
       marker.setIcon(markerIcon);
 
-      if (isTrackedDriver && mapInstance.current) {
+      if ((isTrackedDriver || isTracked) && mapInstance.current) {
         mapInstance.current.setCenter(position);
       }
 
@@ -259,10 +243,16 @@ const Map = () => {
             <strong style="font-size: 14px;">${name}</strong>
             <br/>
             <span style="font-size: 12px;">Phone: ${phoneNo}</span><br/>
+            <span style="font-size: 12px;">Status: 
+              <span style="color: ${validStatus === 'busy' ? 'green' : 'red'}; font-weight: bold;">
+                ${validStatus.toUpperCase()}
+              </span>
+            </span>
           </div>
         `);
       }
     } else {
+      // ✅ નવો marker create
       const marker = new window.google.maps.Marker({
         position,
         map: mapInstance.current,
@@ -275,7 +265,9 @@ const Map = () => {
         content: `
           <div style="padding: 8px;">
             <strong style="font-size: 14px;">${name}</strong>
-            ${isTrackedDriver || isTracked ? '<span style="background: #3B82F6; color: white; padding: 2px 8px; border-radius: 4px; font-size: 10px; margin-left: 5px; font-weight: bold;">TRACKING</span>' : ''}
+            ${isTrackedDriver || isTracked
+            ? '<span style="background: #3B82F6; color: white; padding: 2px 8px; border-radius: 4px; font-size: 10px; margin-left: 5px; font-weight: bold;">TRACKING</span>'
+            : ''}
             <br/>
             <span style="font-size: 12px;">Phone: ${phoneNo}</span><br/>
             ${vehiclePlateNo ? `<span style="font-size: 12px;">Vehicle: ${vehiclePlateNo}</span><br/>` : ''}
@@ -297,9 +289,10 @@ const Map = () => {
 
       marker.infoWindow = infoWindow;
       markers.current[driverId] = marker;
-
       if (isTrackedDriver || isTracked) {
         infoWindow.open(mapInstance.current, marker);
+        mapInstance.current.setCenter(position);
+        mapInstance.current.setZoom(15);
       }
     }
   };
