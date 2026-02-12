@@ -27,7 +27,17 @@ const UserPageContainer = ({ children }) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false);
 
-    const [notifications, setNotifications] = useState([]);
+  // Load notifications from localStorage on initial render
+  const [notifications, setNotifications] = useState(() => {
+    try {
+      const saved = localStorage.getItem('notifications');
+      return saved ? JSON.parse(saved) : [];
+    } catch (error) {
+      console.error('Error loading notifications from localStorage:', error);
+      return [];
+    }
+  });
+  
   const [unreadCount, setUnreadCount] = useState(0);
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
   const notificationRef = useRef(null);
@@ -46,59 +56,66 @@ const UserPageContainer = ({ children }) => {
     [tenantData]
   );
 
-   useEffect(() => {
+  // Save notifications to localStorage whenever they change
+  useEffect(() => {
+    try {
+      localStorage.setItem('notifications', JSON.stringify(notifications));
+    } catch (error) {
+      console.error('Error saving notifications to localStorage:', error);
+    }
+  }, [notifications]);
+
+  useEffect(() => {
     if (!socket) return;
 
-  console.log("📢 RECEIVED send-reminder:");
+    console.log("📢 RECEIVED send-reminder:");
 
-  const handleSendReminder = (data) => {
-    console.log("📢 RECEIVED send-reminder event:", data);
-    console.log("📢 Data type:", typeof data);
-    console.log("📢 Data keys:", Object.keys(data));
-    
-    setNotifications((prev) => {
-      const newNotification = {
-        id: Date.now(),
-        ...data,
-        timestamp: new Date(),
-        read: false
-      };
-      console.log("✅ Adding notification:", newNotification);
-      return [newNotification, ...prev];
-    });
-    
-    if (Notification.permission === "granted") {
-      new Notification("New Reminder", {
-        body: data.description || data.message || "You have a new reminder",
-        icon: "/notification-icon.png"
+    const handleSendReminder = (data) => {
+      console.log("📢 RECEIVED send-reminder event:", data);
+      
+      setNotifications((prev) => {
+        const newNotification = {
+          id: Date.now(),
+          ...data,
+          timestamp: new Date().toISOString(), // Store as ISO string for localStorage compatibility
+          read: false
+        };
+        console.log("Adding notification:", newNotification);
+        return [newNotification, ...prev];
       });
-    }
-  };
+      
+      if (Notification.permission === "granted") {
+        new Notification("New Reminder", {
+          body: data.description || data.message || "You have a new reminder",
+          icon: "/notification-icon.png"
+        });
+      }
+    };
 
-  const handleConnect = () => {
-    console.log("🔌 Socket connected in component:", socket.id);
-    console.log("🔌 Registering send-reminder listener on connect");
-  };
+    const handleConnect = () => {
+      console.log("🔌 Socket connected in component:", socket.id);
+      console.log("🔌 Registering send-reminder listener on connect");
+    };
 
-  const handleDisconnect = () => {
-    console.log("❌ Socket disconnected");
-  };
+    const handleDisconnect = () => {
+      console.log("❌ Socket disconnected");
+    };
 
-  // Register listeners
-  socket.on("connect", handleConnect);
-  socket.on("disconnect", handleDisconnect);
-  socket.on("send-reminder", handleSendReminder);
+    // Register listeners
+    socket.on("connect", handleConnect);
+    socket.on("disconnect", handleDisconnect);
+    socket.on("send-reminder", handleSendReminder);
 
-  console.log("🔌 All listeners registered");
+    console.log("🔌 All listeners registered");
 
-  return () => {
-    console.log("🔌 Cleaning up listeners");
-    socket.off("connect", handleConnect);
-    socket.off("disconnect", handleDisconnect);
-    socket.off("send-reminder", handleSendReminder);
-    socket.offAny();
-  };
-}, [socket]);
+    return () => {
+      console.log("🔌 Cleaning up listeners");
+      socket.off("connect", handleConnect);
+      socket.off("disconnect", handleDisconnect);
+      socket.off("send-reminder", handleSendReminder);
+      socket.offAny();
+    };
+  }, [socket]);
 
   useEffect(() => {
     if (Notification.permission === "default") {
@@ -117,6 +134,8 @@ const UserPageContainer = ({ children }) => {
   const handleClearAll = () => {
     setNotifications([]);
     setUnreadCount(0);
+    // Also clear from localStorage
+    localStorage.removeItem('notifications');
   };
 
   useEffect(() => {
@@ -143,6 +162,23 @@ const UserPageContainer = ({ children }) => {
     const diffDays = Math.floor(diffHours / 24);
     return `${diffDays}d ago`;
   };
+
+  // Close notification dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (notificationRef.current && !notificationRef.current.contains(event.target)) {
+        setIsNotificationOpen(false);
+      }
+    };
+
+    if (isNotificationOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isNotificationOpen]);
 
   // Close sidebar on route change for small screens
   useEffect(() => {

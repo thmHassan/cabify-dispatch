@@ -45,9 +45,8 @@ const StatusMenu = ({ anchorRef, bookingId, onClose, onStatusUpdate, bookingData
 
         try {
             setUpdating(true);
-
-            if (action === "Allocate Driver") {
-                console.log("Opening Allocate Driver modal");
+            if (action === "Allocate Driver" || action === "Send Pre-Job") {
+                console.log(`Opening ${action} modal`);
                 onOpenAllocateModal(bookingData);
                 setUpdating(false);
                 return;
@@ -98,7 +97,6 @@ const StatusMenu = ({ anchorRef, bookingId, onClose, onStatusUpdate, bookingData
 
             if (action === "Copy Booking") {
                 try {
-                    // Parse via points if they exist
                     let viaPoints = [];
                     let viaLatitudes = [];
                     let viaLongitudes = [];
@@ -129,7 +127,6 @@ const StatusMenu = ({ anchorRef, bookingId, onClose, onStatusUpdate, bookingData
                         }
                     }
 
-                    // Parse pickup and destination coordinates from "lat, lng" format
                     let pickupLat = "";
                     let pickupLng = "";
                     if (bookingData.pickup_point) {
@@ -209,7 +206,6 @@ const StatusMenu = ({ anchorRef, bookingId, onClose, onStatusUpdate, bookingData
                         booking_fee_charges: 0,
                         total_charges: parseFloat(bookingData.booking_amount) || 0,
 
-                        // Don't copy these fields
                         driver: "",
                         booking_system: "auto_dispatch",
                         auto_dispatch: true,
@@ -221,7 +217,6 @@ const StatusMenu = ({ anchorRef, bookingId, onClose, onStatusUpdate, bookingData
                     toast.success("Booking copied! Opening booking form...");
                     onClose();
 
-                    // Trigger opening of AddBooking modal
                     window.dispatchEvent(new CustomEvent('openAddBookingModal'));
                 } catch (err) {
                     console.error("Copy booking error:", err);
@@ -272,11 +267,11 @@ const StatusMenu = ({ anchorRef, bookingId, onClose, onStatusUpdate, bookingData
     };
 
     const menuItems = [
-        // {
-        //     label: "Dispatch Job",
-        //     icon: DispatchJobIcon,
-        //     color: "bg-[#1F41BB]",
-        // },
+        {
+            label: "Dispatch Job",
+            icon: DispatchJobIcon,
+            color: "bg-[#1F41BB]",
+        },
         {
             label: "Cancel Job",
             icon: CancelJobIcon,
@@ -292,11 +287,11 @@ const StatusMenu = ({ anchorRef, bookingId, onClose, onStatusUpdate, bookingData
             icon: FollowOnJobIcon,
             color: "bg-[#1F41BB]",
         },
-        // {
-        //     label: "Send Pre-Job",
-        //     icon: SendPreJobIcon,
-        //     color: "bg-[#1F41BB]",
-        // },
+        {
+            label: "Send Pre-Job",
+            icon: SendPreJobIcon,
+            color: "bg-[#1F41BB]",
+        },
         {
             label: "Completed Job",
             icon: CompletedJobIcon,

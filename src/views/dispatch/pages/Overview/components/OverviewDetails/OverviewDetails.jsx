@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import CardContainer from "../../../../../../components/shared/CardContainer";
 import SearchBar from "../../../../../../components/shared/SearchBar/SearchBar";
 import CustomSelect from "../../../../../../components/ui/CustomSelect";
@@ -11,9 +11,11 @@ import { useNavigate } from "react-router-dom";
 import StatusMenu from "./StatusMenu";
 import AllocateDriverModal from "./AllocateDriverModal";
 import AppLogoLoader from "../../../../../../components/shared/AppLogoLoader";
+import DriverAssignmentModal from "./DriverAssignmentModal";
 
 const statusColor = {
     pending: "text-orange-500",
+    pending_acceptance: "text-yellow-500",
     ongoing: "text-blue-500",
     arrived: "text-purple-500",
     started: "text-cyan-500",
@@ -44,6 +46,20 @@ const OverViewDetails = ({ filter }) => {
     const [loadingSubCompanies, setLoadingSubCompanies] = useState(false);
     const [tableLoading, setTableLoading] = useState(false);
 
+    const [assignmentNotification, setAssignmentNotification] = useState(null);
+    const assignmentNotificationRef = useRef(null);
+
+    const showNotification = useCallback((data) => {
+        console.log("Showing notification:", data);
+        assignmentNotificationRef.current = data;
+        setAssignmentNotification(data);
+    }, []);
+
+    const handleCloseNotification = useCallback(() => {
+        assignmentNotificationRef.current = null;
+        setAssignmentNotification(null);
+    }, []);
+
     useEffect(() => {
         const fetchSubCompanies = async () => {
             setLoadingSubCompanies(true);
@@ -73,20 +89,15 @@ const OverViewDetails = ({ filter }) => {
         setTableLoading(true);
         const fetchBookings = async () => {
             try {
-                const params = {
-                    page,
-                    limit,
-                };
-
+                const params = { page, limit };
                 if (search) params.search = search;
                 if (selectedStatus) params.status = selectedStatus;
                 if (selectedSubCompany) params.sub_company = selectedSubCompany;
                 if (filter) params.filter = filter;
 
                 const res = await getBookings(params);
-
                 if (res?.data?.success) {
-                    setBookings(res.data.data || []);
+                    setBookings((res.data.data || []).filter(Boolean));
                     setTotalPages(res.data.pagination?.total_pages || 1);
                 }
             } catch (error) {
@@ -95,52 +106,125 @@ const OverViewDetails = ({ filter }) => {
             } finally {
                 setTableLoading(false);
             }
-        }
+        };
         fetchBookings();
-    }, [
-        page,
-        limit,
-        search,
-        selectedStatus,
-        selectedSubCompany,
-        filter,
-    ]);
+    }, [page, limit, search, selectedStatus, selectedSubCompany, filter]);
 
     useEffect(() => {
-        if (!socket) {
-            return;
-        }
+        if (!socket) return;
 
-        console.log('Socket connected, listening for bookings...');
+        console.log("Socket connected, listening for bookings...");
+
+        const safeMap = (prev, mapFn) =>
+            prev.filter(Boolean).map(mapFn).filter(Boolean);
 
         const handleNewBooking = (booking) => {
             console.log("New booking received:", booking);
-
+            if (!booking || booking.id == null) return;
             setBookings((prev) => {
-                if (prev.find((b) => b.id === booking.id)) {
-                    console.log('Duplicate booking, skipping');
-                    return prev;
-                }
-                return [booking, ...prev];
+                const safe = prev.filter(Boolean);
+                if (safe.find((b) => b.id === booking.id)) return safe;
+                return [booking, ...safe];
             });
         };
 
-        const handleBookingUpdate = (data) => {
-            console.log("Booking list update:", data);
+        const handleBookingListUpdate = (data) => {
+            if (data?.bookings) setBookings(data.bookings.filter(Boolean));
+        };
 
-            if (data.bookings) {
-                setBookings(data.bookings);
+        const handleDriverAssignmentPending = (data) => {
+            console.log("Socket: driver-assignment-pending received:", data);
+
+            const updatedBooking = data?.booking ?? null;
+
+            if (updatedBooking && updatedBooking.id != null) {
+                setBookings((prev) =>
+                    safeMap(prev, (b) =>
+                        b.id === updatedBooking.id ? updatedBooking : b
+                    )
+                );
             }
+            showNotification(data);
+        };
+
+        const handleJobAccepted = (data) => {
+            console.log("Job accepted by driver:", data);
+            if (!data?.booking_id) return;
+
+            setBookings((prev) =>
+                safeMap(prev, (b) =>
+                    b.id === data.booking_id
+                        ? { ...b, ...data.booking, booking_status: "ongoing" }
+                        : b
+                )
+            );
+
+            showNotification({
+                booking_id: data.booking_id,
+                driver_name: data.driver_name || "Driver",
+                driver_profile_image: data.driver_profile_image,
+                booking: data.booking || {
+                    id: data.booking_id,
+                    booking_status: "ongoing",
+                    pickup_location: data.booking?.pickup_location,
+                    destination_location: data.booking?.destination_location,
+                    booking_date: data.booking?.booking_date,
+                    pickup_time: data.booking?.pickup_time,
+                },
+                message: data.message || `${data.driver_name || "Driver"} accepted the ride`,
+                type: "accepted"
+            });
+        };
+
+        const handleJobRejected = (data) => {
+            console.log("Job rejected by driver:", data);
+            if (!data?.booking_id) return;
+
+            setBookings((prev) =>
+                safeMap(prev, (b) =>
+                    b.id === data.booking_id
+                        ? {
+                            ...b,
+                            booking_status: "pending",
+                            driver: null,
+                            driverDetail: null,
+                            driver_response: "rejected",
+                        }
+                        : b
+                )
+            );
+
+            showNotification({
+                booking_id: data.booking_id,
+                driver_name: data.driver_name || "Driver",
+                driver_profile_image: data.driver_profile_image,
+                booking: data.booking || {
+                    id: data.booking_id,
+                    booking_status: "pending",
+                    pickup_location: data.booking?.pickup_location,
+                    destination_location: data.booking?.destination_location,
+                    booking_date: data.booking?.booking_date,
+                    pickup_time: data.booking?.pickup_time,
+                },
+                message: data.message || `${data.driver_name || "Driver"} cancelled the ride`,
+                type: "cancelled"
+            });
         };
 
         socket.on("new-booking-event", handleNewBooking);
-        socket.on("bookings-list-update", handleBookingUpdate);
+        socket.on("bookings-list-update", handleBookingListUpdate);
+        socket.on("driver-assignment-pending", handleDriverAssignmentPending);
+        socket.on("job-accepted-by-driver", handleJobAccepted);
+        socket.on("job-rejected-by-driver", handleJobRejected);
 
         return () => {
             socket.off("new-booking-event", handleNewBooking);
-            socket.off("bookings-list-update", handleBookingUpdate);
+            socket.off("bookings-list-update", handleBookingListUpdate);
+            socket.off("driver-assignment-pending", handleDriverAssignmentPending);
+            socket.off("job-accepted-by-driver", handleJobAccepted);
+            socket.off("job-rejected-by-driver", handleJobRejected);
         };
-    }, [socket]);
+    }, [socket, showNotification]);
 
     const getButtonRef = (id) => {
         if (!buttonRefs.current[id]) {
@@ -169,23 +253,32 @@ const OverViewDetails = ({ filter }) => {
     };
 
     const handleBookingUpdate = (updated) => {
+        if (!updated || updated.id == null) return;
         setBookings((prev) =>
-            prev.map((b) => (b.id === updated.id ? updated : b))
+            prev.filter(Boolean).map((b) => (b.id === updated.id ? updated : b))
         );
     };
 
     const handleOpenAllocateModal = (booking) => {
-        console.log("Opening allocate modal for booking:", booking);
         setSelectedBooking(booking);
         setShowAllocateModal(true);
         setOpenMenu(null);
     };
 
     const handleAllocateSuccess = (updatedBooking) => {
-        console.log("Driver allocated successfully:", updatedBooking);
+        console.log("Driver allocated, updatedBooking:", updatedBooking);
+
         handleBookingUpdate(updatedBooking);
+
         setShowAllocateModal(false);
         setSelectedBooking(null);
+        if (updatedBooking) {
+            showNotification({
+                booking: updatedBooking,
+                driver_name: updatedBooking?.driverDetail?.name ?? "Driver",
+                message: `Job assigned to ${updatedBooking?.driverDetail?.name ?? "driver"}. Waiting for driver response.`,
+            });
+        }
     };
 
     return (
@@ -221,7 +314,6 @@ const OverViewDetails = ({ filter }) => {
                             placeholder="All Status"
                             onChange={handleStatusChange}
                             value={OVERVIEW_STATUS_OPTIONS.find(opt => opt.value === selectedStatus)}
-
                             menuPortalTarget={document.body}
                             styles={{
                                 menuPortal: base => ({ ...base, zIndex: 9999 }),
@@ -259,93 +351,95 @@ const OverViewDetails = ({ filter }) => {
                                     <Col w="w-[170px]">Status</Col>
                                 </div>
 
-                                {bookings.length === 0 ? (
-                                    <div className="p-8 text-center text-gray-500">
-                                        {search || selectedStatus || selectedSubCompany
-                                            ? "No bookings found matching your filters"
-                                            : "No bookings found"}
-                                    </div>
-                                ) : (
-                                    bookings.map((b) => {
-                                        const btnRef = getButtonRef(b.id);
+                                {bookings.map((b) => {
+                                    if (!b || b.id == null) return null;
 
-                                        return (
-                                            <div key={b.id} className="flex border-b text-sm bg-white hover:bg-gray-50 transition-colors">
-                                                <Col w="w-[80px]">{b.id}</Col>
+                                    const btnRef = getButtonRef(b.id);
+                                    return (
+                                        <div
+                                            key={b.id}
+                                            className="flex border-b text-sm bg-white hover:bg-gray-50 transition-colors"
+                                        >
+                                            <Col w="w-[80px]">{b.id}</Col>
 
-                                                <Col w="w-[120px]">
-                                                    {b.booking_date
-                                                        ? new Date(b.booking_date).toLocaleDateString("en-GB")
-                                                        : "—"}
-                                                </Col>
+                                            <Col w="w-[120px]">
+                                                {b.booking_date
+                                                    ? new Date(b.booking_date).toLocaleDateString("en-GB")
+                                                    : "—"}
+                                            </Col>
 
-                                                <Col w="w-[100px]">
-                                                    {b.pickup_time === "asap" ? "ASAP" : b.pickup_time}
-                                                </Col>
+                                            <Col w="w-[100px]">
+                                                {b.pickup_time === "asap" ? "ASAP" : b.pickup_time}
+                                            </Col>
 
-                                                <Col w="w-[100px]">{b.passenger ?? 1}</Col>
+                                            <Col w="w-[100px]">{b.passenger ?? 1}</Col>
 
-                                                <Col w="w-[180px]">{b.phone_no ?? "N/A"}</Col>
+                                            <Col w="w-[180px]">{b.phone_no ?? "N/A"}</Col>
 
-                                                <Col w="w-[220px]" className="truncate" title={b.pickup_location}>
-                                                    {b.pickup_location ?? "N/A"}
-                                                </Col>
+                                            <Col w="w-[220px]" className="truncate" title={b.pickup_location}>
+                                                {b.pickup_location ?? "N/A"}
+                                            </Col>
 
-                                                <Col w="w-[220px]" className="truncate" title={b.destination_location}>
-                                                    {b.destination_location ?? "N/A"}
-                                                </Col>
+                                            <Col w="w-[220px]" className="truncate" title={b.destination_location}>
+                                                {b.destination_location ?? "N/A"}
+                                            </Col>
 
-                                                <Col w="w-[130px]">
-                                                    <div className="flex flex-col">
-                                                        <span>{b.recommended_amount ?? b.booking_amount ?? "0.00"}</span>
-                                                        <span className="text-xs text-gray-500">{formatStatus(b.payment_method)}</span>
-                                                    </div>
-                                                </Col>
+                                            <Col w="w-[130px]">
+                                                <div className="flex flex-col">
+                                                    <span>{b.recommended_amount ?? b.booking_amount ?? "0.00"}</span>
+                                                    <span className="text-xs text-gray-500">
+                                                        {formatStatus(b.payment_method)}
+                                                    </span>
+                                                </div>
+                                            </Col>
 
-                                                <Col w="w-[170px]">
-                                                    <div className="flex flex-col">
-                                                        <span>{b.vehicleDetail?.vehicle_type_name ?? "-"}</span>
-                                                        <span className="text-xs text-gray-500">{b.vehicleDetail?.vehicle_type_service ?? ""}</span>
-                                                    </div>
-                                                </Col>
+                                            <Col w="w-[170px]">
+                                                <div className="flex flex-col">
+                                                    <span>{b.vehicleDetail?.vehicle_type_name ?? "-"}</span>
+                                                    <span className="text-xs text-gray-500">
+                                                        {b.vehicleDetail?.vehicle_type_service ?? ""}
+                                                    </span>
+                                                </div>
+                                            </Col>
 
-                                                <Col w="w-[170px]">
-                                                    <div className="flex flex-col">
-                                                        <span>{b.subCompanyDetail?.name ?? "-"}</span>
-                                                        <span className="text-xs text-gray-500">{b.subCompanyDetail?.email ?? ""}</span>
-                                                    </div>
-                                                </Col>
+                                            <Col w="w-[170px]">
+                                                <div className="flex flex-col">
+                                                    <span>{b.subCompanyDetail?.name ?? "-"}</span>
+                                                    <span className="text-xs text-gray-500">
+                                                        {b.subCompanyDetail?.email ?? ""}
+                                                    </span>
+                                                </div>
+                                            </Col>
 
-                                                <Col w="w-[170px]">
-                                                    <button
-                                                        ref={(el) => (btnRef.current = el)}
-                                                        onClick={() =>
-                                                            setOpenMenu(openMenu === b.id ? null : b.id)
-                                                        }
-                                                        className="w-full flex justify-between items-center border rounded px-3 py-1"
-                                                    >
-                                                        <span className={statusColor[b.booking_status]}>
-                                                            ● {b.booking_status}
-                                                        </span>
-                                                        ▾
-                                                    </button>
+                                            <Col w="w-[170px]">
+                                                <button
+                                                    ref={(el) => (btnRef.current = el)}
+                                                    onClick={() =>
+                                                        setOpenMenu(openMenu === b.id ? null : b.id)
+                                                    }
+                                                    className="w-full flex justify-between items-center border rounded px-3 py-1"
+                                                >
+                                                    <span className={statusColor[b.booking_status] ?? "text-gray-500"}>
+                                                        ● {b.booking_status}
+                                                    </span>
+                                                    ▾
+                                                </button>
 
-                                                    {openMenu === b.id && (
-                                                        <StatusMenu
-                                                            anchorRef={btnRef}
-                                                            bookingId={b.id}
-                                                            bookingData={b}
-                                                            navigate={navigate}
-                                                            onClose={() => setOpenMenu(null)}
-                                                            onStatusUpdate={handleBookingUpdate}
-                                                            onOpenAllocateModal={handleOpenAllocateModal}
-                                                        />
-                                                    )}
-                                                </Col>
-                                            </div>
-                                        );
-                                    })
-                                )}
+                                                {openMenu === b.id && (
+                                                    <StatusMenu
+                                                        anchorRef={btnRef}
+                                                        bookingId={b.id}
+                                                        bookingData={b}
+                                                        navigate={navigate}
+                                                        onClose={() => setOpenMenu(null)}
+                                                        onStatusUpdate={handleBookingUpdate}
+                                                        onOpenAllocateModal={handleOpenAllocateModal}
+                                                    />
+                                                )}
+                                            </Col>
+                                        </div>
+                                    );
+                                })}
                             </div>
                         </div>
                     )}
@@ -360,10 +454,8 @@ const OverViewDetails = ({ filter }) => {
                         </div>
                     )}
                 </div>
-
             </CardContainer>
 
-            {/* Allocate Driver Modal */}
             {showAllocateModal && selectedBooking && (
                 <div className="fixed inset-0 z-[10000] flex items-center justify-center">
                     <div
@@ -384,6 +476,14 @@ const OverViewDetails = ({ filter }) => {
                         />
                     </div>
                 </div>
+            )}
+
+            {assignmentNotification && (
+                <DriverAssignmentModal
+                    notification={assignmentNotification}
+                    onClose={handleCloseNotification}
+                    autoCloseDuration={6000}
+                />
             )}
         </div>
     );

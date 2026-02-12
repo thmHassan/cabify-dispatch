@@ -15,7 +15,6 @@ const AllocateDriverModal = ({ bookingData, onClose, onSuccess }) => {
     }, []);
 
     useEffect(() => {
-        // If booking already has a driver assigned, select it
         if (bookingData?.driver) {
             setSelectedDriverId(bookingData.driver.toString());
         }
@@ -51,7 +50,6 @@ const AllocateDriverModal = ({ bookingData, onClose, onSuccess }) => {
         }
     };
 
-
     const handleAssignDriver = async () => {
         if (!selectedDriverId) {
             toast.error("Please select a driver");
@@ -68,7 +66,11 @@ const AllocateDriverModal = ({ bookingData, onClose, onSuccess }) => {
 
             if (response?.data?.success) {
                 toast.success("Driver assigned successfully");
-                onSuccess(response.data.data);
+                onSuccess({
+                    booking_id: bookingData.booking_id,
+                    driver_id: selectedDriverId,
+                    message: response.data.message
+                });
                 onClose();
             } else {
                 toast.error("Failed to assign driver");
