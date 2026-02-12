@@ -136,7 +136,6 @@ const Overview = () => {
     fetchDashboardCards();
   }, []);
 
-  // Socket listener for real-time dashboard cards updates
   useEffect(() => {
     if (!socket) return;
 
@@ -195,13 +194,13 @@ const Overview = () => {
       icon: TodayBookingIcon,
       color: "bg-blue-500",
     },
-    // {
-    //   id: "noshow",
-    //   label: "NO SHOW",
-    //   count: dashboardCounts.noShow,
-    //   icon: NoShowIcon,
-    //   color: "bg-blue-500",
-    // },
+    {
+      id: "noshow",
+      label: "NO SHOW",
+      count: dashboardCounts.noShow,
+      icon: NoShowIcon,
+      color: "bg-blue-500",
+    },
     {
       id: "cancelled",
       label: "CANCELLED",
@@ -268,7 +267,7 @@ const Overview = () => {
       let data = response?.data?.data || response?.data || response;
 
       if (!Array.isArray(data)) {
-        console.warn("⚠️ Response data is not an array:", typeof data, data);
+        console.warn("Response data is not an array:", typeof data, data);
 
         if (data && typeof data === 'object') {
           const possibleArrayKeys = ['items', 'results', 'dispatches', 'systems', 'list'];
@@ -284,7 +283,7 @@ const Overview = () => {
           if (data && typeof data === 'object' && Object.keys(data).length > 0) {
             data = [data];
           } else {
-            console.warn("❌ Could not convert data to array, disabling button");
+            console.warn("Could not convert data to array, disabling button");
             setIsAddBookingDisabled(true);
             return;
           }
@@ -304,17 +303,10 @@ const Overview = () => {
       });
 
       const shouldEnableButton = hasManualDispatchEnabled || hasAutoDispatchNearestEnabled;
-
-      // console.log("Dispatch System Status:", {
-      //   manual_dispatch_only: hasManualDispatchEnabled,
-      //   auto_dispatch_nearest_driver: hasAutoDispatchNearestEnabled,
-      //   buttonEnabled: shouldEnableButton
-      // });
-
       setIsAddBookingDisabled(!shouldEnableButton);
 
     } catch (error) {
-      console.error("❌ Error fetching dispatch system:", error);
+      console.error("Error fetching dispatch system:", error);
       console.error("Error details:", {
         message: error.message,
         response: error.response,
@@ -350,7 +342,6 @@ const Overview = () => {
       })
       .catch((err) => console.error("Google Maps load failed:", err));
 
-    // Check dispatch system on component mount
     checkDispatchSystem();
 
     return () => {
@@ -374,7 +365,6 @@ const Overview = () => {
     if (hasVisibleMarkers) {
       mapInstance.current.fitBounds(bounds);
 
-      // Prevent zooming in too much for single marker
       const zoom = mapInstance.current.getZoom();
       if (zoom > 15) {
         mapInstance.current.setZoom(15);
@@ -397,16 +387,14 @@ const Overview = () => {
       try {
         if (typeof rawData === 'string') {
           data = JSON.parse(rawData);
-          console.log("✅ Parsed JSON data:", data);
+          console.log("Parsed JSON data:", data);
         } else {
           data = rawData;
         }
       } catch (error) {
-        console.error("❌ Failed to parse JSON:", error);
+        console.error("Failed to parse JSON:", error);
         return;
       }
-
-      // console.log("Full data object:", JSON.stringify(data, null, 2));
 
       const driverId = data?.id;
       const latitude = data?.latitude;
@@ -415,16 +403,6 @@ const Overview = () => {
       const name = data?.name || `Driver ${driverId}`;
       const phoneNo = data?.phone_no || "";
       const vehiclePlateNo = data?.plate_no || "";
-
-      console.log("Extracted values:", {
-        driverId,
-        latitude,
-        longitude,
-        drivingStatus,
-        name,
-        rawDrivingStatus: data?.driving_status,
-        allKeys: Object.keys(data || {})
-      });
 
       if (!driverId && driverId !== 0) {
         console.warn("No driver ID found in data");
@@ -550,8 +528,6 @@ const Overview = () => {
 
     const handleWaitingDrivers = (rawData) => {
       console.log("Received waiting-driver-event:", rawData);
-      console.log("Type of rawData:", typeof rawData);
-      console.log("Raw data structure:", JSON.stringify(rawData, null, 2));
 
       let data;
       try {
@@ -702,6 +678,23 @@ const Overview = () => {
     updateMarkerVisibility();
     setTimeout(() => fitMapToMarkers(), 100);
   }, [driverData]);
+
+  useEffect(() => {
+    if (!socket) return;
+
+    socket.on("ride-accepted-by-driver", (data) => {
+        console.log("Ride accepted event received:", data);
+
+        setAssignmentNotification({
+            message: data.message,
+            ride_id: data.ride_id
+        });
+    });
+
+    return () => {
+        socket.off("ride-accepted-by-driver");
+    };
+}, [socket]);
 
   return (
     <div className="h-full">
@@ -865,7 +858,7 @@ const Overview = () => {
       </div>
 
       <div className="sticky bottom-0 left-0 right-0 z-30 bg-white shadow-lg">
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-0.5 overflow-hidden">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-0.5 overflow-hidden">
           {tabs.map((tab) => {
             const backendFilter = TAB_FILTER_MAP[tab.id] || "";
             const isActive = activeBookingFilter === backendFilter;
