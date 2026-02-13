@@ -100,3 +100,7 @@ export const assignDriverToBooking = (bookingId, driverId) => {
         driver_id: driverId
     });
 };
+
+export const startAutoDispatch = (bookingId) => {
+    return socketApi.post(`/bookings/${bookingId}/start-auto-dispatch`);
+};

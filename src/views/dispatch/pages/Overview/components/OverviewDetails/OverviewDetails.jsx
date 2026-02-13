@@ -110,6 +110,122 @@ const OverViewDetails = ({ filter }) => {
         fetchBookings();
     }, [page, limit, search, selectedStatus, selectedSubCompany, filter]);
 
+    // useEffect(() => {
+    //     if (!socket) return;
+
+    //     console.log("Socket connected, listening for bookings...");
+
+    //     const safeMap = (prev, mapFn) =>
+    //         prev.filter(Boolean).map(mapFn).filter(Boolean);
+
+    //     const handleNewBooking = (booking) => {
+    //         console.log("New booking received:", booking);
+    //         if (!booking || booking.id == null) return;
+    //         setBookings((prev) => {
+    //             const safe = prev.filter(Boolean);
+    //             if (safe.find((b) => b.id === booking.id)) return safe;
+    //             return [booking, ...safe];
+    //         });
+    //     };
+
+    //     const handleBookingListUpdate = (data) => {
+    //         if (data?.bookings) setBookings(data.bookings.filter(Boolean));
+    //     };
+
+    //     const handleDriverAssignmentPending = (data) => {
+    //         console.log("Socket: driver-assignment-pending received:", data);
+
+    //         const updatedBooking = data?.booking ?? null;
+
+    //         if (updatedBooking && updatedBooking.id != null) {
+    //             setBookings((prev) =>
+    //                 safeMap(prev, (b) =>
+    //                     b.id === updatedBooking.id ? updatedBooking : b
+    //                 )
+    //             );
+    //         }
+    //         showNotification(data);
+    //     };
+
+    //     const handleJobAccepted = (data) => {
+    //         console.log("Job accepted by driver:", data);
+    //         if (!data?.booking_id) return;
+
+    //         setBookings((prev) =>
+    //             safeMap(prev, (b) =>
+    //                 b.id === data.booking_id
+    //                     ? { ...b, ...data.booking, booking_status: "ongoing" }
+    //                     : b
+    //             )
+    //         );
+
+    //         showNotification({
+    //             booking_id: data.booking_id,
+    //             driver_name: data.driver_name || "Driver",
+    //             driver_profile_image: data.driver_profile_image,
+    //             booking: data.booking || {
+    //                 id: data.booking_id,
+    //                 booking_status: "ongoing",
+    //                 pickup_location: data.booking?.pickup_location,
+    //                 destination_location: data.booking?.destination_location,
+    //                 booking_date: data.booking?.booking_date,
+    //                 pickup_time: data.booking?.pickup_time,
+    //             },
+    //             message: data.message || `${data.driver_name || "Driver"} accepted the ride`,
+    //             type: "accepted"
+    //         });
+    //     };
+
+    //     const handleJobRejected = (data) => {
+    //         console.log("Job rejected by driver:", data);
+    //         if (!data?.booking_id) return;
+
+    //         setBookings((prev) =>
+    //             safeMap(prev, (b) =>
+    //                 b.id === data.booking_id
+    //                     ? {
+    //                         ...b,
+    //                         booking_status: "pending",
+    //                         driver: null,
+    //                         driverDetail: null,
+    //                         driver_response: "rejected",
+    //                     }
+    //                     : b
+    //             )
+    //         );
+
+    //         showNotification({
+    //             booking_id: data.booking_id,
+    //             driver_name: data.driver_name || "Driver",
+    //             driver_profile_image: data.driver_profile_image,
+    //             booking: data.booking || {
+    //                 id: data.booking_id,
+    //                 booking_status: "pending",
+    //                 pickup_location: data.booking?.pickup_location,
+    //                 destination_location: data.booking?.destination_location,
+    //                 booking_date: data.booking?.booking_date,
+    //                 pickup_time: data.booking?.pickup_time,
+    //             },
+    //             message: data.message || `${data.driver_name || "Driver"} cancelled the ride`,
+    //             type: "cancelled"
+    //         });
+    //     };
+
+    //     socket.on("new-booking-event", handleNewBooking);
+    //     socket.on("bookings-list-update", handleBookingListUpdate);
+    //     socket.on("driver-assignment-pending", handleDriverAssignmentPending);
+    //     socket.on("job-accepted-by-driver", handleJobAccepted);
+    //     socket.on("job-rejected-by-driver", handleJobRejected);
+
+    //     return () => {
+    //         socket.off("new-booking-event", handleNewBooking);
+    //         socket.off("bookings-list-update", handleBookingListUpdate);
+    //         socket.off("driver-assignment-pending", handleDriverAssignmentPending);
+    //         socket.off("job-accepted-by-driver", handleJobAccepted);
+    //         socket.off("job-rejected-by-driver", handleJobRejected);
+    //     };
+    // }, [socket, showNotification]);
+
     useEffect(() => {
         if (!socket) return;
 
@@ -119,7 +235,6 @@ const OverViewDetails = ({ filter }) => {
             prev.filter(Boolean).map(mapFn).filter(Boolean);
 
         const handleNewBooking = (booking) => {
-            console.log("New booking received:", booking);
             if (!booking || booking.id == null) return;
             setBookings((prev) => {
                 const safe = prev.filter(Boolean);
@@ -128,27 +243,21 @@ const OverViewDetails = ({ filter }) => {
             });
         };
 
-        const handleBookingListUpdate = (data) => {
-            if (data?.bookings) setBookings(data.bookings.filter(Boolean));
-        };
-
         const handleDriverAssignmentPending = (data) => {
-            console.log("Socket: driver-assignment-pending received:", data);
-
             const updatedBooking = data?.booking ?? null;
 
-            if (updatedBooking && updatedBooking.id != null) {
+            if (updatedBooking?.id) {
                 setBookings((prev) =>
                     safeMap(prev, (b) =>
                         b.id === updatedBooking.id ? updatedBooking : b
                     )
                 );
             }
+
             showNotification(data);
         };
 
         const handleJobAccepted = (data) => {
-            console.log("Job accepted by driver:", data);
             if (!data?.booking_id) return;
 
             setBookings((prev) =>
@@ -161,69 +270,55 @@ const OverViewDetails = ({ filter }) => {
 
             showNotification({
                 booking_id: data.booking_id,
-                driver_name: data.driver_name || "Driver",
-                driver_profile_image: data.driver_profile_image,
-                booking: data.booking || {
-                    id: data.booking_id,
-                    booking_status: "ongoing",
-                    pickup_location: data.booking?.pickup_location,
-                    destination_location: data.booking?.destination_location,
-                    booking_date: data.booking?.booking_date,
-                    pickup_time: data.booking?.pickup_time,
-                },
-                message: data.message || `${data.driver_name || "Driver"} accepted the ride`,
-                type: "accepted"
+                driver_name: data.driver_name,
+                message: data.message,
+                type: "accepted",
             });
         };
 
         const handleJobRejected = (data) => {
-            console.log("Job rejected by driver:", data);
             if (!data?.booking_id) return;
 
             setBookings((prev) =>
                 safeMap(prev, (b) =>
                     b.id === data.booking_id
-                        ? {
-                            ...b,
-                            booking_status: "pending",
-                            driver: null,
-                            driverDetail: null,
-                            driver_response: "rejected",
-                        }
+                        ? { ...b, booking_status: "pending" }
                         : b
                 )
             );
 
             showNotification({
                 booking_id: data.booking_id,
-                driver_name: data.driver_name || "Driver",
-                driver_profile_image: data.driver_profile_image,
-                booking: data.booking || {
-                    id: data.booking_id,
-                    booking_status: "pending",
-                    pickup_location: data.booking?.pickup_location,
-                    destination_location: data.booking?.destination_location,
-                    booking_date: data.booking?.booking_date,
-                    pickup_time: data.booking?.pickup_time,
-                },
-                message: data.message || `${data.driver_name || "Driver"} cancelled the ride`,
-                type: "cancelled"
+                driver_name: data.driver_name,
+                message: data.message,
+                type: "cancelled",
+            });
+        };
+
+        const handleAutoDispatchFailed = (data) => {
+            if (!data?.booking_id) return;
+
+            showNotification({
+                booking_id: data.booking_id,
+                message: data.message || "No drivers accepted the ride",
+                type: "failed",
             });
         };
 
         socket.on("new-booking-event", handleNewBooking);
-        socket.on("bookings-list-update", handleBookingListUpdate);
         socket.on("driver-assignment-pending", handleDriverAssignmentPending);
         socket.on("job-accepted-by-driver", handleJobAccepted);
         socket.on("job-rejected-by-driver", handleJobRejected);
+        socket.on("auto-dispatch-failed", handleAutoDispatchFailed);
 
         return () => {
             socket.off("new-booking-event", handleNewBooking);
-            socket.off("bookings-list-update", handleBookingListUpdate);
             socket.off("driver-assignment-pending", handleDriverAssignmentPending);
             socket.off("job-accepted-by-driver", handleJobAccepted);
             socket.off("job-rejected-by-driver", handleJobRejected);
+            socket.off("auto-dispatch-failed", handleAutoDispatchFailed);
         };
+
     }, [socket, showNotification]);
 
     const getButtonRef = (id) => {

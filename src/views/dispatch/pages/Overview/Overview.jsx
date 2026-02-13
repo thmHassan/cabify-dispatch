@@ -683,18 +683,18 @@ const Overview = () => {
     if (!socket) return;
 
     socket.on("ride-accepted-by-driver", (data) => {
-        console.log("Ride accepted event received:", data);
+      console.log("Ride accepted event received:", data);
 
-        setAssignmentNotification({
-            message: data.message,
-            ride_id: data.ride_id
-        });
+      setAssignmentNotification({
+        message: data.message,
+        ride_id: data.ride_id
+      });
     });
 
     return () => {
-        socket.off("ride-accepted-by-driver");
+      socket.off("ride-accepted-by-driver");
     };
-}, [socket]);
+  }, [socket]);
 
   return (
     <div className="h-full">
