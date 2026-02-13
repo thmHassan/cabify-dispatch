@@ -4,13 +4,12 @@ import { getDecryptedToken, getTenantId } from "../utils/functions/tokenEncrypti
 const socketApi = axios.create({
     baseURL: import.meta.env.VITE_BACKEND_SOCKET_URL,
     timeout: 20000,
-    withCredentials: false, // Set to true if you need cookies
+    withCredentials: false, 
     headers: {
         'Content-Type': 'application/json',
     }
 });
 
-// Request interceptor
 socketApi.interceptors.request.use(
     (config) => {
         const token = getDecryptedToken();

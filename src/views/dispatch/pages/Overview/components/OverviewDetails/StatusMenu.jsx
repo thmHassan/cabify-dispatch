@@ -11,7 +11,7 @@ import ConfirmationEmailIcon from "../../../../../../components/svg/Confirmation
 import SMSToCustomerIcon from "../../../../../../components/svg/SMSToCustomerIcon";
 import { createPortal } from "react-dom";
 import toast from "react-hot-toast";
-import { sendConfirmationEmail, updateBookingStatus } from "../../../../../../services/AddBookingServices";
+import { sendConfirmationEmail, startAutoDispatch, updateBookingStatus } from "../../../../../../services/AddBookingServices";
 
 const StatusMenu = ({ anchorRef, bookingId, onClose, onStatusUpdate, bookingData, navigate, onOpenAllocateModal }) => {
     const menuRef = useRef(null);
@@ -49,6 +49,35 @@ const StatusMenu = ({ anchorRef, bookingId, onClose, onStatusUpdate, bookingData
                 console.log(`Opening ${action} modal`);
                 onOpenAllocateModal(bookingData);
                 setUpdating(false);
+                return;
+            }
+
+            if (action === "Dispatch Job") {
+                try {
+                    setUpdating(true);
+
+                    const res = await startAutoDispatch(bookingId);
+
+                    if (res?.data?.success) {
+                        toast.success("Auto dispatch started");
+
+                        onStatusUpdate({
+                            ...bookingData,
+                            booking_status: "pending"
+                        });
+
+                        onClose();
+                    } else {
+                        toast.error("Failed to start dispatch");
+                    }
+
+                } catch (err) {
+                    console.error("Dispatch error:", err);
+                    toast.error("Failed to start dispatch");
+                } finally {
+                    setUpdating(false);
+                }
+
                 return;
             }
 
@@ -229,10 +258,6 @@ const StatusMenu = ({ anchorRef, bookingId, onClose, onStatusUpdate, bookingData
             let payload = {};
 
             switch (action) {
-                case "Dispatch Job":
-                    payload = { booking_status: "ongoing" };
-                    break;
-
                 case "Completed Job":
                     payload = { booking_status: "completed" };
                     break;
