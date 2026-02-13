@@ -37,20 +37,37 @@ const History = ({ user, historyData = [], onClose }) => {
 
                     {historyData.map((item, index) => (
                         <div
-                            key={index}
+                            key={item.id || index}
                             className="bg-[#F4F3FF] rounded-xl px-4 py-3"
                         >
                             <p className="text-xs text-[#25252599] mb-1">
                                 {item.date}
                             </p>
 
+                            {/* <p className="text-sm font-medium mb-1">
+                                Booking ID: {item.bookingId}
+                            </p> */}
+
                             <p className="text-[15px]">
-                                <span>From</span> - {item.from}
+                                <span className="font-medium">From</span> - {item.from}
                             </p>
 
                             <p className="text-[15px] mt-1">
-                                <span>To</span> - {item.to}
+                                <span className="font-medium">To</span> - {item.to}
                             </p>
+
+                            {/* <p className="text-sm mt-2 text-gray-600">
+                                Driver: {item.driver}
+                            </p>
+
+                            <p className={`text-sm mt-1 font-medium ${item.status === "completed"
+                                ? "text-green-600"
+                                : item.status === "pending"
+                                    ? "text-yellow-600"
+                                    : "text-red-600"
+                                }`}>
+                                Status: {item.status}
+                            </p> */}
                         </div>
                     ))}
                 </div>
