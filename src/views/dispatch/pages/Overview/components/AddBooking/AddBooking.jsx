@@ -976,11 +976,23 @@ const AddBooking = ({ setIsOpen }) => {
             const response = await apiGetRideHistory(user.id);
 
             if (response?.data?.success === 1) {
-                setUserHistory(response.data.rideHistory?.data || []);
+                const rides = response.data.rideHistory?.data || [];
+
+                // 🔥 Map API data to your History component format
+                const formattedHistory = rides.map((ride) => ({
+                    id: ride.id,
+                    date: `${ride.booking_date} ${ride.pickup_time}`,
+                    from: ride.pickup_location || ride.pickup_point,
+                    to: ride.destination_location || ride.destination_point,
+                    status: ride.booking_status,
+                    driver: ride.driver_detail?.name || "N/A",
+                    bookingId: ride.booking_id,
+                }));
+
+                setUserHistory(formattedHistory);
             } else {
                 setUserHistory([]);
             }
-
         } catch (error) {
             console.error("History error:", error);
             setUserHistory([]);
@@ -988,7 +1000,6 @@ const AddBooking = ({ setIsOpen }) => {
 
         setShowHistoryModal(true);
     };
-
 
     return (
         <>
