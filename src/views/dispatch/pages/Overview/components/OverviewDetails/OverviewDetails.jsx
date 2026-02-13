@@ -379,7 +379,7 @@ const OverViewDetails = ({ filter }) => {
     return (
         <div className="mt-9 w-full">
             <CardContainer className="bg-[#F5F5F5]">
-                <div className="p-3 sm:p-4 lg:p-5 flex flex-row items-stretch sm:items-center gap-3 sm:gap-5 justify-between mb-4 sm:mb-0">
+                <div className="p-3 sm:p-4 lg:p-5 flex lg:flex-row md:flex-row flex-col sm:items-center gap-3 sm:gap-5 justify-between mb-4 sm:mb-0">
                     <div className="md:w-full w-[calc(100%-54px)] sm:flex-1">
                         <SearchBar
                             className="w-full md:max-w-[400px]"
@@ -388,7 +388,7 @@ const OverViewDetails = ({ filter }) => {
                         />
                     </div>
 
-                    <div className="md:flex flex-row gap-3 sm:gap-5 w-full sm:w-auto">
+                    <div className="flex flex-row justify-end gap-3 sm:gap-5 w-full sm:w-auto">
                         <CustomSelect
                             variant={2}
                             options={subCompanyList}
