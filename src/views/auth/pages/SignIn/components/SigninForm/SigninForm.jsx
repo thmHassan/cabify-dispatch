@@ -1,8 +1,7 @@
 import React, { useEffect, useState } from "react";
 import useAuth from "../../../../../../utils/hooks/useAuth";
 import useApiLoader from "../../../../../../utils/hooks/useApiLoader";
-import { ErrorMessage, Field, Form, Formik } from "formik";
-import Password from "../../../../../../components/elements/CustomPassword/Password";
+import { Field, Form, Formik } from "formik";
 import Button from "../../../../../../components/ui/Button/Button";
 import PageSubTitle from "../../../../../../components/ui/PageSubTitle";
 import { useNavigate } from "react-router-dom";
@@ -23,16 +22,13 @@ const SigninForm = ({
 
   useEffect(() => {
     if (toastMessage) {
-      const timer = setTimeout(() => {
-        setToastMessage("");
-      }, 3000);
+      const timer = setTimeout(() => setToastMessage(""), 3000);
       return () => clearTimeout(timer);
     }
   }, [toastMessage]);
 
   const onSignIn = async (values, setSubmitting) => {
     const { email, password, company_id } = values;
-
     setSubmitting(true);
 
     try {
@@ -43,19 +39,16 @@ const SigninForm = ({
             : signIn({ email, password }),
         {
           onSuccess: (result) => {
+            // Handle APIs that return error:1 with 200 HTTP status
             if (result?.status === "failed") {
               setToastMessage(result.message || "Login failed");
             } else {
-              // clear any previous error toast
               setToastMessage("");
             }
           },
           onError: (error) => {
-            console.error("Login error:", error);
-            const msg =
-              error?.response?.data?.message ||
-              error?.message ||
-              "Login failed";
+            // useAuth now throws a pre-mapped friendly Error — use error.message directly
+            const msg = error?.message || "Login failed. Please try again.";
             setToastMessage(msg);
           },
         }
@@ -71,18 +64,10 @@ const SigninForm = ({
       type="fullscreen"
       customLoader={<AppLogoLoader />}
     >
-
-      {toastMessage && (
-        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 bg-red-500 text-white px-4 py-2 rounded shadow-lg z-[9999] text-sm sm:text-base">
-          {toastMessage}
-        </div>
-      )}
       <Formik
         initialValues={initialValues}
-        //   validationSchema={SIGNIN_VALIDATION_SCHEMA}
         onSubmit={(values, { setSubmitting }) => {
           if (!disableSubmit) {
-            // Clear previous toast before new attempt
             setToastMessage("");
             onSignIn(values, setSubmitting);
           } else {
@@ -116,8 +101,9 @@ const SigninForm = ({
               </div>
             </Form>
 
+            {/* Toast — single source, rendered once */}
             {toastMessage && (
-              <div className="fixed bottom-4 left-1/2 -translate-x-1/2 bg-red-500 text-white px-4 py-2 rounded shadow-lg z-50 text-sm sm:text-base">
+              <div className="fixed bottom-4 left-1/2 -translate-x-1/2 bg-red-500 text-white px-4 py-2 rounded shadow-lg z-[9999] text-sm sm:text-base whitespace-nowrap">
                 {toastMessage}
               </div>
             )}
