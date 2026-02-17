@@ -24,6 +24,23 @@ import {
   storeTenantData,
 } from "../functions/tokenEncryption";
 
+const API_ERROR_MAP = {
+  "Database header is missing.": "Company ID is missing.",
+  "Invalid database.":           "Invalid Company ID. Please check and try again.",
+  "Invalid credentials.":        "Incorrect email or password. Please try again.",
+  "User not found.":             "No account found with this email address.",
+  "Account is disabled.":        "Your account has been disabled. Please contact support.",
+};
+
+const getFriendlyError = (rawMessage) => {
+  if (!rawMessage) return "Something went wrong. Please try again.";
+  if (API_ERROR_MAP[rawMessage]) return API_ERROR_MAP[rawMessage];
+  const key = Object.keys(API_ERROR_MAP).find((k) =>
+    rawMessage.toLowerCase().includes(k.toLowerCase())
+  );
+  return key ? API_ERROR_MAP[key] : rawMessage;
+};
+
 function useAuth() {
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
@@ -31,7 +48,6 @@ function useAuth() {
 
   const { signedIn } = useAppSelector((state) => state.auth.session);
 
-  /* ---------------- NORMAL LOGIN ---------------- */
   const signIn = async (values) => {
     const resp = await apiSignIn(values);
 
@@ -59,8 +75,24 @@ function useAuth() {
 
   /* ---------------- ADMIN LOGIN ---------------- */
   const adminSignIn = async (values) => {
-    const resp = await apiAdminSignIn(values);
+    let resp;
+    try {
+      resp = await apiAdminSignIn(values);
+    } catch (error) {
+      // Extract raw message and throw a friendly one
+      const rawMessage =
+        error?.response?.data?.message ||
+        error?.message ||
+        "";
+      throw new Error(getFriendlyError(rawMessage));
+    }
+
     const data = resp?.data || {};
+
+    // Some APIs return error:1 with 200 status — handle that here too
+    if (data?.error === 1 || data?.error === true) {
+      throw new Error(getFriendlyError(data?.message));
+    }
 
     const token =
       data.access_token ||
@@ -115,10 +147,8 @@ function useAuth() {
     try {
       await apiSignOut();
     } catch (error) {
-      // Log error but continue with logout process
       console.error("Logout API error:", error);
     } finally {
-      // Always clear local data and redirect, even if API call fails
       clearAllAuthData();
       dispatch(signOutSuccess());
       dispatch(clearUser());
