@@ -73,13 +73,11 @@ function useAuth() {
     }
   };
 
-  /* ---------------- ADMIN LOGIN ---------------- */
   const adminSignIn = async (values) => {
     let resp;
     try {
       resp = await apiAdminSignIn(values);
     } catch (error) {
-      // Extract raw message and throw a friendly one
       const rawMessage =
         error?.response?.data?.message ||
         error?.message ||
@@ -89,7 +87,6 @@ function useAuth() {
 
     const data = resp?.data || {};
 
-    // Some APIs return error:1 with 200 status — handle that here too
     if (data?.error === 1 || data?.error === true) {
       throw new Error(getFriendlyError(data?.message));
     }
@@ -142,7 +139,6 @@ function useAuth() {
     );
   };
 
-  /* ---------------- LOGOUT ---------------- */
   const signOut = async () => {
     try {
       await apiSignOut();
@@ -156,7 +152,6 @@ function useAuth() {
     }
   };
 
-  /* ---------------- RESTORE ON REFRESH ---------------- */
   React.useEffect(() => {
     if (isAuthenticated() && !signedIn) {
       dispatch(signInSuccess("restored"));
