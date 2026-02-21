@@ -7,7 +7,6 @@ import { lockBodyScroll } from "../../../../utils/functions/common.function";
 import Modal from "../../../../components/shared/Modal/Modal";
 import OverViewDetails from "./components/OverviewDetails";
 import AddBooking from "./components/AddBooking";
-import MessageModel from "./components/MessageModel";
 import { useSocket } from "../../../../components/routes/SocketProvider";
 import TodayBookingIcon from "../../../../components/svg/TodayBookingIcon";
 import PreBookingIcon from "../../../../components/svg/PreBookingIcon";
@@ -24,12 +23,8 @@ import { renderToString } from "react-dom/server";
 const GOOGLE_KEY = "AIzaSyDTlV1tPVuaRbtvBQu4-kjDhTV54tR4cDU";
 const BARIKOI_KEY = "bkoi_a468389d0211910bd6723de348e0de79559c435f07a17a5419cbe55ab55a890a";
 
-const MAPLIBRE_VERSION = "3.6.2";
-
 const svgToDataUrl = (SvgComponent, width = 40, height = 40) => {
-  const svgString = renderToString(
-    <SvgComponent width={width} height={height} />
-  );
+  const svgString = renderToString(<SvgComponent width={width} height={height} />);
   return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svgString)}`;
 };
 
@@ -47,25 +42,25 @@ const MARKER_ICONS = {
 };
 
 const COUNTRY_CENTERS = {
-  GB: { lat: 51.5074, lng: -0.1278, name: "United Kingdom" },
-  US: { lat: 37.0902, lng: -95.7129, name: "United States" },
-  IN: { lat: 20.5937, lng: 78.9629, name: "India" },
-  AU: { lat: -25.2744, lng: 133.7751, name: "Australia" },
-  CA: { lat: 56.1304, lng: -106.3468, name: "Canada" },
-  AE: { lat: 23.4241, lng: 53.8478, name: "UAE" },
-  PK: { lat: 30.3753, lng: 69.3451, name: "Pakistan" },
-  BD: { lat: 23.685, lng: 90.3563, name: "Bangladesh" },
-  SA: { lat: 23.8859, lng: 45.0792, name: "Saudi Arabia" },
-  NG: { lat: 9.082, lng: 8.6753, name: "Nigeria" },
-  ZA: { lat: -30.5595, lng: 22.9375, name: "South Africa" },
-  DE: { lat: 51.1657, lng: 10.4515, name: "Germany" },
-  FR: { lat: 46.2276, lng: 2.2137, name: "France" },
-  IT: { lat: 41.8719, lng: 12.5674, name: "Italy" },
-  ES: { lat: 40.4637, lng: -3.7492, name: "Spain" },
-  NL: { lat: 52.1326, lng: 5.2913, name: "Netherlands" },
-  SG: { lat: 1.3521, lng: 103.8198, name: "Singapore" },
-  MY: { lat: 4.2105, lng: 101.9758, name: "Malaysia" },
-  NZ: { lat: -40.9006, lng: 172.886, name: "New Zealand" },
+  GB: { lat: 51.5074, lng: -0.1278 },
+  US: { lat: 37.0902, lng: -95.7129 },
+  IN: { lat: 20.5937, lng: 78.9629 },
+  AU: { lat: -25.2744, lng: 133.7751 },
+  CA: { lat: 56.1304, lng: -106.3468 },
+  AE: { lat: 23.4241, lng: 53.8478 },
+  PK: { lat: 30.3753, lng: 69.3451 },
+  BD: { lat: 23.685, lng: 90.3563 },
+  SA: { lat: 23.8859, lng: 45.0792 },
+  NG: { lat: 9.082, lng: 8.6753 },
+  ZA: { lat: -30.5595, lng: 22.9375 },
+  DE: { lat: 51.1657, lng: 10.4515 },
+  FR: { lat: 46.2276, lng: 2.2137 },
+  IT: { lat: 41.8719, lng: 12.5674 },
+  ES: { lat: 40.4637, lng: -3.7492 },
+  NL: { lat: 52.1326, lng: 5.2913 },
+  SG: { lat: 1.3521, lng: 103.8198 },
+  MY: { lat: 4.2105, lng: 101.9758 },
+  NZ: { lat: -40.9006, lng: 172.886 },
 };
 
 const getMapType = () => {
@@ -82,29 +77,21 @@ const getMapType = () => {
           parsed?.company_data?.data?.maps_api ||
           parsed?.tenant?.maps_api ||
           null;
-
         if (mapsApi) {
-          const mapType = mapsApi.trim().toLowerCase() === "barikoi" ? "barikoi" : "google";
-          console.log(
-            `🗺️ [MAP] maps_api="${mapsApi}" found in localStorage key="${key}" → Loading ${mapType === "barikoi" ? "✅ Barikoi Maps" : "✅ Google Maps"
-            }`
-          );
-          return mapType;
+          return mapsApi.trim().toLowerCase() === "barikoi" ? "barikoi" : "google";
         }
       } catch {
         continue;
       }
     }
-    console.log("🗺️ [MAP] No maps_api found in localStorage → Defaulting to Google Maps");
     return "google";
   } catch {
-    console.log("🗺️ [MAP] Error reading localStorage → Defaulting to Google Maps");
     return "google";
   }
 };
 
 const getCountryCenter = () => {
-  const defaultCenter = { lat: 23.0225, lng: 72.5714 };
+  const defaultCenter = { lat: 23.8103, lng: 90.4125 };
   try {
     const allKeys = Object.keys(localStorage);
     for (const key of allKeys) {
@@ -118,29 +105,16 @@ const getCountryCenter = () => {
           parsed?.company_data?.data?.country_of_use ||
           parsed?.tenant?.country_of_use ||
           null;
-
         if (countryCode) {
           const code = countryCode.trim().toUpperCase();
           const center = COUNTRY_CENTERS[code];
-          if (center) {
-            console.log(
-              `🌍 [MAP] country_of_use="${code}" → Centering map on ${center.name} (lat: ${center.lat}, lng: ${center.lng})`
-            );
-            return center;
-          } else {
-            console.log(
-              `🌍 [MAP] country_of_use="${code}" not found in COUNTRY_CENTERS → Using default center`
-            );
-          }
+          if (center) return center;
         }
       } catch {
         continue;
       }
     }
-    console.log("🌍 [MAP] No country_of_use found in localStorage → Using default center");
-  } catch {
-    console.log("🌍 [MAP] Error reading country_of_use → Using default center");
-  }
+  } catch { }
   return defaultCenter;
 };
 
@@ -158,19 +132,12 @@ const loadGoogleMaps = () => {
     script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_KEY}&libraries=places`;
     script.async = true;
     script.defer = true;
-    script.onload = () => {
-      console.log("✅ [GOOGLE MAP] Script loaded successfully");
-      resolve();
-    };
-    script.onerror = () => {
-      console.error("❌ [GOOGLE MAP] Script failed to load");
-      reject(new Error("Google Maps script failed to load"));
-    };
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("Google Maps failed"));
     document.head.appendChild(script);
   });
 };
 
-// ✅ FIX: Upgraded MapLibre GL to v3.6.2
 const loadBarikoiMaps = () => {
   return new Promise((resolve, reject) => {
     if (window.maplibregl) return resolve();
@@ -179,33 +146,24 @@ const loadBarikoiMaps = () => {
       const link = document.createElement("link");
       link.id = "maplibre-css";
       link.rel = "stylesheet";
-      link.href = `https://unpkg.com/maplibre-gl@${MAPLIBRE_VERSION}/dist/maplibre-gl.css`;
+      link.href = `https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.css`;
       document.head.appendChild(link);
     }
 
     const existing = document.getElementById("maplibre-script");
     if (existing) {
       if (window.maplibregl) return resolve();
-      existing.addEventListener("load", () => {
-        console.log("✅ [BARIKOI MAP] Script loaded (existing tag)");
-        resolve();
-      });
+      existing.addEventListener("load", resolve);
       existing.addEventListener("error", reject);
       return;
     }
 
     const script = document.createElement("script");
     script.id = "maplibre-script";
-    script.src = `https://unpkg.com/maplibre-gl@${MAPLIBRE_VERSION}/dist/maplibre-gl.js`;
+    script.src = `https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.js`;
     script.async = true;
-    script.onload = () => {
-      console.log("✅ [BARIKOI MAP] Script loaded successfully");
-      resolve();
-    };
-    script.onerror = () => {
-      console.error("❌ [BARIKOI MAP] Script failed to load");
-      reject(new Error("MapLibre GL script failed to load"));
-    };
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("MapLibre GL failed"));
     document.head.appendChild(script);
   });
 };
@@ -217,7 +175,6 @@ const animateMarker = (marker, newPosition, duration = 1000) => {
   const endLat = newPosition.lat;
   const endLng = newPosition.lng;
   const startTime = Date.now();
-
   const animate = () => {
     const elapsed = Date.now() - startTime;
     const progress = Math.min(elapsed / duration, 1);
@@ -243,17 +200,24 @@ const parseDriverData = (rawData) => {
   }
 };
 
-// ─────────────────────────────────────────────
-// GOOGLE MAP SECTION
-// ─────────────────────────────────────────────
-const GoogleMapSection = ({ mapRef, mapInstance, markers, driverData, setDriverData, socket, countryCenter }) => {
-
+const GoogleMapSection = ({
+  mapRef,
+  mapInstance,
+  markers,
+  driverData,
+  setDriverData,
+  socket,
+  countryCenter,
+}) => {
   const fitMapToMarkers = () => {
     if (!mapInstance.current || Object.keys(markers.current).length === 0) return;
     const bounds = new window.google.maps.LatLngBounds();
     let hasVisible = false;
     Object.values(markers.current).forEach((marker) => {
-      if (marker.getVisible()) { bounds.extend(marker.getPosition()); hasVisible = true; }
+      if (marker.getVisible()) {
+        bounds.extend(marker.getPosition());
+        hasVisible = true;
+      }
     });
     if (hasVisible) {
       mapInstance.current.fitBounds(bounds);
@@ -266,25 +230,22 @@ const GoogleMapSection = ({ mapRef, mapInstance, markers, driverData, setDriverD
     loadGoogleMaps()
       .then(() => {
         if (!isMounted || !mapRef.current || mapInstance.current) return;
-        console.log(
-          `✅ [GOOGLE MAP] Initialized — Center: lat=${countryCenter.lat}, lng=${countryCenter.lng}`
-        );
         mapInstance.current = new window.google.maps.Map(mapRef.current, {
           center: { lat: countryCenter.lat, lng: countryCenter.lng },
           zoom: 13,
-          styles: [{ featureType: "poi", elementType: "labels", stylers: [{ visibility: "off" }] }],
+          styles: [
+            { featureType: "poi", elementType: "labels", stylers: [{ visibility: "off" }] },
+          ],
         });
       })
-      .catch((err) => console.error("❌ [GOOGLE MAP] Load failed:", err));
+      .catch((err) => console.error("❌ Google Map load failed:", err));
     return () => { isMounted = false; };
   }, []);
 
   useEffect(() => {
     if (!socket) return;
-
     const handleDriverUpdate = (rawData) => {
       if (!mapInstance.current) return;
-
       const data = parseDriverData(rawData);
       if (!data) return;
 
@@ -301,7 +262,6 @@ const GoogleMapSection = ({ mapRef, mapInstance, markers, driverData, setDriverD
 
       const validStatus =
         drivingStatus === "busy" || drivingStatus === "idle" ? drivingStatus : "idle";
-
       const position = { lat: Number(latitude), lng: Number(longitude) };
 
       setDriverData((prev) => ({
@@ -309,12 +269,11 @@ const GoogleMapSection = ({ mapRef, mapInstance, markers, driverData, setDriverD
         [driverId]: { ...data, position, name, status: validStatus },
       }));
 
+      const icon = MARKER_ICONS[validStatus];
       const markerIcon = {
-        url: validStatus === "busy"
-          ? svgToDataUrl(GreenCarIcon, 40, 40)
-          : svgToDataUrl(RedCarIcon, 40, 40),
-        scaledSize: new window.google.maps.Size(40, 40),
-        anchor: new window.google.maps.Point(20, 20),
+        url: icon.url,
+        scaledSize: new window.google.maps.Size(icon.scaledSize.width, icon.scaledSize.height),
+        anchor: new window.google.maps.Point(icon.anchor.x, icon.anchor.y),
       };
 
       const infoContent = `
@@ -327,13 +286,12 @@ const GoogleMapSection = ({ mapRef, mapInstance, markers, driverData, setDriverD
       if (markers.current[driverId]) {
         const marker = markers.current[driverId];
         const oldPos = marker.getPosition();
-        const latDiff = Math.abs(oldPos.lat() - position.lat);
-        const lngDiff = Math.abs(oldPos.lng() - position.lng);
-        const dist = Math.sqrt(latDiff ** 2 + lngDiff ** 2);
-
-        if (dist < 0.01) { animateMarker(marker, position, 1000); }
-        else { marker.setPosition(position); }
-
+        const dist = Math.sqrt(
+          Math.abs(oldPos.lat() - position.lat) ** 2 +
+          Math.abs(oldPos.lng() - position.lng) ** 2
+        );
+        if (dist < 0.01) animateMarker(marker, position, 1000);
+        else marker.setPosition(position);
         marker.setIcon(markerIcon);
         marker.infoWindow?.setContent(infoContent);
       } else {
@@ -344,20 +302,16 @@ const GoogleMapSection = ({ mapRef, mapInstance, markers, driverData, setDriverD
           icon: markerIcon,
           animation: window.google.maps.Animation.DROP,
         });
-
         const infoWindow = new window.google.maps.InfoWindow({ content: infoContent });
-
         marker.addListener("click", () => {
           Object.values(markers.current).forEach((m) => m.infoWindow?.close());
           infoWindow.open(mapInstance.current, marker);
         });
-
         marker.infoWindow = infoWindow;
         markers.current[driverId] = marker;
       }
 
       Object.values(markers.current).forEach((m) => m.setVisible(true));
-
       if (Object.keys(markers.current).length <= 1) {
         setTimeout(() => fitMapToMarkers(), 100);
       }
@@ -372,231 +326,197 @@ const GoogleMapSection = ({ mapRef, mapInstance, markers, driverData, setDriverD
     setTimeout(() => fitMapToMarkers(), 100);
   }, [driverData]);
 
-  // ✅ FIX 1: Explicit inline styles for height — Tailwind h-full can resolve to 0
   return (
     <div ref={mapRef} style={{ width: "100%", height: "100%", minHeight: "400px" }} />
   );
 };
 
-// ─────────────────────────────────────────────
-// BARIKOI MAP SECTION
-// ─────────────────────────────────────────────
-const BarikoiMapSection = ({ mapRef, mapInstance, markers, driverData, setDriverData, socket, countryCenter }) => {
-  const [isLoaded, setIsLoaded] = useState(false);
-
-  const createMarkerEl = (status) => {
-    const color = status === "busy" ? "#22c55e" : "#ef4444";
-    const el = document.createElement("div");
-    el.style.cssText = `
-      width: 40px; height: 40px;
-      background-color: ${color};
-      border-radius: 50%;
-      border: 3px solid white;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-      display: flex; align-items: center; justify-content: center;
-      font-size: 18px; cursor: pointer;
-    `;
-    el.innerHTML = "🚗";
-    return el;
-  };
-
-  const fitMapToMarkers = () => {
-    if (!mapInstance.current || Object.keys(markers.current).length === 0) return;
-    let minLat = Infinity, maxLat = -Infinity;
-    let minLng = Infinity, maxLng = -Infinity;
-    let hasVisible = false;
-
-    Object.values(markers.current).forEach((marker) => {
-      if (marker._visible === false) return;
-      const ll = marker.getLngLat();
-      minLat = Math.min(minLat, ll.lat); maxLat = Math.max(maxLat, ll.lat);
-      minLng = Math.min(minLng, ll.lng); maxLng = Math.max(maxLng, ll.lng);
-      hasVisible = true;
-    });
-
-    if (hasVisible) {
-      mapInstance.current.fitBounds(
-        [[minLng, minLat], [maxLng, maxLat]],
-        { padding: 60, maxZoom: 15 }
-      );
-    }
-  };
+const BarikoiMapSection = ({
+  mapRef,
+  mapInstance,
+  markers,
+  driverData,
+  setDriverData,
+  socket,
+  countryCenter,
+}) => {
+  const containerRef = useRef(null);
+  const [mapReady, setMapReady] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
-    loadBarikoiMaps()
-      .then(() => {
-        if (!isMounted || !mapRef.current || mapInstance.current) return;
 
-        if (!window.maplibregl) {
-          console.error("❌ [BARIKOI MAP] window.maplibregl undefined after script load");
-          return;
+    const init = async () => {
+      try {
+        await loadBarikoiMaps();
+      } catch (err) {
+        console.error("❌ [BARIKOI] Failed to load MapLibre:", err);
+        return;
+      }
+
+      if (!isMounted || !containerRef.current || mapInstance.current) return;
+
+      const map = new window.maplibregl.Map({
+        container: containerRef.current,
+        style: `https://map.barikoi.com/styles/barikoi-light/style.json?key=${BARIKOI_KEY}`,
+        attributionControl: true,
+        fadeDuration: 0,
+      });
+
+      map.addControl(new window.maplibregl.NavigationControl(), "top-right");
+
+      map.on("load", () => {
+        if (isMounted) {
+          map.resize();
+          setTimeout(() => { map.resize(); setMapReady(true); }, 200);
+          setTimeout(() => { map.resize(); }, 500);
         }
+      });
 
-        console.log(`✅ [BARIKOI MAP] Initialized — Center: lat=${countryCenter.lat}, lng=${countryCenter.lng}`);
+      map.on("error", (e) => {
+        console.error("❌ [BARIKOI] Map error:", e.error?.message || e);
+      });
 
-        // ✅ FIX 3: Try multiple style URLs in order until one works
-        const styleUrls = [
-          `https://map.barikoi.com/styles/barikoi-light/style.json?key=${BARIKOI_KEY}`,
-          `https://map.barikoi.com/styles/osm-liberty/style.json?key=${BARIKOI_KEY}`,
-          `https://map.barikoi.com/styles/barikoi/style.json?key=${BARIKOI_KEY}`,
-        ];
+      mapInstance.current = map;
+    };
 
-        const tryLoadMap = (urlIndex) => {
-          if (urlIndex >= styleUrls.length) {
-            console.error("❌ [BARIKOI MAP] All style URLs failed");
-            return;
-          }
-
-          const styleUrl = styleUrls[urlIndex];
-          console.log(`🗺️ [BARIKOI MAP] Trying style URL [${urlIndex + 1}/${styleUrls.length}]: ${styleUrl}`);
-
-          // Clean up previous failed attempt
-          if (mapInstance.current) {
-            try { mapInstance.current.remove(); } catch { }
-            mapInstance.current = null;
-          }
-
-          mapInstance.current = new window.maplibregl.Map({
-            container: mapRef.current,
-            style: styleUrl,
-            center: [countryCenter.lng, countryCenter.lat],
-            zoom: 13,
-          });
-
-          mapInstance.current.addControl(new window.maplibregl.NavigationControl());
-
-          mapInstance.current.on("load", () => {
-            if (isMounted) {
-              console.log(`✅ [BARIKOI MAP] Style loaded successfully: ${styleUrl}`);
-              // ✅ FIX 2: Call resize() after load so tiles render in flex containers
-              mapInstance.current.resize();
-              setIsLoaded(true);
-            }
-          });
-
-          mapInstance.current.on("error", (e) => {
-            console.warn(`⚠️ [BARIKOI MAP] Style URL failed: ${styleUrl}`, e);
-            if (isMounted) tryLoadMap(urlIndex + 1);
-          });
-        };
-
-        tryLoadMap(0);
-      })
-      .catch((err) => console.error("❌ [BARIKOI MAP] Load failed:", err));
+    init();
 
     return () => {
       isMounted = false;
       if (mapInstance.current) {
-        Object.values(markers.current).forEach((m) => { try { m.remove(); } catch { } });
-        markers.current = {};
-        try { mapInstance.current.remove(); } catch { }
+        mapInstance.current.remove();
         mapInstance.current = null;
       }
     };
   }, []);
 
-  // ✅ FIX 5: Trigger resize after isLoaded to fix tile rendering in flex layouts
   useEffect(() => {
-    if (mapInstance.current && isLoaded) {
-      const timer = setTimeout(() => {
-        mapInstance.current?.resize();
-        console.log("🔄 [BARIKOI MAP] resize() called after load");
-      }, 200);
-      return () => clearTimeout(timer);
-    }
-  }, [isLoaded]);
+    const handleResize = () => {
+      if (mapInstance.current) mapInstance.current.resize();
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
 
   useEffect(() => {
-    if (!socket || !isLoaded) return;
+    if (!socket || !mapReady) return;
 
     const handleDriverUpdate = (rawData) => {
       if (!mapInstance.current) return;
 
-      const data = parseDriverData(rawData);
-      if (!data) return;
+      const data = typeof rawData === "string" ? JSON.parse(rawData) : rawData;
+      if (!data?.latitude || !data?.longitude) return;
 
-      const driverId = data?.id;
-      const latitude = data?.latitude;
-      const longitude = data?.longitude;
-      const drivingStatus = data?.driving_status;
-      const name = data?.name || `Driver ${driverId}`;
-      const phoneNo = data?.phone_no || "";
-      const vehiclePlateNo = data?.plate_no || "";
-
-      if (!driverId && driverId !== 0) return;
-      if (!latitude || !longitude) return;
-
-      const validStatus =
-        drivingStatus === "busy" || drivingStatus === "idle" ? drivingStatus : "idle";
-
-      const position = [Number(longitude), Number(latitude)];
+      const driverId = data.id;
+      const lat = Number(data.latitude);
+      const lng = Number(data.longitude);
+      const position = [lng, lat]; 
+      const isBusy = data.driving_status === "busy";
+      const statusKey = isBusy ? "busy" : "idle";
+      const icon = MARKER_ICONS[statusKey];
 
       setDriverData((prev) => ({
         ...prev,
         [driverId]: {
           ...data,
-          position: { lat: Number(latitude), lng: Number(longitude) },
-          name,
-          status: validStatus,
+          position: { lat, lng },
+          status: statusKey,
         },
       }));
-
-      const popupHTML = `
-        <div style="padding:8px;min-width:140px;">
-          <strong>${name}</strong><br/>
-          <span style="font-size:12px;">Phone: ${phoneNo}</span><br/>
-          ${vehiclePlateNo ? `<span style="font-size:12px;">Vehicle: ${vehiclePlateNo}</span><br/>` : ""}
-          <span style="font-size:12px;">Status:
-            <span style="color:${validStatus === "busy" ? "green" : "red"};font-weight:bold;">
-              ${validStatus.toUpperCase()}
-            </span>
-          </span>
-        </div>`;
 
       if (markers.current[driverId]) {
         markers.current[driverId].setLngLat(position);
         const el = markers.current[driverId].getElement();
-        el.style.backgroundColor = validStatus === "busy" ? "#22c55e" : "#ef4444";
-        markers.current[driverId].getPopup()?.setHTML(popupHTML);
+        if (el) {
+          el.style.backgroundImage = `url("${icon.url}")`;
+        }
       } else {
-        const el = createMarkerEl(validStatus);
-        const popup = new window.maplibregl.Popup({ offset: 25 }).setHTML(popupHTML);
+        const el = document.createElement("div");
+        Object.assign(el.style, {
+          width: `${icon.scaledSize.width}px`,
+          height: `${icon.scaledSize.height}px`,
+          backgroundImage: `url("${icon.url}")`,
+          backgroundSize: "contain",
+          backgroundRepeat: "no-repeat",
+          backgroundPosition: "center",
+          cursor: "pointer",
+          filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.4))",
+        });
 
-        const marker = new window.maplibregl.Marker({ element: el })
+        const name = data.name || `Driver ${driverId}`;
+        const phoneNo = data.phone_no || "N/A";
+        const vehiclePlateNo = data.plate_no || "N/A";
+
+        const popup = new window.maplibregl.Popup({ offset: 25 }).setHTML(`
+          <div style="padding:6px 10px; min-width:140px; font-size:13px;">
+            <strong>${name}</strong><br/>
+            Phone: ${phoneNo}<br/>
+            Vehicle: ${vehiclePlateNo}<br/>
+            <span style="color:${isBusy ? "#16a34a" : "#dc2626"}">
+              ${isBusy ? "● On Job" : "● Idle"}
+            </span>
+          </div>
+        `);
+
+        const marker = new window.maplibregl.Marker({
+          element: el,
+          anchor: "center",
+        })
           .setLngLat(position)
           .setPopup(popup)
           .addTo(mapInstance.current);
 
-        marker._visible = true;
         markers.current[driverId] = marker;
       }
 
-      if (Object.keys(markers.current).length <= 1) {
-        setTimeout(() => fitMapToMarkers(), 100);
+      if (Object.keys(markers.current).length === 1) {
+        mapInstance.current.flyTo({ center: position, zoom: 14, speed: 0.8 });
       }
     };
 
     socket.on("driver-location-update", handleDriverUpdate);
     return () => socket.off("driver-location-update", handleDriverUpdate);
-  }, [socket, isLoaded]);
+  }, [socket, mapReady]);
 
-  useEffect(() => {
-    setTimeout(() => fitMapToMarkers(), 100);
-  }, [driverData]);
-
-  // ✅ FIX 1 & 4: Use explicit inline styles instead of Tailwind h-full which can be 0
   return (
     <div
       ref={mapRef}
-      style={{ width: "100%", height: "100%", minHeight: "400px" }}
-    />
+      style={{ width: "100%", height: "100%", minHeight: "400px", position: "relative" }}
+    >
+      {!mapReady && (
+        <div
+          style={{
+            position: "absolute", inset: 0, zIndex: 10,
+            display: "flex", flexDirection: "column",
+            alignItems: "center", justifyContent: "center",
+            background: "rgba(240,244,255,0.92)",
+            borderRadius: "12px",
+            pointerEvents: "none",
+          }}
+        >
+          <div
+            style={{
+              width: "38px", height: "38px",
+              border: "4px solid #e2e8f0",
+              borderTop: "4px solid #1f41bb",
+              borderRadius: "50%",
+              animation: "bk-spin 0.9s linear infinite",
+              marginBottom: "10px",
+            }}
+          />
+          <span style={{ color: "#64748b", fontSize: "13px", fontWeight: 500 }}>
+            Loading map...
+          </span>
+          <style>{`@keyframes bk-spin { 0%{transform:rotate(0deg)} 100%{transform:rotate(360deg)} }`}</style>
+        </div>
+      )}
+
+      <div ref={containerRef} style={{ width: "100%", height: "100%", minHeight: "400px" }} />
+    </div>
   );
 };
 
-// ─────────────────────────────────────────────
-// MAIN OVERVIEW COMPONENT
-// ─────────────────────────────────────────────
 const Overview = () => {
   const [isBookingModelOpen, setIsBookingModelOpen] = useState({ type: "new", isOpen: false });
   const [isMessageModelOpen, setIsMessageModelOpen] = useState({ type: "new", isOpen: false });
@@ -605,8 +525,12 @@ const Overview = () => {
   const [isLoadingDispatchSystem, setIsLoadingDispatchSystem] = useState(true);
   const [activeBookingFilter, setActiveBookingFilter] = useState("todays_booking");
   const [dashboardCounts, setDashboardCounts] = useState({
-    todaysBooking: 0, preBookings: 0, recentJobs: 0,
-    completed: 0, noShow: 0, cancelled: 0,
+    todaysBooking: 0,
+    preBookings: 0,
+    recentJobs: 0,
+    completed: 0,
+    noShow: 0,
+    cancelled: 0,
   });
 
   const [mapType] = useState(() => getMapType());
@@ -643,7 +567,7 @@ const Overview = () => {
         const res = await getDashboardCards();
         if (res.data?.success) setDashboardCounts(res.data.data);
       } catch (err) {
-        console.error("❌ Dashboard cards error:", err);
+        console.error("Dashboard cards error:", err);
       }
     };
     fetchDashboardCards();
@@ -679,12 +603,8 @@ const Overview = () => {
           }
         }
         if (!Array.isArray(data)) {
-          if (data && typeof data === "object" && Object.keys(data).length > 0) {
-            data = [data];
-          } else {
-            setIsAddBookingDisabled(true);
-            return;
-          }
+          if (data && typeof data === "object" && Object.keys(data).length > 0) data = [data];
+          else { setIsAddBookingDisabled(true); return; }
         }
       }
 
@@ -698,38 +618,28 @@ const Overview = () => {
           item.dispatch_system === "auto_dispatch_nearest_driver" &&
           (item.status === "enable" || item.status === "enabled" || item.status === 1 || item.status === true)
       );
-
       setIsAddBookingDisabled(!(hasManual || hasAutoNearest));
     } catch (error) {
-      console.error("Error fetching dispatch system:", error);
+      console.error("Dispatch system error:", error);
       setIsAddBookingDisabled(true);
     } finally {
       setIsLoadingDispatchSystem(false);
     }
   };
 
-  useEffect(() => {
-    checkDispatchSystem();
-  }, []);
+  useEffect(() => { checkDispatchSystem(); }, []);
 
   useEffect(() => {
     if (!socket) return;
-
     const handleWaitingDrivers = (rawData) => {
       let data;
-      try {
-        data = typeof rawData === "string" ? JSON.parse(rawData) : rawData;
-      } catch {
-        data = rawData;
-      }
+      try { data = typeof rawData === "string" ? JSON.parse(rawData) : rawData; }
+      catch { data = rawData; }
 
-      if (Array.isArray(data)) {
-        setWaitingDrivers(data);
-      } else if (data?.drivers && Array.isArray(data.drivers)) {
-        setWaitingDrivers(data.drivers);
-      } else if (data?.data && Array.isArray(data.data)) {
-        setWaitingDrivers(data.data);
-      } else if (data?.driverName || data?.driver_name) {
+      if (Array.isArray(data)) setWaitingDrivers(data);
+      else if (data?.drivers && Array.isArray(data.drivers)) setWaitingDrivers(data.drivers);
+      else if (data?.data && Array.isArray(data.data)) setWaitingDrivers(data.data);
+      else if (data?.driverName || data?.driver_name) {
         const driverObj = {
           id: Date.now(),
           name: data.driverName || data.driver_name,
@@ -740,14 +650,15 @@ const Overview = () => {
         };
         setWaitingDrivers((prev) => {
           const exists = prev.some((d) => d.name === driverObj.name && d.plot === driverObj.plot);
-          if (exists) return prev.map((d) => (d.name === driverObj.name && d.plot === driverObj.plot ? driverObj : d));
+          if (exists)
+            return prev.map((d) =>
+              d.name === driverObj.name && d.plot === driverObj.plot ? driverObj : d
+            );
           return [...prev, driverObj];
         });
       } else if (typeof data === "object" && data !== null) {
         setWaitingDrivers([{ ...data, id: data.id || Date.now() }]);
-      } else {
-        setWaitingDrivers([]);
-      }
+      } else setWaitingDrivers([]);
     };
 
     socket.on("waiting-driver-event", handleWaitingDrivers);
@@ -756,28 +667,16 @@ const Overview = () => {
 
   useEffect(() => {
     if (!socket) return;
-
     const handleOnJobDrivers = (rawData) => {
       let data;
-      try {
-        data = typeof rawData === "string" ? JSON.parse(rawData) : rawData;
-      } catch {
-        data = rawData;
-      }
+      try { data = typeof rawData === "string" ? JSON.parse(rawData) : rawData; }
+      catch { data = rawData; }
 
-      if (Array.isArray(data)) {
-        setOnJobDrivers(data);
-      } else if (data?.drivers && Array.isArray(data.drivers)) {
-        setOnJobDrivers(data.drivers);
-      } else if (data?.data && Array.isArray(data.data)) {
-        setOnJobDrivers(data.data);
-      } else if (data?.driverName || data?.driver_name) {
-        const driverObj = {
-          id: Date.now(),
-          name: data.driverName || data.driver_name,
-          job_id: data.job_id || data.booking_id || "N/A",
-          ...data,
-        };
+      if (Array.isArray(data)) setOnJobDrivers(data);
+      else if (data?.drivers && Array.isArray(data.drivers)) setOnJobDrivers(data.drivers);
+      else if (data?.data && Array.isArray(data.data)) setOnJobDrivers(data.data);
+      else if (data?.driverName || data?.driver_name) {
+        const driverObj = { id: Date.now(), name: data.driverName || data.driver_name, ...data };
         setOnJobDrivers((prev) => {
           const exists = prev.some((d) => d.name === driverObj.name);
           if (exists) return prev.map((d) => (d.name === driverObj.name ? driverObj : d));
@@ -785,9 +684,7 @@ const Overview = () => {
         });
       } else if (typeof data === "object" && data !== null) {
         setOnJobDrivers([{ ...data, id: data.id || Date.now() }]);
-      } else {
-        setOnJobDrivers([]);
-      }
+      } else setOnJobDrivers([]);
     };
 
     socket.on("on-job-driver-event", handleOnJobDrivers);
@@ -797,7 +694,7 @@ const Overview = () => {
   useEffect(() => {
     if (!socket) return;
     socket.on("ride-accepted-by-driver", (data) => {
-      console.log("Ride accepted event received:", data);
+      console.log("Ride accepted:", data);
     });
     return () => socket.off("ride-accepted-by-driver");
   }, [socket]);
@@ -843,8 +740,12 @@ const Overview = () => {
             }}
           >
             <div className="flex gap-1 items-center justify-center whitespace-nowrap">
-              <span className="hidden sm:inline-block"><PlusIcon fill={"#1f41bb"} height={13} width={13} /></span>
-              <span className="sm:hidden"><PlusIcon height={8} width={8} /></span>
+              <span className="hidden sm:inline-block">
+                <PlusIcon fill={"#1f41bb"} height={13} width={13} />
+              </span>
+              <span className="sm:hidden">
+                <PlusIcon height={8} width={8} />
+              </span>
               <span>Call Queue</span>
             </div>
           </Button>
@@ -874,7 +775,6 @@ const Overview = () => {
         </div>
       </div>
 
-      {/* ✅ FIX 4: Map container uses explicit style height to prevent 0-height flex collapse */}
       <div className="px-5 pt-5" style={{ height: "500px" }}>
         <div className="flex flex-col md:flex-row gap-4 h-full">
 
@@ -896,7 +796,6 @@ const Overview = () => {
               </div>
             </div>
 
-            {/* ✅ FIX 1: flex-1 + overflow-hidden ensures map div gets real pixel height */}
             <div className="flex-1 rounded-xl overflow-hidden" style={{ minHeight: 0 }}>
               {mapType === "barikoi" ? (
                 <BarikoiMapSection {...mapProps} />
@@ -906,7 +805,7 @@ const Overview = () => {
             </div>
           </div>
 
-          {/* Waiting Drivers Panel */}
+          {/* Waiting Drivers */}
           <div className="w-full lg:w-[20.5%] bg-orange-50 rounded-2xl shadow p-3 overflow-y-auto">
             <div className="flex items-center justify-between mb-2">
               <h3 className="font-semibold">Drivers Waiting</h3>
@@ -976,6 +875,7 @@ const Overview = () => {
         <OverViewDetails filter={activeBookingFilter} />
       </div>
 
+      {/* Bottom Tabs */}
       <div className="sticky bottom-0 left-0 right-0 z-30 bg-white shadow-lg">
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-0.5 overflow-hidden">
           {tabs.map((tab) => {
@@ -985,8 +885,7 @@ const Overview = () => {
               <button
                 key={tab.id}
                 onClick={() => setActiveBookingFilter(backendFilter)}
-                className={`flex items-center justify-center gap-2 px-3 py-2.5 font-semibold text-white text-[11px] transition-colors ${isActive ? "bg-[#1F41BB]" : "bg-blue-500"
-                  }`}
+                className={`flex items-center justify-center gap-2 px-3 py-2.5 font-semibold text-white text-[11px] transition-colors ${isActive ? "bg-[#1F41BB]" : "bg-blue-500"}`}
               >
                 {tab.icon && <tab.icon className="w-4 h-4" />}
                 <span>{tab.label}</span>
