@@ -200,6 +200,9 @@ const parseDriverData = (rawData) => {
   }
 };
 
+// ─────────────────────────────────────────────
+// Google Map Section
+// ─────────────────────────────────────────────
 const GoogleMapSection = ({
   mapRef,
   mapInstance,
@@ -239,7 +242,9 @@ const GoogleMapSection = ({
         });
       })
       .catch((err) => console.error("❌ Google Map load failed:", err));
-    return () => { isMounted = false; };
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -331,6 +336,9 @@ const GoogleMapSection = ({
   );
 };
 
+// ─────────────────────────────────────────────
+// Barikoi Map Section — FIXED
+// ─────────────────────────────────────────────
 const BarikoiMapSection = ({
   mapRef,
   mapInstance,
@@ -340,9 +348,9 @@ const BarikoiMapSection = ({
   socket,
   countryCenter,
 }) => {
-  const containerRef = useRef(null);
   const [mapReady, setMapReady] = useState(false);
 
+  // Initialize map
   useEffect(() => {
     let isMounted = true;
 
@@ -354,27 +362,34 @@ const BarikoiMapSection = ({
         return;
       }
 
-      if (!isMounted || !containerRef.current || mapInstance.current) return;
+      if (!isMounted || !mapRef.current || mapInstance.current) return;
+
+      // Ensure container has explicit dimensions before map init
+      mapRef.current.style.width = "100%";
+      mapRef.current.style.height = "100%";
+      mapRef.current.style.minHeight = "400px";
 
       const map = new window.maplibregl.Map({
-        container: containerRef.current,
+        container: mapRef.current,
         style: `https://map.barikoi.com/styles/barikoi-light/style.json?key=${BARIKOI_KEY}`,
-        attributionControl: true,
-        fadeDuration: 0,
+        // center: [countryCenter.lng, countryCenter.lat],
+        center: [90.4125, 23.8103],
+        zoom: 13,
       });
 
       map.addControl(new window.maplibregl.NavigationControl(), "top-right");
 
       map.on("load", () => {
-        if (isMounted) {
-          map.resize();
-          setTimeout(() => { map.resize(); setMapReady(true); }, 200);
-          setTimeout(() => { map.resize(); }, 500);
-        }
+        mapInstance.current.resize();
       });
 
       map.on("error", (e) => {
         console.error("❌ [BARIKOI] Map error:", e.error?.message || e);
+      });
+
+      // Also resize on style data load
+      map.on("styledata", () => {
+        map.resize();
       });
 
       mapInstance.current = map;
@@ -385,36 +400,55 @@ const BarikoiMapSection = ({
     return () => {
       isMounted = false;
       if (mapInstance.current) {
+        Object.values(markers.current).forEach((m) => m.remove());
+        markers.current = {};
         mapInstance.current.remove();
         mapInstance.current = null;
       }
     };
   }, []);
 
+  // Handle window resize
   useEffect(() => {
     const handleResize = () => {
       if (mapInstance.current) mapInstance.current.resize();
     };
     window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, []);
 
+    // Also trigger resize on next frame in case container size changed
+    const raf = requestAnimationFrame(() => {
+      if (mapInstance.current) mapInstance.current.resize();
+    });
+
+    return () => {
+      window.removeEventListener("resize", handleResize);
+      cancelAnimationFrame(raf);
+    };
+  }, [mapReady]);
+
+  // Socket — driver location updates
   useEffect(() => {
     if (!socket || !mapReady) return;
 
     const handleDriverUpdate = (rawData) => {
       if (!mapInstance.current) return;
 
-      const data = typeof rawData === "string" ? JSON.parse(rawData) : rawData;
+      const data = parseDriverData(rawData);
       if (!data?.latitude || !data?.longitude) return;
 
       const driverId = data.id;
+      if (!driverId && driverId !== 0) return;
+
       const lat = Number(data.latitude);
       const lng = Number(data.longitude);
-      const position = [lng, lat]; 
+      const position = [lng, lat];
       const isBusy = data.driving_status === "busy";
       const statusKey = isBusy ? "busy" : "idle";
       const icon = MARKER_ICONS[statusKey];
+
+      const name = data.name || `Driver ${driverId}`;
+      const phoneNo = data.phone_no || "N/A";
+      const vehiclePlateNo = data.plate_no || "N/A";
 
       setDriverData((prev) => ({
         ...prev,
@@ -422,16 +456,20 @@ const BarikoiMapSection = ({
           ...data,
           position: { lat, lng },
           status: statusKey,
+          name,
         },
       }));
 
       if (markers.current[driverId]) {
+        // Update existing marker position & icon
         markers.current[driverId].setLngLat(position);
         const el = markers.current[driverId].getElement();
         if (el) {
           el.style.backgroundImage = `url("${icon.url}")`;
         }
+        markers.current[driverId].getPopup()?.setHTML(buildPopupHTML(name, phoneNo, vehiclePlateNo, isBusy));
       } else {
+        // Create new marker
         const el = document.createElement("div");
         Object.assign(el.style, {
           width: `${icon.scaledSize.width}px`,
@@ -444,25 +482,11 @@ const BarikoiMapSection = ({
           filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.4))",
         });
 
-        const name = data.name || `Driver ${driverId}`;
-        const phoneNo = data.phone_no || "N/A";
-        const vehiclePlateNo = data.plate_no || "N/A";
+        const popup = new window.maplibregl.Popup({ offset: 25 }).setHTML(
+          buildPopupHTML(name, phoneNo, vehiclePlateNo, isBusy)
+        );
 
-        const popup = new window.maplibregl.Popup({ offset: 25 }).setHTML(`
-          <div style="padding:6px 10px; min-width:140px; font-size:13px;">
-            <strong>${name}</strong><br/>
-            Phone: ${phoneNo}<br/>
-            Vehicle: ${vehiclePlateNo}<br/>
-            <span style="color:${isBusy ? "#16a34a" : "#dc2626"}">
-              ${isBusy ? "● On Job" : "● Idle"}
-            </span>
-          </div>
-        `);
-
-        const marker = new window.maplibregl.Marker({
-          element: el,
-          anchor: "center",
-        })
+        const marker = new window.maplibregl.Marker({ element: el, anchor: "center" })
           .setLngLat(position)
           .setPopup(popup)
           .addTo(mapInstance.current);
@@ -470,6 +494,7 @@ const BarikoiMapSection = ({
         markers.current[driverId] = marker;
       }
 
+      // Fly to first driver
       if (Object.keys(markers.current).length === 1) {
         mapInstance.current.flyTo({ center: position, zoom: 14, speed: 0.8 });
       }
@@ -482,41 +507,25 @@ const BarikoiMapSection = ({
   return (
     <div
       ref={mapRef}
-      style={{ width: "100%", height: "100%", minHeight: "400px", position: "relative" }}
-    >
-      {!mapReady && (
-        <div
-          style={{
-            position: "absolute", inset: 0, zIndex: 10,
-            display: "flex", flexDirection: "column",
-            alignItems: "center", justifyContent: "center",
-            background: "rgba(240,244,255,0.92)",
-            borderRadius: "12px",
-            pointerEvents: "none",
-          }}
-        >
-          <div
-            style={{
-              width: "38px", height: "38px",
-              border: "4px solid #e2e8f0",
-              borderTop: "4px solid #1f41bb",
-              borderRadius: "50%",
-              animation: "bk-spin 0.9s linear infinite",
-              marginBottom: "10px",
-            }}
-          />
-          <span style={{ color: "#64748b", fontSize: "13px", fontWeight: 500 }}>
-            Loading map...
-          </span>
-          <style>{`@keyframes bk-spin { 0%{transform:rotate(0deg)} 100%{transform:rotate(360deg)} }`}</style>
-        </div>
-      )}
-
-      <div ref={containerRef} style={{ width: "100%", height: "100%", minHeight: "400px" }} />
-    </div>
+      style={{ width: "100%", height: "100%", minHeight: "400px" }}
+    />
   );
 };
 
+const buildPopupHTML = (name, phoneNo, vehiclePlateNo, isBusy) => `
+  <div style="padding:6px 10px; min-width:140px; font-size:13px;">
+    <strong>${name}</strong><br/>
+    Phone: ${phoneNo}<br/>
+    Vehicle: ${vehiclePlateNo}<br/>
+    <span style="color:${isBusy ? "#16a34a" : "#dc2626"}">
+      ${isBusy ? "● On Job" : "● Idle"}
+    </span>
+  </div>
+`;
+
+// ─────────────────────────────────────────────
+// Main Overview Component
+// ─────────────────────────────────────────────
 const Overview = () => {
   const [isBookingModelOpen, setIsBookingModelOpen] = useState({ type: "new", isOpen: false });
   const [isMessageModelOpen, setIsMessageModelOpen] = useState({ type: "new", isOpen: false });
@@ -599,24 +608,36 @@ const Overview = () => {
         if (data && typeof data === "object") {
           const possibleArrayKeys = ["items", "results", "dispatches", "systems", "list"];
           for (const key of possibleArrayKeys) {
-            if (Array.isArray(data[key])) { data = data[key]; break; }
+            if (Array.isArray(data[key])) {
+              data = data[key];
+              break;
+            }
           }
         }
         if (!Array.isArray(data)) {
           if (data && typeof data === "object" && Object.keys(data).length > 0) data = [data];
-          else { setIsAddBookingDisabled(true); return; }
+          else {
+            setIsAddBookingDisabled(true);
+            return;
+          }
         }
       }
 
       const hasManual = data.some(
         (item) =>
           item.dispatch_system === "manual_dispatch_only" &&
-          (item.status === "enable" || item.status === "enabled" || item.status === 1 || item.status === true)
+          (item.status === "enable" ||
+            item.status === "enabled" ||
+            item.status === 1 ||
+            item.status === true)
       );
       const hasAutoNearest = data.some(
         (item) =>
           item.dispatch_system === "auto_dispatch_nearest_driver" &&
-          (item.status === "enable" || item.status === "enabled" || item.status === 1 || item.status === true)
+          (item.status === "enable" ||
+            item.status === "enabled" ||
+            item.status === 1 ||
+            item.status === true)
       );
       setIsAddBookingDisabled(!(hasManual || hasAutoNearest));
     } catch (error) {
@@ -627,14 +648,19 @@ const Overview = () => {
     }
   };
 
-  useEffect(() => { checkDispatchSystem(); }, []);
+  useEffect(() => {
+    checkDispatchSystem();
+  }, []);
 
   useEffect(() => {
     if (!socket) return;
     const handleWaitingDrivers = (rawData) => {
       let data;
-      try { data = typeof rawData === "string" ? JSON.parse(rawData) : rawData; }
-      catch { data = rawData; }
+      try {
+        data = typeof rawData === "string" ? JSON.parse(rawData) : rawData;
+      } catch {
+        data = rawData;
+      }
 
       if (Array.isArray(data)) setWaitingDrivers(data);
       else if (data?.drivers && Array.isArray(data.drivers)) setWaitingDrivers(data.drivers);
@@ -649,7 +675,9 @@ const Overview = () => {
           ...data,
         };
         setWaitingDrivers((prev) => {
-          const exists = prev.some((d) => d.name === driverObj.name && d.plot === driverObj.plot);
+          const exists = prev.some(
+            (d) => d.name === driverObj.name && d.plot === driverObj.plot
+          );
           if (exists)
             return prev.map((d) =>
               d.name === driverObj.name && d.plot === driverObj.plot ? driverObj : d
@@ -669,8 +697,11 @@ const Overview = () => {
     if (!socket) return;
     const handleOnJobDrivers = (rawData) => {
       let data;
-      try { data = typeof rawData === "string" ? JSON.parse(rawData) : rawData; }
-      catch { data = rawData; }
+      try {
+        data = typeof rawData === "string" ? JSON.parse(rawData) : rawData;
+      } catch {
+        data = rawData;
+      }
 
       if (Array.isArray(data)) setOnJobDrivers(data);
       else if (data?.drivers && Array.isArray(data.drivers)) setOnJobDrivers(data.drivers);
@@ -717,10 +748,19 @@ const Overview = () => {
     cancelled: "cancelled",
   };
 
-  const mapProps = { mapRef, mapInstance, markers, driverData, setDriverData, socket, countryCenter };
+  const mapProps = {
+    mapRef,
+    mapInstance,
+    markers,
+    driverData,
+    setDriverData,
+    socket,
+    countryCenter,
+  };
 
   return (
     <div className="h-full">
+      {/* Header */}
       <div className="px-5 pt-10 flex flex-col sm:flex-row sm:justify-between items-center sm:items-start gap-4 sm:gap-02 xl:mb-6 1.5xl:mb-10">
         <div className="w-full sm:w-[calc(100%-240px)] flex justify-center sm:justify-start">
           <div className="flex flex-col gap-2.5 text-center sm:text-left">
@@ -764,17 +804,24 @@ const Overview = () => {
               ? "!bg-gray-400 !cursor-not-allowed opacity-60 hover:!bg-gray-400"
               : ""
               }`}
-            style={isAddBookingDisabled || isLoadingDispatchSystem ? { pointerEvents: "none" } : {}}
+            style={
+              isAddBookingDisabled || isLoadingDispatchSystem ? { pointerEvents: "none" } : {}
+            }
           >
             <div className="flex gap-2 sm:gap-[15px] items-center justify-center whitespace-nowrap">
-              <span className="hidden sm:inline-block"><PlusIcon /></span>
-              <span className="sm:hidden"><PlusIcon height={16} width={16} /></span>
+              <span className="hidden sm:inline-block">
+                <PlusIcon />
+              </span>
+              <span className="sm:hidden">
+                <PlusIcon height={16} width={16} />
+              </span>
               <span>Create Booking</span>
             </div>
           </Button>
         </div>
       </div>
 
+      {/* Map + Driver Panels */}
       <div className="px-5 pt-5" style={{ height: "500px" }}>
         <div className="flex flex-col md:flex-row gap-4 h-full">
 
@@ -832,7 +879,9 @@ const Overview = () => {
                   ))
                 ) : (
                   <tr>
-                    <td colSpan="4" className="text-center py-4 text-gray-500">No waiting drivers</td>
+                    <td colSpan="4" className="text-center py-4 text-gray-500">
+                      No waiting drivers
+                    </td>
                   </tr>
                 )}
               </tbody>
@@ -862,7 +911,9 @@ const Overview = () => {
                   ))
                 ) : (
                   <tr>
-                    <td colSpan="2" className="text-center py-4 text-gray-500">No active jobs</td>
+                    <td colSpan="2" className="text-center py-4 text-gray-500">
+                      No active jobs
+                    </td>
                   </tr>
                 )}
               </tbody>
@@ -871,6 +922,7 @@ const Overview = () => {
         </div>
       </div>
 
+      {/* Booking Details */}
       <div className="px-4 sm:p-6">
         <OverViewDetails filter={activeBookingFilter} />
       </div>
@@ -885,7 +937,8 @@ const Overview = () => {
               <button
                 key={tab.id}
                 onClick={() => setActiveBookingFilter(backendFilter)}
-                className={`flex items-center justify-center gap-2 px-3 py-2.5 font-semibold text-white text-[11px] transition-colors ${isActive ? "bg-[#1F41BB]" : "bg-blue-500"}`}
+                className={`flex items-center justify-center gap-2 px-3 py-2.5 font-semibold text-white text-[11px] transition-colors ${isActive ? "bg-[#1F41BB]" : "bg-blue-500"
+                  }`}
               >
                 {tab.icon && <tab.icon className="w-4 h-4" />}
                 <span>{tab.label}</span>
@@ -896,6 +949,7 @@ const Overview = () => {
         </div>
       </div>
 
+      {/* Modals */}
       <Modal isOpen={isBookingModelOpen.isOpen} className="p-4 sm:p-6 lg:p-10">
         <AddBooking setIsOpen={setIsBookingModelOpen} />
       </Modal>

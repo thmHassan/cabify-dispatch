@@ -404,18 +404,15 @@ const BarikoiMapView = ({
         mapInstance.current = new window.maplibregl.Map({
           container: mapRef.current,
           style: `https://map.barikoi.com/styles/barikoi-light/style.json?key=${BARIKOI_KEY}`,
-          // center: [72.5714, 23.0225],
-          // zoom: 13,
+          center: [90.4125, 23.8103],
+          zoom: 13,
+        });
+
+        mapInstance.current.on("load", () => {
+          mapInstance.current.resize();
         });
 
         mapInstance.current.addControl(new window.maplibregl.NavigationControl());
-
-        mapInstance.current.on("load", () => {
-          if (isMounted) {
-            mapInstance.current.resize();
-            setIsLoaded(true);
-          }
-        });
       })
       .catch((err) => console.error("Barikoi Maps load failed:", err));
 
