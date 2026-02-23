@@ -324,7 +324,7 @@ const DriverDetails = () => {
                             </label>
                             <input
                                 type="text"
-                                value={driverData?.wallet_balance ? `${currencySymbol} ${driverData.wallet_balance}` : "$0.00"}
+                                value={driverData?.wallet_balance ? `${driverData.wallet_balance}` : "$0.00"}
                                 disabled
                                 className="w-full h-11 rounded-lg border border-gray-300 px-4 text-sm bg-gray-100 text-gray-600"
                             />
