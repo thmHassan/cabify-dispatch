@@ -160,7 +160,7 @@ const AddBooking = ({ setIsOpen }) => {
         email: "",
         phone_no: "",
         tel_no: "",
-        passenger: 0,
+        passenger: 1,
         luggage: 0,
         hand_luggage: 0,
         special_request: "",
@@ -387,7 +387,7 @@ const AddBooking = ({ setIsOpen }) => {
                     });
                 }
                 localStorage.removeItem('copiedBookingData');
-                toast.success("Booking data loaded successfully!");
+                // toast.success("Booking data loaded successfully!");
             } catch (err) {
                 console.error("Error parsing copied booking data:", err);
                 localStorage.removeItem('copiedBookingData');

@@ -336,9 +336,7 @@ const GoogleMapSection = ({
   );
 };
 
-// ─────────────────────────────────────────────
-// Barikoi Map Section — FIXED
-// ─────────────────────────────────────────────
+
 const BarikoiMapSection = ({
   mapRef,
   mapInstance,
@@ -523,9 +521,6 @@ const buildPopupHTML = (name, phoneNo, vehiclePlateNo, isBusy) => `
   </div>
 `;
 
-// ─────────────────────────────────────────────
-// Main Overview Component
-// ─────────────────────────────────────────────
 const Overview = () => {
   const [isBookingModelOpen, setIsBookingModelOpen] = useState({ type: "new", isOpen: false });
   const [isMessageModelOpen, setIsMessageModelOpen] = useState({ type: "new", isOpen: false });

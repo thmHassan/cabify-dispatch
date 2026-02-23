@@ -144,7 +144,7 @@ const AllocateDriverModal = ({ bookingData, onClose, onSuccess }) => {
                     btnSize="md"
                     type="filledGray"
                     className="!px-10 pt-4 pb-[10px] w-full sm:w-auto"
-                    nClick={onClose}
+                    onClick={onClose}
                 >
                     <span>Cancel</span>
                 </Button>
