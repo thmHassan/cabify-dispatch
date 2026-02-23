@@ -8,6 +8,7 @@ import Loading from "../../../../../../components/shared/Loading/Loading";
 import { apiGetDriverDocumentById, apiGetDriverDocumentList, apiGetDriverManagementById } from "../../../../../../services/DriverManagementService";
 import DocumentModel from "./component/DocumentModel";
 import Modal from "../../../../../../components/shared/Modal/Modal";
+import { getTenantData } from "../../../../../../utils/functions/tokenEncryption";
 
 const FormField = ({ label, type = "text", placeholder, options = [], value = "", onChange, name }) => {
     return (
@@ -57,6 +58,26 @@ const DriverDetails = () => {
     const [isAddDocumentModalOpen, setIsAddDocumentModalOpen] = useState(false);
     const [selectedDocument, setSelectedDocument] = useState(null);
     const [isLoadingDocument, setIsLoadingDocument] = useState(false);
+    const [currencySymbol, setCurrencySymbol] = useState("₹");
+
+    const currencySymbols = {
+        INR: "₹",
+        USD: "$",
+        EUR: "€",
+        GBP: "£",
+        AUD: "A$",
+        CAD: "C$",
+        AED: "د.إ",
+    };
+
+    useEffect(() => {
+        const tenant = getTenantData();
+        console.log("tenant==", tenant);
+
+        if (tenant?.currency) {
+            setCurrencySymbol(currencySymbols[tenant.currency] || tenant.currency);
+        }
+    }, []);
 
     const [formData, setFormData] = useState({
         name: "",
@@ -303,7 +324,7 @@ const DriverDetails = () => {
                             </label>
                             <input
                                 type="text"
-                                value={driverData?.wallet_balance ? `$${driverData.wallet_balance}` : "$0.00"}
+                                value={driverData?.wallet_balance ? `${currencySymbol} ${driverData.wallet_balance}` : "$0.00"}
                                 disabled
                                 className="w-full h-11 rounded-lg border border-gray-300 px-4 text-sm bg-gray-100 text-gray-600"
                             />
