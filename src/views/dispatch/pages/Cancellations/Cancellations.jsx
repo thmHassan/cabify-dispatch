@@ -8,6 +8,7 @@ import { PAGE_SIZE_OPTIONS } from "../../../../constants/selectOptions";
 import { useAppSelector } from "../../../../store";
 import { apiGetCancelledBooking } from "../../../../services/AddBookingServices";
 import { getDispatcherId } from "../../../../utils/auth";
+import AppLogoLoader from "../../../../components/shared/AppLogoLoader";
 
 const Cancellations = () => {
   const [_searchQuery, setSearchQuery] = useState("");
@@ -51,7 +52,7 @@ const Cancellations = () => {
       const response = await apiGetCancelledBooking(params);
 
       if (response?.data?.success === 1) {
-        const listData = response?.data?.bookings; 
+        const listData = response?.data?.bookings;
         setCancellationsData(listData?.data || []);
         setTotalItems(listData?.total || 0);
         setTotalPages(listData?.last_page || 1);
@@ -100,13 +101,24 @@ const Cancellations = () => {
               />
             </div>
           </div>
-          <div className="space-y-4">
-            {cancellationsData?.map((cancellations) => (
-              <CancellationsCard
-                key={cancellations.id}
-                cancellations={cancellations}
-              />
-            ))}
+          <div className="flex flex-col gap-4 pt-4">
+            {tableLoading ? (
+              <div className="flex items-center justify-center py-10">
+                <AppLogoLoader />
+              </div>
+            ) : cancellationsData.length === 0 ? (
+              <div className="text-center py-10 text-gray-500">No ride found</div>
+            ) : (
+              <div className="flex flex-col gap-4 pt-4">
+                {cancellationsData?.map((cancellations) => (
+                  <CancellationsCard
+                    key={cancellations.id}
+                    cancellations={cancellations}
+                  />
+                ))}
+              </div>
+            )}
+
           </div>
           {Array.isArray(cancellationsData) &&
             cancellationsData.length > 0 ? (

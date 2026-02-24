@@ -8,11 +8,69 @@ import { apiCreateUser, apiEditUser } from "../../../../../../services/UserServi
 import { getDispatcherId } from "../../../../../../utils/auth";
 import toast from "react-hot-toast";
 import { USER_VALIDATION_SCHEMA } from "../../../../validators/pages/user.validation";
+import { getTenantData } from "../../../../../../utils/functions/tokenEncryption";
+
+const COUNTRY_CODE_MAP = {
+    AF: "+93", AC: "+247", AL: "+355", DZ: "+213", AD: "+376",
+    AO: "+244", AI: "+1264", AG: "+1268", AR: "+54", AM: "+374",
+    AW: "+297", AU: "+61", AT: "+43", AZ: "+994", BS: "+1242",
+    BH: "+973", BD: "+880", BB: "+1246", BY: "+375", BE: "+32",
+    BZ: "+501", BJ: "+229", BM: "+1441", BT: "+975", BO: "+591",
+    BA: "+387", BW: "+267", BR: "+55", BN: "+673", BG: "+359",
+    BF: "+226", BI: "+257", KH: "+855", CM: "+237", CA: "+1",
+    CV: "+238", KY: "+1345", CF: "+236", TD: "+235", CL: "+56",
+    CN: "+86", CO: "+57", KM: "+269", CG: "+242", CD: "+243",
+    CK: "+682", CR: "+506", HR: "+385", CU: "+53", CY: "+357",
+    CZ: "+420", DK: "+45", DJ: "+253", DM: "+1767", DO: "+1809",
+    EC: "+593", EG: "+20", SV: "+503", GQ: "+240", ER: "+291",
+    EE: "+372", ET: "+251", FK: "+500", FO: "+298", FJ: "+679",
+    FI: "+358", FR: "+33", GF: "+594", PF: "+689", GA: "+241",
+    GM: "+220", GE: "+995", DE: "+49", GH: "+233", GI: "+350",
+    GR: "+30", GL: "+299", GD: "+1473", GP: "+590", GU: "+1671",
+    GT: "+502", GN: "+224", GW: "+245", GY: "+592", HT: "+509",
+    HN: "+504", HK: "+852", HU: "+36", IS: "+354", IN: "+91",
+    ID: "+62", IR: "+98", IQ: "+964", IE: "+353", IL: "+972",
+    IT: "+39", JM: "+1876", JP: "+81", JO: "+962", KZ: "+7",
+    KE: "+254", KI: "+686", KP: "+850", KR: "+82", KW: "+965",
+    KG: "+996", LA: "+856", LV: "+371", LB: "+961", LS: "+266",
+    LR: "+231", LY: "+218", LI: "+423", LT: "+370", LU: "+352",
+    MO: "+853", MK: "+389", MG: "+261", MW: "+265", MY: "+60",
+    MV: "+960", ML: "+223", MT: "+356", MH: "+692", MQ: "+596",
+    MR: "+222", MU: "+230", MX: "+52", FM: "+691", MD: "+373",
+    MC: "+377", MN: "+976", ME: "+382", MS: "+1664", MA: "+212",
+    MZ: "+258", MM: "+95", NA: "+264", NR: "+674", NP: "+977",
+    NL: "+31", NZ: "+64", NI: "+505", NE: "+227", NG: "+234",
+    NU: "+683", NF: "+672", NO: "+47", OM: "+968", PK: "+92",
+    PW: "+680", PS: "+970", PA: "+507", PG: "+675", PY: "+595",
+    PE: "+51", PH: "+63", PL: "+48", PT: "+351", PR: "+1787",
+    QA: "+974", RE: "+262", RO: "+40", RU: "+7", RW: "+250",
+    KN: "+1869", LC: "+1758", VC: "+1784", WS: "+685", SM: "+378",
+    ST: "+239", SA: "+966", SN: "+221", RS: "+381", SC: "+248",
+    SL: "+232", SG: "+65", SK: "+421", SI: "+386", SB: "+677",
+    SO: "+252", ZA: "+27", SS: "+211", ES: "+34", LK: "+94",
+    SD: "+249", SR: "+597", SZ: "+268", SE: "+46", CH: "+41",
+    SY: "+963", TW: "+886", TJ: "+992", TZ: "+255", TH: "+66",
+    TL: "+670", TG: "+228", TO: "+676", TT: "+1868", TN: "+216",
+    TR: "+90", TM: "+993", TC: "+1649", TV: "+688", UG: "+256",
+    UA: "+380", AE: "+971", GB: "+44", US: "+1", UY: "+598",
+    UZ: "+998", VU: "+678", VE: "+58", VN: "+84", VG: "+1284",
+    VI: "+1340", YE: "+967", ZM: "+260", ZW: "+263",
+};
+
+const COUNTRY_CODE_OPTIONS = [
+    ...new Map(
+        Object.entries(COUNTRY_CODE_MAP).map(([code, dial]) => [dial, { label: `${dial} (${code})`, value: dial }])
+    ).values()
+].sort((a, b) => a.label.localeCompare(b.label));
 
 const AddUserModel = ({ initialValue = {}, setIsOpen, onUserCreated }) => {
     const [submitError, setSubmitError] = useState(null);
     const [isLoading, setIsLoading] = useState(false);
     const [isEditMode, setIsEditMode] = useState(false);
+
+    const tenantData = getTenantData();
+    const defaultCountryCode =
+        COUNTRY_CODE_MAP[tenantData?.country_of_use] || "";
 
     const handleSubmit = async (values) => {
         setIsLoading(true);
@@ -89,7 +147,7 @@ const AddUserModel = ({ initialValue = {}, setIsOpen, onUserCreated }) => {
                 initialValues={{
                     name: initialValue.name || '',
                     email: initialValue.email || '',
-                     countryCode: initialValue.countryCode || '',
+                    countryCode: initialValue.countryCode || defaultCountryCode,
                     phoneNumber: initialValue.phone_no || '',
                     password: '',
                     address: initialValue.address || '',
@@ -145,22 +203,18 @@ const AddUserModel = ({ initialValue = {}, setIsOpen, onUserCreated }) => {
 
                             <div className="w-[calc((100%-20px)/2)]">
                                 <FormLabel htmlFor="phoneNumber">Phone Number</FormLabel>
-
                                 <div className="flex items-center border border-[#8D8D8D] rounded-lg shadow-[-4px_4px_6px_0px_#0000001F] overflow-hidden sm:h-16 h-14">
-
-                                    {/* Country Code */}
                                     <Field
                                         as="select"
-                                        name="countryCode"
-                                        className="h-full px-3 sm:px-4 bg-gray-100 border-r border-[#8D8D8D] outline-none text-sm sm:text-base font-semibold"
+                                        name="country_code"
+                                        className="h-full px-3 sm:px-4 bg-gray-100 border-r border-[#8D8D8D] outline-none font-semibold"
                                     >
-                                        <option value="+91">+91</option>
-                                        <option value="+1">+1</option>
-                                        <option value="+44">+44</option>
-                                        <option value="+971">+971</option>
+                                        {COUNTRY_CODE_OPTIONS.map((opt) => (
+                                            <option key={opt.value} value={opt.value}>
+                                                {opt.value}
+                                            </option>
+                                        ))}
                                     </Field>
-
-                                    {/* Phone Number */}
                                     <Field
                                         type="text"
                                         name="phoneNumber"

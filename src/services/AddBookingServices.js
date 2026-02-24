@@ -95,9 +95,16 @@ export const followDriverTracking = (bookingId) => {
     return socketApi.post(`/bookings/${bookingId}/follow-driver`);
 };
 
-export const assignDriverToBooking = (bookingId, driverId) => {
+// export const assignDriverToBooking = (bookingId, driverId) => {
+//     return socketApi.put(`/bookings/${bookingId}/assign-driver`, {
+//         driver_id: driverId
+//     });
+// };
+
+export const assignDriverToBooking = (bookingId, driverId, assignmentType = "allocate_driver") => {
     return socketApi.put(`/bookings/${bookingId}/assign-driver`, {
-        driver_id: driverId
+        driver_id: driverId,
+        assignment_type: assignmentType,
     });
 };
 

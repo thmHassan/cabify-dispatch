@@ -1,16 +1,14 @@
-import React, { useEffect, useRef, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
 import { useSocket } from "../../../../components/routes/SocketProvider";
 import PageTitle from "../../../../components/ui/PageTitle/PageTitle";
 import PageSubTitle from "../../../../components/ui/PageSubTitle";
 import CardContainer from "../../../../components/shared/CardContainer";
 import CustomSelect from "../../../../components/ui/CustomSelect";
 import { MAP_STATUS_OPTIONS } from "../../../../constants/selectOptions";
-import toast from "react-hot-toast";
-import { followDriverTracking } from "../../../../services/AddBookingServices";
 import { renderToString } from "react-dom/server";
 import RedCarIcon from "../../../../components/svg/RedCarIcon";
 import GreenCarIcon from "../../../../components/svg/GreenCarIcon";
+import { getTenantData } from "../../../../utils/functions/tokenEncryption";
 
 const GOOGLE_KEY = "AIzaSyDTlV1tPVuaRbtvBQu4-kjDhTV54tR4cDU";
 const BARIKOI_KEY = "bkoi_a468389d0211910bd6723de348e0de79559c435f07a17a5419cbe55ab55a890a";
@@ -20,50 +18,106 @@ const svgToDataUrl = (SvgComponent, width = 40, height = 40) => {
   return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svgString)}`;
 };
 
-const getMapType = () => {
-  try {
-    const allKeys = Object.keys(localStorage);
-    for (const key of allKeys) {
-      const raw = localStorage.getItem(key);
-      if (!raw) continue;
-      let parsed;
-      try { parsed = JSON.parse(raw); } catch { continue; }
-      if (!parsed || typeof parsed !== "object") continue;
-
-      const mapsApi =
-        parsed?.data?.maps_api ||
-        parsed?.maps_api ||
-        parsed?.tenant?.maps_api ||
-        parsed?.data?.tenant?.maps_api ||
-        null;
-
-      if (mapsApi && typeof mapsApi === "string") {
-        const type = mapsApi.trim().toLowerCase() === "barikoi" ? "barikoi" : "google";
-        console.log(`[Map] maps_api="${mapsApi}" → using ${type}`);
-        return type;
-      }
-    }
-    console.warn("[Map] maps_api not found → defaulting to google");
-    return "google";
-  } catch (e) {
-    console.error("[Map] getMapType error:", e);
-    return "google";
-  }
+const MARKER_ICONS = {
+  idle: {
+    url: svgToDataUrl(RedCarIcon, 40, 40),
+    scaledSize: { width: 40, height: 40 },
+    anchor: { x: 20, y: 20 },
+  },
+  busy: {
+    url: svgToDataUrl(GreenCarIcon, 40, 40),
+    scaledSize: { width: 40, height: 40 },
+    anchor: { x: 20, y: 20 },
+  },
 };
 
-const loadGoogleMaps = () => {
+const createSvgMarkerEl = (status) => {
+  const iconData = MARKER_ICONS[status] || MARKER_ICONS.idle;
+  const el = document.createElement("div");
+  el.style.cssText = `
+    width: ${iconData.scaledSize.width}px;
+    height: ${iconData.scaledSize.height}px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  `;
+  const img = document.createElement("img");
+  img.src = iconData.url;
+  img.style.cssText = `
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
+  `;
+  el.appendChild(img);
+  return el;
+};
+
+const getMapType = () => {
+  const tenant = getTenantData();
+  const data = tenant?.data || {};
+
+  const mapsApi = data?.maps_api?.trim().toLowerCase();
+  const countryOfUse = data?.country_of_use?.trim().toUpperCase();
+
+  if (mapsApi === "barikoi") return "barikoi";
+  if (mapsApi === "google") return "google";
+
+  // fallback logic
+  if (countryOfUse === "BD") return "barikoi";
+
+  return "google";
+};
+
+const getApiKeys = () => {
+  const tenant = getTenantData();
+  const data = tenant?.data || {};
+
+  return {
+    googleKey: data?.google_api_key || GOOGLE_KEY,
+    barikoiKey: data?.barikoi_api_key || BARIKOI_KEY,
+  };
+};
+
+const COUNTRY_CENTERS = {
+  IN: { lat: 20.5937, lng: 78.9629 },
+  AU: { lat: -25.2744, lng: 133.7751 },
+  US: { lat: 37.0902, lng: -95.7129 },
+  GB: { lat: 55.3781, lng: -3.4360 },
+  BD: { lat: 23.8103, lng: 90.4125 },
+  PK: { lat: 30.3753, lng: 69.3451 },
+  AE: { lat: 23.4241, lng: 53.8478 },
+  SA: { lat: 23.8859, lng: 45.0792 },
+  CA: { lat: 56.1304, lng: -106.3468 },
+  NG: { lat: 9.0820, lng: 8.6753 },
+  KE: { lat: -1.2921, lng: 36.8219 },
+  ZA: { lat: -30.5595, lng: 22.9375 },
+  SG: { lat: 1.3521, lng: 103.8198 },
+  MY: { lat: 4.2105, lng: 101.9758 },
+  ID: { lat: -0.7893, lng: 113.9213 },
+  PH: { lat: 12.8797, lng: 121.7740 },
+  NZ: { lat: -40.9006, lng: 174.8860 },
+  DEFAULT: { lat: 0, lng: 0 },
+};
+
+const getCountryCenter = () => {
+  const tenant = getTenantData();
+  const code = tenant?.data?.country_of_use?.trim().toUpperCase();
+
+  return COUNTRY_CENTERS[code] || COUNTRY_CENTERS.DEFAULT;
+};
+
+const loadGoogleMaps = (apiKey) => {
   return new Promise((resolve, reject) => {
     if (window.google && window.google.maps) return resolve();
 
-    const existingScript = document.getElementById("google-maps-script");
-    if (existingScript) {
-      existingScript.onload = resolve;
-      return;
-    }
+    const existing = document.getElementById("google-maps-script");
+    if (existing) { existing.onload = resolve; return; }
 
     const script = document.createElement("script");
     script.id = "google-maps-script";
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_KEY}&libraries=places`;
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`;
     script.async = true;
     script.defer = true;
     script.onload = resolve;
@@ -74,7 +128,7 @@ const loadGoogleMaps = () => {
 
 const loadBarikoiMaps = () => {
   return new Promise((resolve, reject) => {
-    if (window.maplibregl) return resolve();
+    if (window.maplibregl && window.maplibregl.Map) return resolve();
 
     if (!document.getElementById("maplibre-css")) {
       const link = document.createElement("link");
@@ -84,14 +138,10 @@ const loadBarikoiMaps = () => {
       document.head.appendChild(link);
     }
 
-    const existingScript = document.getElementById("maplibre-script");
-    if (existingScript) {
-      if (window.maplibregl) {
-        resolve();
-      } else {
-        existingScript.addEventListener("load", resolve);
-        existingScript.addEventListener("error", reject);
-      }
+    const existing = document.getElementById("maplibre-script");
+    if (existing) {
+      existing.onload = () =>
+        window.maplibregl?.Map ? resolve() : reject(new Error("MapLibre init failed"));
       return;
     }
 
@@ -99,23 +149,21 @@ const loadBarikoiMaps = () => {
     script.id = "maplibre-script";
     script.src = "https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.js";
     script.async = true;
-    script.onload = () => resolve();
+    script.onload = () =>
+      window.maplibregl?.Map ? resolve() : reject(new Error("MapLibre loaded but Map undefined"));
     script.onerror = reject;
     document.head.appendChild(script);
   });
 };
 
 const animateMarker = (marker, newPosition, duration = 1000) => {
-  const startPosition = marker.getPosition();
-  const startLat = startPosition.lat();
-  const startLng = startPosition.lng();
-  const endLat = newPosition.lat;
-  const endLng = newPosition.lng;
+  const start = marker.getPosition();
+  const startLat = start.lat(), startLng = start.lng();
+  const endLat = newPosition.lat, endLng = newPosition.lng;
   const startTime = Date.now();
 
-  const animate = () => {
-    const elapsed = Date.now() - startTime;
-    const progress = Math.min(elapsed / duration, 1);
+  const tick = () => {
+    const progress = Math.min((Date.now() - startTime) / duration, 1);
     const ease =
       progress < 0.5
         ? 2 * progress * progress
@@ -124,33 +172,64 @@ const animateMarker = (marker, newPosition, duration = 1000) => {
       lat: startLat + (endLat - startLat) * ease,
       lng: startLng + (endLng - startLng) * ease,
     });
-    if (progress < 1) requestAnimationFrame(animate);
+    if (progress < 1) requestAnimationFrame(tick);
   };
-  animate();
+  tick();
 };
 
 const parseDriverData = (rawData) => {
   try {
-    if (typeof rawData === "string") return JSON.parse(rawData);
+    if (typeof rawData === "string") {
+      const fixed = rawData
+        .replace(/,\s*}/g, "}")
+        .replace(/,\s*]/g, "]")
+        .replace(/(['"])?([a-zA-Z0-9_]+)(['"])?:/g, '"$2":');
+      return JSON.parse(fixed);
+    }
     return rawData;
   } catch {
+    if (typeof rawData === "string") {
+      const latM = rawData.match(/"latitude":\s*([\d.]+)/);
+      const lngM = rawData.match(/"longitude":\s*([\d.]+)/);
+      const cidM = rawData.match(/"client_id":\s*"([^"]*)/);
+      const didM = rawData.match(/"dispatcher_id":\s*(\d+)/);
+      const stM = rawData.match(/"driving_status":\s*"([^"]*)"/);
+      if (latM && lngM) {
+        return {
+          latitude: parseFloat(latM[1]),
+          longitude: parseFloat(lngM[1]),
+          client_id: cidM?.[1] ?? null,
+          dispatcher_id: didM ? parseInt(didM[1]) : null,
+          driving_status: stM?.[1] ?? "idle",
+        };
+      }
+    }
     return null;
   }
+};
+
+const makeGoogleIcon = (status) => {
+  const icon = MARKER_ICONS[status] || MARKER_ICONS.idle;
+  return {
+    url: icon.url,
+    scaledSize: new window.google.maps.Size(icon.scaledSize.width, icon.scaledSize.height),
+    anchor: new window.google.maps.Point(icon.anchor.x, icon.anchor.y),
+  };
 };
 
 const GoogleMapView = ({
   mapRef, mapInstance, markers,
   driverData, setDriverData,
-  selectedStatus, socket,
-  trackingBooking, setTrackingBooking,
-  location, navigate,
+  selectedStatus, searchQuery, socket,
 }) => {
+  const { googleKey } = getApiKeys();
+
   const fitMapToMarkers = () => {
     if (!mapInstance.current || Object.keys(markers.current).length === 0) return;
     const bounds = new window.google.maps.LatLngBounds();
     let hasVisible = false;
-    Object.values(markers.current).forEach((marker) => {
-      if (marker.getVisible()) { bounds.extend(marker.getPosition()); hasVisible = true; }
+    Object.values(markers.current).forEach((m) => {
+      if (m.getVisible()) { bounds.extend(m.getPosition()); hasVisible = true; }
     });
     if (hasVisible) {
       mapInstance.current.fitBounds(bounds);
@@ -158,140 +237,112 @@ const GoogleMapView = ({
     }
   };
 
-  const createOrUpdateDriverMarker = (data, isTracked = false, currentTracking = null) => {
-    if (!mapInstance.current) return;
-
-    const driverId = data.client_id || data.dispatcher_id || data.driver_id || data.id;
-    const latitude = data.latitude;
-    const longitude = data.longitude;
-    const drivingStatus = data.driving_status || data.status || "idle";
-    const name = data.name || data.driver_name || `Driver ${driverId}`;
-    const phoneNo = data.phone_no || "";
-    const vehiclePlateNo = data.plate_no || "";
-
-    if (!latitude || !longitude || isNaN(latitude) || isNaN(longitude)) return;
-
-    const validStatus = drivingStatus === "busy" || drivingStatus === "idle" ? drivingStatus : "idle";
-    const position = { lat: Number(latitude), lng: Number(longitude) };
-
-    setDriverData((prev) => ({
-      ...prev,
-      [driverId]: { ...data, position, name, driving_status: validStatus },
-    }));
-
-    const markerIcon = {
-      url: validStatus === "busy" ? svgToDataUrl(GreenCarIcon, 40, 40) : svgToDataUrl(RedCarIcon, 40, 40),
-      scaledSize: new window.google.maps.Size(40, 40),
-      anchor: new window.google.maps.Point(20, 20),
-    };
-
-    const isTrackedDriver = isTracked || (currentTracking && driverId == currentTracking.driverId);
-
-    const infoContent = `
-      <div style="padding:8px;">
-        <strong style="font-size:14px;">${name}</strong>
-        ${isTrackedDriver ? '<span style="background:#3B82F6;color:white;padding:2px 8px;border-radius:4px;font-size:10px;margin-left:5px;font-weight:bold;">TRACKING</span>' : ""}
-        <br/>
-        <span style="font-size:12px;">Phone: ${phoneNo}</span><br/>
-        ${vehiclePlateNo ? `<span style="font-size:12px;">Vehicle: ${vehiclePlateNo}</span><br/>` : ""}
-        <span style="font-size:12px;">Status:
-          <span style="color:${validStatus === "busy" ? "green" : "red"};font-weight:bold;">
-            ${validStatus.toUpperCase()}
-          </span>
-        </span>
-      </div>`;
-
-    if (markers.current[driverId]) {
-      const marker = markers.current[driverId];
-      const oldPos = marker.getPosition();
-      const dist = Math.sqrt(
-        Math.abs(oldPos.lat() - position.lat) ** 2 +
-        Math.abs(oldPos.lng() - position.lng) ** 2
-      );
-      if (dist < 0.01) { animateMarker(marker, position, 1000); } else { marker.setPosition(position); }
-      marker.setIcon(markerIcon);
-      marker.infoWindow?.setContent(infoContent);
-      if (isTrackedDriver) mapInstance.current.setCenter(position);
-    } else {
-      const marker = new window.google.maps.Marker({
-        position, map: mapInstance.current, title: name,
-        icon: markerIcon, animation: window.google.maps.Animation.DROP,
-      });
-      const infoWindow = new window.google.maps.InfoWindow({ content: infoContent });
-      marker.addListener("click", () => {
-        Object.values(markers.current).forEach((m) => m.infoWindow?.close());
-        infoWindow.open(mapInstance.current, marker);
-      });
-      marker.infoWindow = infoWindow;
-      markers.current[driverId] = marker;
-      if (isTrackedDriver) {
-        infoWindow.open(mapInstance.current, marker);
-        mapInstance.current.setCenter(position);
-        mapInstance.current.setZoom(15);
-      }
-    }
-  };
-
-  // Init Google Map
+  // Init map
   useEffect(() => {
-    let isMounted = true;
-    loadGoogleMaps()
+    let mounted = true;
+    loadGoogleMaps(googleKey)
       .then(() => {
-        if (!isMounted || !mapRef.current || mapInstance.current) return;
+        if (!mounted || !mapRef.current || mapInstance.current) return;
+        const center = getCountryCenter();
         mapInstance.current = new window.google.maps.Map(mapRef.current, {
-          center: { lat: 23.0225, lng: 72.5714 },
-          zoom: 13,
+          center: { lat: center.lat, lng: center.lng },
+          zoom: 5,
           styles: [{ featureType: "poi", elementType: "labels", stylers: [{ visibility: "off" }] }],
         });
       })
       .catch((err) => console.error("Google Maps load failed:", err));
-    return () => { isMounted = false; };
+    return () => { mounted = false; };
   }, []);
 
-  useEffect(() => {
-    if (!location.state?.trackingBookingId) return;
-    const { trackingBookingId, driverId, driverName, bookingReference } = location.state;
-    const tracking = { id: trackingBookingId, driverId, driverName, bookingReference };
-    setTrackingBooking(tracking);
-    followDriverTracking(trackingBookingId)
-      .then((response) => {
-        if (response.data?.success) {
-          const d = response.data.data.driver;
-          if (d?.latitude && d?.longitude) {
-            createOrUpdateDriverMarker(
-              { id: d.id, name: d.name, latitude: d.latitude, longitude: d.longitude, driving_status: d.status, phone_no: d.phone_no, plate_no: "" },
-              true, tracking
-            );
-          }
-        }
-      })
-      .catch(() => toast.error("Failed to start driver tracking"));
-    navigate(location.pathname, { replace: true, state: {} });
-  }, [location.state]);
 
-  // Socket
   useEffect(() => {
     if (!socket) return;
-    const handleDriverUpdate = (rawData) => {
+
+    const handle = (rawData) => {
       if (!mapInstance.current) return;
       const data = parseDriverData(rawData);
       if (!data) return;
-      createOrUpdateDriverMarker(data, false, trackingBooking);
-      if (Object.keys(markers.current).length <= 1) setTimeout(() => fitMapToMarkers(), 100);
-    };
-    socket.on("driver-location-update", handleDriverUpdate);
-    return () => socket.off("driver-location-update", handleDriverUpdate);
-  }, [socket, trackingBooking]);
 
-  // Filter
+      const driverId = data.client_id || data.dispatcher_id || data.driver_id || data.id || `driver_${Date.now()}`;
+      const latitude = data.latitude;
+      const longitude = data.longitude;
+      const status = data.driving_status || "idle";
+      const validStatus = status === "busy" ? "busy" : "idle";
+      const name = data.name || data.driver_name || `Driver ${driverId}`;
+      const phoneNo = data.phone_no || "";
+      const plateNo = data.plate_no || "";
+
+      if (latitude == null || longitude == null || isNaN(latitude) || isNaN(longitude)) return;
+
+      const position = { lat: Number(latitude), lng: Number(longitude) };
+
+      setDriverData((prev) => ({ ...prev, [driverId]: { ...data, position, driving_status: validStatus, name } }));
+
+      const infoContent = `
+  <div style="
+    padding:6px 10px;
+    font-weight:600;
+    font-size:14px;
+  ">
+    ${name}
+  </div>`;
+
+      if (markers.current[driverId]) {
+        const marker = markers.current[driverId];
+        const oldPos = marker.getPosition();
+        const dist = Math.sqrt((oldPos.lat() - position.lat) ** 2 + (oldPos.lng() - position.lng) ** 2);
+        dist < 0.01 ? animateMarker(marker, position, 1000) : marker.setPosition(position);
+        marker.setIcon(makeGoogleIcon(validStatus));
+        marker.infoWindow?.setContent(infoContent);
+      } else {
+        const marker = new window.google.maps.Marker({
+          position,
+          map: mapInstance.current,
+          title: name,
+          icon: makeGoogleIcon(validStatus),
+          animation: window.google.maps.Animation.DROP,
+        });
+        const infoWindow = new window.google.maps.InfoWindow({ content: infoContent });
+        marker._isOpen = false;
+
+        marker.addListener("click", () => {
+          if (marker._isOpen) {
+            infoWindow.close();
+            marker._isOpen = false;
+          } else {
+            Object.values(markers.current).forEach((m) => {
+              m.infoWindow?.close();
+              m._isOpen = false;
+            });
+
+            infoWindow.open(mapInstance.current, marker);
+            marker._isOpen = true;
+          }
+        });
+        marker.infoWindow = infoWindow;
+        markers.current[driverId] = marker;
+      }
+
+      if (Object.keys(markers.current).length <= 1) setTimeout(fitMapToMarkers, 100);
+    };
+
+    socket.on("driver-location-update", handle);
+    return () => socket.off("driver-location-update", handle);
+  }, [socket]);
+
   useEffect(() => {
     Object.entries(markers.current).forEach(([id, marker]) => {
       const driver = driverData[id];
       if (!driver) return;
-      marker.setVisible(selectedStatus.value === "all" || driver.driving_status === selectedStatus.value);
+      let visible = selectedStatus.value === "all" || driver.driving_status === selectedStatus.value;
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        visible = visible && (driver.name?.toLowerCase().includes(q) || id.toString().includes(q));
+      }
+      marker.setVisible(visible);
     });
-    setTimeout(() => fitMapToMarkers(), 100);
-  }, [selectedStatus, driverData]);
+    setTimeout(fitMapToMarkers, 100);
+  }, [selectedStatus, searchQuery, driverData]);
 
   return <div ref={mapRef} className="w-full h-[550px] rounded-xl border border-gray-300 shadow-sm" />;
 };
@@ -299,34 +350,19 @@ const GoogleMapView = ({
 const BarikoiMapView = ({
   mapRef, mapInstance, markers,
   driverData, setDriverData,
-  selectedStatus, socket,
-  trackingBooking, setTrackingBooking,
-  location, navigate,
+  selectedStatus, searchQuery, socket,
 }) => {
   const [isLoaded, setIsLoaded] = useState(false);
-
-  const createMarkerEl = (status, isTracked = false) => {
-    const color = status === "busy" ? "#22c55e" : "#ef4444";
-    const el = document.createElement("div");
-    el.style.cssText = `
-      width:40px;height:40px;background-color:${color};border-radius:50%;
-      border:${isTracked ? "3px solid #3B82F6" : "3px solid white"};
-      box-shadow:0 2px 8px rgba(0,0,0,0.3);
-      display:flex;align-items:center;justify-content:center;
-      font-size:18px;cursor:pointer;
-    `;
-    el.innerHTML = "🚗";
-    return el;
-  };
+  const { barikoiKey } = getApiKeys();
 
   const fitMapToMarkers = () => {
     if (!mapInstance.current || Object.keys(markers.current).length === 0) return;
     let minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity, hasVisible = false;
-    Object.values(markers.current).forEach((marker) => {
-      if (marker._visible === false) return;
-      const ll = marker.getLngLat();
-      minLat = Math.min(minLat, ll.lat); maxLat = Math.max(maxLat, ll.lat);
-      minLng = Math.min(minLng, ll.lng); maxLng = Math.max(maxLng, ll.lng);
+    Object.values(markers.current).forEach((m) => {
+      if (m._visible === false) return;
+      const { lat, lng } = m.getLngLat();
+      minLat = Math.min(minLat, lat); maxLat = Math.max(maxLat, lat);
+      minLng = Math.min(minLng, lng); maxLng = Math.max(maxLng, lng);
       hasVisible = true;
     });
     if (hasVisible) {
@@ -334,90 +370,27 @@ const BarikoiMapView = ({
     }
   };
 
-  const createOrUpdateDriverMarker = (data, isTracked = false, currentTracking = null) => {
-    if (!mapInstance.current || !isLoaded) return;
-
-    const driverId = data.client_id || data.dispatcher_id || data.driver_id || data.id;
-    const latitude = data.latitude;
-    const longitude = data.longitude;
-    const drivingStatus = data.driving_status || data.status || "idle";
-    const name = data.name || data.driver_name || `Driver ${driverId}`;
-    const phoneNo = data.phone_no || "";
-    const vehiclePlateNo = data.plate_no || "";
-
-    if (!latitude || !longitude || isNaN(latitude) || isNaN(longitude)) return;
-
-    const validStatus = drivingStatus === "busy" || drivingStatus === "idle" ? drivingStatus : "idle";
-    const position = [Number(longitude), Number(latitude)];
-
-    setDriverData((prev) => ({
-      ...prev,
-      [driverId]: { ...data, position: { lat: Number(latitude), lng: Number(longitude) }, name, driving_status: validStatus },
-    }));
-
-    const isTrackedDriver = isTracked || (currentTracking && driverId == currentTracking.driverId);
-
-    const popupHTML = `
-      <div style="padding:8px;min-width:160px;">
-        <strong style="font-size:14px;">${name}</strong>
-        ${isTrackedDriver ? '<span style="background:#3B82F6;color:white;padding:2px 8px;border-radius:4px;font-size:10px;margin-left:5px;font-weight:bold;">TRACKING</span>' : ""}
-        <br/>
-        <span style="font-size:12px;">Phone: ${phoneNo}</span><br/>
-        ${vehiclePlateNo ? `<span style="font-size:12px;">Vehicle: ${vehiclePlateNo}</span><br/>` : ""}
-        <span style="font-size:12px;">Status:
-          <span style="color:${validStatus === "busy" ? "green" : "red"};font-weight:bold;">
-            ${validStatus.toUpperCase()}
-          </span>
-        </span>
-      </div>`;
-
-    if (markers.current[driverId]) {
-      markers.current[driverId].setLngLat(position);
-      const el = markers.current[driverId].getElement();
-      el.style.backgroundColor = validStatus === "busy" ? "#22c55e" : "#ef4444";
-      el.style.borderColor = isTrackedDriver ? "#3B82F6" : "white";
-      markers.current[driverId].getPopup()?.setHTML(popupHTML);
-      if (isTrackedDriver) mapInstance.current.setCenter({ lng: position[0], lat: position[1] });
-    } else {
-      const el = createMarkerEl(validStatus, isTrackedDriver);
-      const popup = new window.maplibregl.Popup({ offset: 25 }).setHTML(popupHTML);
-      const marker = new window.maplibregl.Marker({ element: el })
-        .setLngLat(position)
-        .setPopup(popup)
-        .addTo(mapInstance.current);
-      marker._visible = true;
-      markers.current[driverId] = marker;
-      if (isTrackedDriver) {
-        popup.addTo(mapInstance.current);
-        mapInstance.current.flyTo({ center: position, zoom: 15 });
-      }
-    }
-  };
-
+  // Init map
   useEffect(() => {
-    let isMounted = true;
-
+    let mounted = true;
     loadBarikoiMaps()
       .then(() => {
-        if (!isMounted || !mapRef.current || mapInstance.current) return;
-
+        if (!mounted || !mapRef.current || mapInstance.current) return;
+        const center = getCountryCenter();
         mapInstance.current = new window.maplibregl.Map({
           container: mapRef.current,
-          style: `https://map.barikoi.com/styles/barikoi-light/style.json?key=${BARIKOI_KEY}`,
-          center: [90.4125, 23.8103],
-          zoom: 13,
+          style: `https://map.barikoi.com/styles/barikoi-light/style.json?key=${barikoiKey}`,
+          center: [center.lng, center.lat],
+          zoom: 5,
         });
-
-        mapInstance.current.on("load", () => {
-          mapInstance.current.resize();
-        });
-
+        mapInstance.current.on("load", () => mapInstance.current.resize());
         mapInstance.current.addControl(new window.maplibregl.NavigationControl());
+        setIsLoaded(true);
       })
       .catch((err) => console.error("Barikoi Maps load failed:", err));
 
     return () => {
-      isMounted = false;
+      mounted = false;
       if (mapInstance.current) {
         Object.values(markers.current).forEach((m) => m.remove());
         markers.current = {};
@@ -427,68 +400,118 @@ const BarikoiMapView = ({
     };
   }, []);
 
-  useEffect(() => {
-    if (!location.state?.trackingBookingId || !isLoaded) return;
-    const { trackingBookingId, driverId, driverName, bookingReference } = location.state;
-    const tracking = { id: trackingBookingId, driverId, driverName, bookingReference };
-    setTrackingBooking(tracking);
-    followDriverTracking(trackingBookingId)
-      .then((response) => {
-        if (response.data?.success) {
-          const d = response.data.data.driver;
-          if (d?.latitude && d?.longitude) {
-            createOrUpdateDriverMarker(
-              { id: d.id, name: d.name, latitude: d.latitude, longitude: d.longitude, driving_status: d.status, phone_no: d.phone_no, plate_no: "" },
-              true, tracking
-            );
-          }
-        }
-      })
-      .catch(() => toast.error("Failed to start driver tracking"));
-    navigate(location.pathname, { replace: true, state: {} });
-  }, [location.state, isLoaded]);
-
-  // Socket
+  // Socket: driver location update
   useEffect(() => {
     if (!socket || !isLoaded) return;
-    const handleDriverUpdate = (rawData) => {
+
+    const handle = (rawData) => {
       if (!mapInstance.current) return;
       const data = parseDriverData(rawData);
       if (!data) return;
-      createOrUpdateDriverMarker(data, false, trackingBooking);
-      if (Object.keys(markers.current).length <= 1) setTimeout(() => fitMapToMarkers(), 100);
-    };
-    socket.on("driver-location-update", handleDriverUpdate);
-    return () => socket.off("driver-location-update", handleDriverUpdate);
-  }, [socket, isLoaded, trackingBooking]);
 
-  // Filter
+      const driverId = data.client_id || data.dispatcher_id || data.driver_id || data.id || `driver_${Date.now()}`;
+      const latitude = data.latitude;
+      const longitude = data.longitude;
+      const status = data.driving_status || "idle";
+      const validStatus = status === "busy" ? "busy" : "idle";
+      const name = data.name || data.driver_name || `Driver ${driverId}`;
+      const phoneNo = data.phone_no || "";
+      const plateNo = data.plate_no || "";
+
+      if (latitude == null || longitude == null || isNaN(latitude) || isNaN(longitude)) return;
+
+      const lngLat = [Number(longitude), Number(latitude)];
+
+      setDriverData((prev) => ({
+        ...prev,
+        [driverId]: { ...data, position: { lat: Number(latitude), lng: Number(longitude) }, driving_status: validStatus, name },
+      }));
+
+      const popupHTML = `
+  <div style="
+    padding:6px 10px;
+    font-weight:600;
+    font-size:14px;
+  ">
+    ${name}
+  </div>`;
+
+      if (markers.current[driverId]) {
+        // Update position
+        markers.current[driverId].setLngLat(lngLat);
+        // Update car icon image to match new status (same SVG as Google)
+        const img = markers.current[driverId].getElement().querySelector("img");
+        if (img) img.src = (MARKER_ICONS[validStatus] || MARKER_ICONS.idle).url;
+        markers.current[driverId].getPopup()?.setHTML(popupHTML);
+      } else {
+        // New marker — use SVG car icon (same source as Google Maps)
+        const el = createSvgMarkerEl(validStatus);
+        const popup = new window.maplibregl.Popup({
+          offset: 25,
+          closeButton: false,
+          closeOnClick: false,
+        }).setHTML(popupHTML);
+
+        const marker = new window.maplibregl.Marker({ element: el })
+          .setLngLat(lngLat)
+          .addTo(mapInstance.current);
+
+        marker._visible = true;
+        marker._isOpen = false;
+
+        el.addEventListener("click", () => {
+          if (marker._isOpen) {
+            popup.remove();
+            marker._isOpen = false;
+          } else {
+            Object.values(markers.current).forEach((m) => {
+              m.getPopup()?.remove();
+              m._isOpen = false;
+            });
+
+            popup.setLngLat(lngLat).addTo(mapInstance.current);
+            marker._isOpen = true;
+          }
+        });
+        marker._visible = true;
+        markers.current[driverId] = marker;
+      }
+
+      if (Object.keys(markers.current).length <= 1) setTimeout(fitMapToMarkers, 100);
+    };
+
+    socket.on("driver-location-update", handle);
+    return () => socket.off("driver-location-update", handle);
+  }, [socket, isLoaded]);
+
+  // Filter / search
   useEffect(() => {
     Object.entries(markers.current).forEach(([id, marker]) => {
       const driver = driverData[id];
       if (!driver) return;
-      const visible = selectedStatus.value === "all" || driver.driving_status === selectedStatus.value;
+      let visible = selectedStatus.value === "all" || driver.driving_status === selectedStatus.value;
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        visible = visible && (driver.name?.toLowerCase().includes(q) || id.toString().includes(q));
+      }
       marker._visible = visible;
       marker.getElement().style.display = visible ? "flex" : "none";
     });
-    setTimeout(() => fitMapToMarkers(), 100);
-  }, [selectedStatus, driverData]);
+    setTimeout(fitMapToMarkers, 100);
+  }, [selectedStatus, searchQuery, driverData]);
 
   return <div ref={mapRef} className="w-full h-[550px] rounded-xl border border-gray-300 shadow-sm" />;
 };
 
 const Map = () => {
+  const [searchQuery, setSearchQuery] = useState("");
   const [selectedStatus, setSelectedStatus] = useState(
     MAP_STATUS_OPTIONS.find((o) => o.value === "all") ?? MAP_STATUS_OPTIONS[0]
   );
   const [driverData, setDriverData] = useState({});
-  const [trackingBooking, setTrackingBooking] = useState(null);
   const [mapType] = useState(() => getMapType());
 
-  const location = useLocation();
-  const navigate = useNavigate();
   const socket = useSocket();
-
   const mapRef = useRef(null);
   const mapInstance = useRef(null);
   const markers = useRef({});
@@ -496,9 +519,7 @@ const Map = () => {
   const sharedProps = {
     mapRef, mapInstance, markers,
     driverData, setDriverData,
-    selectedStatus, socket,
-    trackingBooking, setTrackingBooking,
-    location, navigate,
+    selectedStatus, searchQuery, socket,
   };
 
   return (
@@ -509,23 +530,9 @@ const Map = () => {
       </div>
 
       <CardContainer className="p-4 bg-[#F5F5F5]">
-        {/* Top bar */}
-        <div className="flex flex-row items-center gap-3 sm:gap-5 justify-between mb-4 pb-4">
-          {trackingBooking && (
-            <div className="flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
-              <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
-              <span className="text-sm text-blue-700 font-medium">
-                Tracking: {trackingBooking.driverName || `Driver #${trackingBooking.driverId}`}
-              </span>
-              <button
-                onClick={() => setTrackingBooking(null)}
-                className="text-blue-400 hover:text-blue-600 ml-1 text-lg leading-none"
-              >
-                ×
-              </button>
-            </div>
-          )}
-          <div className="md:flex flex-row gap-3 sm:gap-5 w-full sm:w-auto justify-end">
+        {/* Top controls */}
+        <div className="flex flex-row items-center gap-3 sm:gap-5 justify-end mb-4 pb-4">
+          <div className="md:flex flex-row gap-3 sm:gap-5 w-full sm:w-auto">
             <CustomSelect
               variant={2}
               options={MAP_STATUS_OPTIONS}
@@ -536,6 +543,7 @@ const Map = () => {
           </div>
         </div>
 
+        {/* Map */}
         {mapType === "barikoi" ? (
           <BarikoiMapView {...sharedProps} />
         ) : (

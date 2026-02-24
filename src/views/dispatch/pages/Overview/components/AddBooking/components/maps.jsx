@@ -1,7 +1,50 @@
 import { useEffect, useRef, useState } from "react";
+import { getTenantData } from "../../../../../../../utils/functions/tokenEncryption";
+
+const DEFAULT_GOOGLE_KEY = "AIzaSyDTlV1tPVuaRbtvBQu4-kjDhTV54tR4cDU";
+const DEFAULT_BARIKOI_KEY = "bkoi_a468389d0211910bd6723de348e0de79559c435f07a17a5419cbe55ab55a890a";
+
+const COUNTRY_CENTERS = {
+    GB: { lat: 51.5074, lng: -0.1278 },
+    US: { lat: 37.0902, lng: -95.7129 },
+    IN: { lat: 20.5937, lng: 78.9629 },
+    AU: { lat: -25.2744, lng: 133.7751 },
+    CA: { lat: 56.1304, lng: -106.3468 },
+    AE: { lat: 23.4241, lng: 53.8478 },
+    PK: { lat: 30.3753, lng: 69.3451 },
+    BD: { lat: 23.8103, lng: 90.4125 },
+    SA: { lat: 23.8859, lng: 45.0792 },
+    NG: { lat: 9.082, lng: 8.6753 },
+    ZA: { lat: -30.5595, lng: 22.9375 },
+    DE: { lat: 51.1657, lng: 10.4515 },
+    FR: { lat: 46.2276, lng: 2.2137 },
+    IT: { lat: 41.8719, lng: 12.5674 },
+    ES: { lat: 40.4637, lng: -3.7492 },
+    NL: { lat: 52.1326, lng: 5.2913 },
+    SG: { lat: 1.3521, lng: 103.8198 },
+    MY: { lat: 4.2105, lng: 101.9758 },
+    NZ: { lat: -40.9006, lng: 172.886 },
+    DEFAULT: { lat: 0, lng: 0 },
+};
+
+const getApiKeys = () => {
+    const tenant = getTenantData();
+    return {
+        googleKey: tenant?.google_api_key || DEFAULT_GOOGLE_KEY,
+        barikoiKey: tenant?.barikoi_api_key || DEFAULT_BARIKOI_KEY,
+    };
+};
+
+const getCountryCenter = () => {
+    const tenant = getTenantData();
+    const code = (
+        tenant?.country_of_use ||
+        tenant?.data?.country_of_use
+    )?.trim().toUpperCase();
+    return COUNTRY_CENTERS[code] || COUNTRY_CENTERS.DEFAULT;
+};
 
 const GoogleMap = ({
-    googleApiKey,
     pickupCoords,
     destinationCoords,
     viaCoords,
@@ -9,8 +52,9 @@ const GoogleMap = ({
     fetchPlotName,
     setPickupPlotData,
     setDestinationPlotData,
-    SEARCH_API
+    SEARCH_API,
 }) => {
+    const { googleKey } = getApiKeys();
     const mapRef = useRef(null);
     const mapInstanceRef = useRef(null);
     const markersRef = useRef([]);
@@ -19,48 +63,45 @@ const GoogleMap = ({
     const clickCountRef = useRef(0);
 
     useEffect(() => {
-        if (window.google?.maps) {
-            setIsLoaded(true);
+        if (window.google?.maps) { setIsLoaded(true); return; }
+
+        const existing = document.getElementById("google-maps-script");
+        if (existing) {
+            existing.addEventListener("load", () => setIsLoaded(true));
             return;
         }
 
         const script = document.createElement("script");
-        script.src = `https://maps.googleapis.com/maps/api/js?key=${googleApiKey}&libraries=places`;
+        script.id = "google-maps-script";
+        script.src = `https://maps.googleapis.com/maps/api/js?key=${googleKey}&libraries=places`;
         script.async = true;
         script.onload = () => setIsLoaded(true);
         script.onerror = () => console.error("Failed to load Google Maps");
         document.head.appendChild(script);
-    }, [googleApiKey]);
+    }, []);
 
-    // Reverse geocode to get address from coordinates
     const getAddressFromCoords = async (lat, lng) => {
-        if (SEARCH_API === "google" || SEARCH_API === "both") {
+        if ((SEARCH_API === "google" || SEARCH_API === "both") && window.google?.maps) {
             const geocoder = new window.google.maps.Geocoder();
-
             return new Promise((resolve) => {
                 geocoder.geocode({ location: { lat, lng } }, (results, status) => {
-                    if (status === "OK" && results[0]) {
-                        resolve(results[0].formatted_address);
-                    } else {
-                        resolve(`${lat.toFixed(6)}, ${lng.toFixed(6)}`);
-                    }
+                    resolve(status === "OK" && results[0]
+                        ? results[0].formatted_address
+                        : `${lat.toFixed(6)}, ${lng.toFixed(6)}`);
                 });
             });
         }
-
         return `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
     };
 
-    // Initialize map once - this runs only once when the component mounts
     useEffect(() => {
         if (!isLoaded || !mapRef.current || mapInstanceRef.current) return;
-
         try {
-            const center = { lat: 23.8103, lng: 90.4125 };
+            const center = getCountryCenter();
 
             mapInstanceRef.current = new window.google.maps.Map(mapRef.current, {
-                zoom: 12,
-                center: center,
+                zoom: 5,
+                center: { lat: center.lat, lng: center.lng },
                 mapTypeControl: true,
                 streetViewControl: false,
                 fullscreenControl: true,
@@ -69,279 +110,151 @@ const GoogleMap = ({
             directionsRendererRef.current = new window.google.maps.DirectionsRenderer({
                 map: mapInstanceRef.current,
                 suppressMarkers: true,
-                polylineOptions: {
-                    strokeColor: "#4285F4",
-                    strokeWeight: 4,
-                },
+                polylineOptions: { strokeColor: "#4285F4", strokeWeight: 4 },
             });
 
-            // Add click listener to map
-            mapInstanceRef.current.addListener('click', async (event) => {
+            mapInstanceRef.current.addListener("click", async (event) => {
                 const lat = event.latLng.lat();
                 const lng = event.latLng.lng();
-
                 clickCountRef.current += 1;
 
-                // Get address from coordinates
                 const address = await getAddressFromCoords(lat, lng);
-
-                // Get plot data
                 const plotData = await fetchPlotName(lat, lng);
 
                 if (clickCountRef.current === 1) {
-                    // First click - set pickup
-                    setFieldValue('pickup_point', address);
-                    setFieldValue('pickup_latitude', lat);
-                    setFieldValue('pickup_longitude', lng);
-                    setFieldValue('pickup_plot_id', plotData.id);
+                    setFieldValue("pickup_point", address);
+                    setFieldValue("pickup_latitude", lat);
+                    setFieldValue("pickup_longitude", lng);
+                    setFieldValue("pickup_plot_id", plotData.id);
                     setPickupPlotData(plotData);
                 } else if (clickCountRef.current === 2) {
-                    // Second click - set destination
-                    setFieldValue('destination', address);
-                    setFieldValue('destination_latitude', lat);
-                    setFieldValue('destination_longitude', lng);
-                    setFieldValue('destination_plot_id', plotData.id);
+                    setFieldValue("destination", address);
+                    setFieldValue("destination_latitude", lat);
+                    setFieldValue("destination_longitude", lng);
+                    setFieldValue("destination_plot_id", plotData.id);
                     setDestinationPlotData(plotData);
-
-                    // Reset counter for next set of clicks
                     clickCountRef.current = 0;
                 }
             });
-
-        } catch (error) {
-            console.error("Error initializing map:", error);
+        } catch (err) {
+            console.error("Google map init error:", err);
         }
     }, [isLoaded]);
 
-    // Update markers and route - DEBOUNCED to prevent reloading on every keystroke
     useEffect(() => {
         if (!mapInstanceRef.current || !isLoaded) return;
 
-        // Add 500ms debounce to prevent excessive updates while typing
-        const timeoutId = setTimeout(() => {
+        const id = setTimeout(() => {
             const map = mapInstanceRef.current;
 
-            // Clear existing markers
-            markersRef.current.forEach(marker => {
-                if (marker && marker.setMap) {
-                    marker.setMap(null);
-                }
-            });
+            markersRef.current.forEach((m) => m?.setMap?.(null));
             markersRef.current = [];
 
             const bounds = new window.google.maps.LatLngBounds();
-            let hasCoordinates = false;
+            let hasCoords = false;
 
-            // Add pickup marker
-            if (pickupCoords?.lat && pickupCoords?.lng) {
-                try {
-                    const marker = new window.google.maps.Marker({
-                        position: pickupCoords,
-                        map: map,
-                        icon: {
-                            path: window.google.maps.SymbolPath.CIRCLE,
-                            scale: 10,
-                            fillColor: "#4CAF50",
-                            fillOpacity: 1,
-                            strokeColor: "#ffffff",
-                            strokeWeight: 2,
-                        },
-                        label: {
-                            text: "P",
-                            color: "#ffffff",
-                            fontWeight: "bold",
-                        },
-                        title: "Pickup Point",
-                    });
-                    markersRef.current.push(marker);
-                    bounds.extend(pickupCoords);
-                    hasCoordinates = true;
-                } catch (error) {
-                    console.error("Error creating pickup marker:", error);
-                }
-            }
-
-            // Add via markers
-            if (viaCoords && Array.isArray(viaCoords)) {
-                viaCoords.forEach((coord, index) => {
-                    if (coord?.lat && coord?.lng) {
-                        try {
-                            const marker = new window.google.maps.Marker({
-                                position: coord,
-                                map: map,
-                                icon: {
-                                    path: window.google.maps.SymbolPath.CIRCLE,
-                                    scale: 10,
-                                    fillColor: "#2196F3",
-                                    fillOpacity: 1,
-                                    strokeColor: "#ffffff",
-                                    strokeWeight: 2,
-                                },
-                                label: {
-                                    text: `${index + 1}`,
-                                    color: "#ffffff",
-                                    fontWeight: "bold",
-                                },
-                                title: `Via Point ${index + 1}`,
-                            });
-                            markersRef.current.push(marker);
-                            bounds.extend(coord);
-                            hasCoordinates = true;
-                        } catch (error) {
-                            console.error(`Error creating via marker ${index}:`, error);
-                        }
-                    }
-                });
-            }
-
-            // Add destination marker
-            if (destinationCoords?.lat && destinationCoords?.lng) {
-                try {
-                    const marker = new window.google.maps.Marker({
-                        position: destinationCoords,
-                        map: map,
-                        icon: {
-                            path: window.google.maps.SymbolPath.CIRCLE,
-                            scale: 10,
-                            fillColor: "#F44336",
-                            fillOpacity: 1,
-                            strokeColor: "#ffffff",
-                            strokeWeight: 2,
-                        },
-                        label: {
-                            text: "D",
-                            color: "#ffffff",
-                            fontWeight: "bold",
-                        },
-                        title: "Destination",
-                    });
-                    markersRef.current.push(marker);
-                    bounds.extend(destinationCoords);
-                    hasCoordinates = true;
-                } catch (error) {
-                    console.error("Error creating destination marker:", error);
-                }
-            }
-
-            // Draw route if we have pickup and destination
-            if (pickupCoords?.lat && pickupCoords?.lng &&
-                destinationCoords?.lat && destinationCoords?.lng &&
-                directionsRendererRef.current) {
-
-                const directionsService = new window.google.maps.DirectionsService();
-
-                const waypoints = (viaCoords || [])
-                    .filter(coord => coord?.lat && coord?.lng)
-                    .map(coord => ({
-                        location: new window.google.maps.LatLng(coord.lat, coord.lng),
-                        stopover: true,
-                    }));
-
-                directionsService.route(
-                    {
-                        origin: pickupCoords,
-                        destination: destinationCoords,
-                        waypoints: waypoints,
-                        travelMode: window.google.maps.TravelMode.DRIVING,
+            const addMarker = (coords, color, label, title) => {
+                if (!coords?.lat || !coords?.lng) return;
+                const marker = new window.google.maps.Marker({
+                    position: coords, map,
+                    icon: {
+                        path: window.google.maps.SymbolPath.CIRCLE,
+                        scale: 10,
+                        fillColor: color, fillOpacity: 1,
+                        strokeColor: "#fff", strokeWeight: 2,
                     },
+                    label: { text: label, color: "#fff", fontWeight: "bold" },
+                    title,
+                });
+                markersRef.current.push(marker);
+                bounds.extend(coords);
+                hasCoords = true;
+            };
+
+            addMarker(pickupCoords, "#4CAF50", "P", "Pickup Point");
+            (viaCoords || []).forEach((c, i) => addMarker(c, "#2196F3", `${i + 1}`, `Via ${i + 1}`));
+            addMarker(destinationCoords, "#F44336", "D", "Destination");
+
+            // Route
+            if (pickupCoords?.lat && destinationCoords?.lat && directionsRendererRef.current) {
+                const ds = new window.google.maps.DirectionsService();
+                const waypoints = (viaCoords || [])
+                    .filter((c) => c?.lat && c?.lng)
+                    .map((c) => ({ location: new window.google.maps.LatLng(c.lat, c.lng), stopover: true }));
+
+                ds.route(
+                    { origin: pickupCoords, destination: destinationCoords, waypoints, travelMode: "DRIVING" },
                     (result, status) => {
-                        if (status === "OK" && directionsRendererRef.current) {
-                            directionsRendererRef.current.setDirections(result);
-                        } else {
-                            console.error("Directions request failed:", status);
-                            // Clear directions on error
-                            if (directionsRendererRef.current) {
-                                directionsRendererRef.current.setDirections({ routes: [] });
-                            }
-                        }
+                        if (status === "OK") directionsRendererRef.current.setDirections(result);
+                        else directionsRendererRef.current.setDirections({ routes: [] });
                     }
                 );
             } else {
-                // Clear any existing directions
-                if (directionsRendererRef.current) {
-                    directionsRendererRef.current.setDirections({ routes: [] });
-                }
+                directionsRendererRef.current?.setDirections({ routes: [] });
             }
 
-            // Fit map to bounds
-            if (hasCoordinates) {
+            if (hasCoords) {
                 map.fitBounds(bounds);
-
-                // Ensure minimum zoom level
-                const listener = window.google.maps.event.addListenerOnce(map, 'bounds_changed', () => {
-                    if (map.getZoom() > 15) {
-                        map.setZoom(15);
-                    }
+                window.google.maps.event.addListenerOnce(map, "bounds_changed", () => {
+                    if (map.getZoom() > 15) map.setZoom(15);
                 });
             }
-        }, 500); // 500ms debounce delay
+        }, 500);
 
-        // Cleanup timeout on unmount or when dependencies change
-        return () => clearTimeout(timeoutId);
+        return () => clearTimeout(id);
     }, [pickupCoords, destinationCoords, viaCoords, isLoaded]);
 
     // Cleanup
     useEffect(() => {
         return () => {
-            markersRef.current.forEach(marker => {
-                if (marker && marker.setMap) {
-                    marker.setMap(null);
-                }
-            });
+            markersRef.current.forEach((m) => m?.setMap?.(null));
             markersRef.current = [];
         };
     }, []);
 
     return (
-        <div
-            ref={mapRef}
-            style={{ width: "100%", height: "400px", borderRadius: "8px" }}
-        >
-            {!isLoaded && (
-                <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    height: '100%',
-                    backgroundColor: '#f3f4f6',
-                    borderRadius: '8px'
-                }}>
-                    <p style={{ color: '#6b7280' }}>Loading map...</p>
-                </div>
-            )}
+        <div ref={mapRef} style={{ width: "100%", height: "400px", borderRadius: "8px" }}>
+            {!isLoaded && <LoadingPlaceholder />}
         </div>
     );
 };
 
 const BarikoiMap = ({
-    apiKey,
     pickupCoords,
     destinationCoords,
     viaCoords,
     setFieldValue,
     fetchPlotName,
     setPickupPlotData,
-    setDestinationPlotData
+    setDestinationPlotData,
 }) => {
+    const { barikoiKey } = getApiKeys();
     const containerRef = useRef(null);
     const mapRef = useRef(null);
     const markersRef = useRef([]);
     const [isLoaded, setIsLoaded] = useState(false);
     const clickCountRef = useRef(0);
 
-    // Load MapLibre GL - only once
+    // Load MapLibre GL
     useEffect(() => {
-        if (window.maplibregl) {
-            setIsLoaded(true);
+        if (window.maplibregl) { setIsLoaded(true); return; }
+
+        if (!document.getElementById("maplibre-css")) {
+            const link = document.createElement("link");
+            link.id = "maplibre-css";
+            link.rel = "stylesheet";
+            link.href = "https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.css";
+            document.head.appendChild(link);
+        }
+
+        const existing = document.getElementById("maplibre-script");
+        if (existing) {
+            existing.addEventListener("load", () => setIsLoaded(true));
             return;
         }
 
-        const link = document.createElement("link");
-        link.rel = "stylesheet";
-        link.href = "https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.css";
-        document.head.appendChild(link);
-
         const script = document.createElement("script");
+        script.id = "maplibre-script";
         script.src = "https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.js";
         script.async = true;
         script.onload = () => setIsLoaded(true);
@@ -349,242 +262,139 @@ const BarikoiMap = ({
         document.head.appendChild(script);
     }, []);
 
-    // Initialize map - only once
     useEffect(() => {
-        if (!isLoaded || !containerRef.current || mapRef.current || !apiKey) return;
+        if (!isLoaded || !containerRef.current || mapRef.current || !barikoiKey) return;
 
         try {
-            const center = [90.4125, 23.8103];
+            const center = getCountryCenter(); // ✅ dynamic
 
             mapRef.current = new window.maplibregl.Map({
                 container: containerRef.current,
-                style: `https://map.barikoi.com/styles/barikoi-light/style.json?key=${apiKey}`,
-                center: center,
-                zoom: 12,
+                style: `https://map.barikoi.com/styles/barikoi-light/style.json?key=${barikoiKey}`,
+                center: [center.lng, center.lat], // ✅ dynamic, not hardcoded BD
+                zoom: 5,
             });
 
             mapRef.current.addControl(new window.maplibregl.NavigationControl());
 
-            // Add click listener to map
-            mapRef.current.on('click', async (e) => {
+            // Click to set pickup/destination
+            mapRef.current.on("click", async (e) => {
                 const lat = e.lngLat.lat;
                 const lng = e.lngLat.lng;
-
                 clickCountRef.current += 1;
 
                 const address = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
                 const plotData = await fetchPlotName(lat, lng);
 
                 if (clickCountRef.current === 1) {
-                    // First click - set pickup
-                    setFieldValue('pickup_point', address);
-                    setFieldValue('pickup_latitude', lat);
-                    setFieldValue('pickup_longitude', lng);
-                    setFieldValue('pickup_plot_id', plotData.id);
+                    setFieldValue("pickup_point", address);
+                    setFieldValue("pickup_latitude", lat);
+                    setFieldValue("pickup_longitude", lng);
+                    setFieldValue("pickup_plot_id", plotData.id);
                     setPickupPlotData(plotData);
                 } else if (clickCountRef.current === 2) {
-                    // Second click - set destination
-                    setFieldValue('destination', address);
-                    setFieldValue('destination_latitude', lat);
-                    setFieldValue('destination_longitude', lng);
-                    setFieldValue('destination_plot_id', plotData.id);
+                    setFieldValue("destination", address);
+                    setFieldValue("destination_latitude", lat);
+                    setFieldValue("destination_longitude", lng);
+                    setFieldValue("destination_plot_id", plotData.id);
                     setDestinationPlotData(plotData);
-
-                    // Reset counter
                     clickCountRef.current = 0;
                 }
             });
-
-        } catch (error) {
-            console.error("Error initializing Barikoi map:", error);
+        } catch (err) {
+            console.error("Barikoi map init error:", err);
         }
 
         return () => {
-            if (mapRef.current) {
-                mapRef.current.remove();
-                mapRef.current = null;
-            }
+            if (mapRef.current) { mapRef.current.remove(); mapRef.current = null; }
         };
-    }, [apiKey, isLoaded]);
+    }, [isLoaded]);
 
-    // Update markers and route - DEBOUNCED
     useEffect(() => {
         if (!mapRef.current || !isLoaded) return;
 
-        // Add 500ms debounce
-        const timeoutId = setTimeout(() => {
-            // Wait for style to load
+        const id = setTimeout(() => {
+            const map = mapRef.current;
+
             const updateMap = () => {
-                // Clear existing markers
-                markersRef.current.forEach(marker => marker.remove());
+                // Clear markers
+                markersRef.current.forEach((m) => m.remove());
                 markersRef.current = [];
 
                 const bounds = new window.maplibregl.LngLatBounds();
-                let hasCoordinates = false;
+                let hasCoords = false;
 
-                // Add pickup marker
-                if (pickupCoords?.lat && pickupCoords?.lng) {
-                    const el = document.createElement('div');
-                    el.style.backgroundColor = '#4CAF50';
-                    el.style.width = '30px';
-                    el.style.height = '30px';
-                    el.style.borderRadius = '50%';
-                    el.style.border = '3px solid white';
-                    el.style.display = 'flex';
-                    el.style.alignItems = 'center';
-                    el.style.justifyContent = 'center';
-                    el.style.color = 'white';
-                    el.style.fontWeight = 'bold';
-                    el.style.fontSize = '14px';
-                    el.innerHTML = 'P';
-
-                    const marker = new window.maplibregl.Marker({ element: el })
-                        .setLngLat([pickupCoords.lng, pickupCoords.lat])
-                        .addTo(mapRef.current);
-
-                    markersRef.current.push(marker);
-                    bounds.extend([pickupCoords.lng, pickupCoords.lat]);
-                    hasCoordinates = true;
-                }
-
-                // Add via markers
-                if (viaCoords && Array.isArray(viaCoords)) {
-                    viaCoords.forEach((coord, index) => {
-                        if (coord?.lat && coord?.lng) {
-                            const el = document.createElement('div');
-                            el.style.backgroundColor = '#2196F3';
-                            el.style.width = '30px';
-                            el.style.height = '30px';
-                            el.style.borderRadius = '50%';
-                            el.style.border = '3px solid white';
-                            el.style.display = 'flex';
-                            el.style.alignItems = 'center';
-                            el.style.justifyContent = 'center';
-                            el.style.color = 'white';
-                            el.style.fontWeight = 'bold';
-                            el.style.fontSize = '14px';
-                            el.innerHTML = `${index + 1}`;
-
-                            const marker = new window.maplibregl.Marker({ element: el })
-                                .setLngLat([coord.lng, coord.lat])
-                                .addTo(mapRef.current);
-
-                            markersRef.current.push(marker);
-                            bounds.extend([coord.lng, coord.lat]);
-                            hasCoordinates = true;
-                        }
+                const addMarker = (coords, color, label) => {
+                    if (!coords?.lat || !coords?.lng) return;
+                    const el = document.createElement("div");
+                    Object.assign(el.style, {
+                        backgroundColor: color,
+                        width: "30px", height: "30px",
+                        borderRadius: "50%",
+                        border: "3px solid white",
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        color: "white", fontWeight: "bold", fontSize: "14px",
                     });
-                }
-
-                // Add destination marker
-                if (destinationCoords?.lat && destinationCoords?.lng) {
-                    const el = document.createElement('div');
-                    el.style.backgroundColor = '#F44336';
-                    el.style.width = '30px';
-                    el.style.height = '30px';
-                    el.style.borderRadius = '50%';
-                    el.style.border = '3px solid white';
-                    el.style.display = 'flex';
-                    el.style.alignItems = 'center';
-                    el.style.justifyContent = 'center';
-                    el.style.color = 'white';
-                    el.style.fontWeight = 'bold';
-                    el.style.fontSize = '14px';
-                    el.innerHTML = 'D';
-
+                    el.innerHTML = label;
                     const marker = new window.maplibregl.Marker({ element: el })
-                        .setLngLat([destinationCoords.lng, destinationCoords.lat])
-                        .addTo(mapRef.current);
-
+                        .setLngLat([coords.lng, coords.lat])
+                        .addTo(map);
                     markersRef.current.push(marker);
-                    bounds.extend([destinationCoords.lng, destinationCoords.lat]);
-                    hasCoordinates = true;
-                }
+                    bounds.extend([coords.lng, coords.lat]);
+                    hasCoords = true;
+                };
 
-                // Remove existing route layer
-                if (mapRef.current.getLayer('route')) {
-                    mapRef.current.removeLayer('route');
-                }
-                if (mapRef.current.getSource('route')) {
-                    mapRef.current.removeSource('route');
-                }
+                addMarker(pickupCoords, "#4CAF50", "P");
+                (viaCoords || []).forEach((c, i) => addMarker(c, "#2196F3", `${i + 1}`));
+                addMarker(destinationCoords, "#F44336", "D");
+
+                // Remove old route
+                if (map.getLayer("route")) map.removeLayer("route");
+                if (map.getSource("route")) map.removeSource("route");
 
                 // Draw route
-                if (pickupCoords?.lat && pickupCoords?.lng &&
-                    destinationCoords?.lat && destinationCoords?.lng) {
-
-                    const coordinates = [
+                if (pickupCoords?.lat && destinationCoords?.lat) {
+                    const coords = [
                         [pickupCoords.lng, pickupCoords.lat],
-                        ...(viaCoords || [])
-                            .filter(c => c?.lat && c?.lng)
-                            .map(c => [c.lng, c.lat]),
+                        ...(viaCoords || []).filter((c) => c?.lat && c?.lng).map((c) => [c.lng, c.lat]),
                         [destinationCoords.lng, destinationCoords.lat],
                     ];
 
-                    mapRef.current.addSource('route', {
-                        type: 'geojson',
-                        data: {
-                            type: 'Feature',
-                            properties: {},
-                            geometry: {
-                                type: 'LineString',
-                                coordinates: coordinates,
-                            },
-                        },
+                    map.addSource("route", {
+                        type: "geojson",
+                        data: { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: coords } },
                     });
-
-                    mapRef.current.addLayer({
-                        id: 'route',
-                        type: 'line',
-                        source: 'route',
-                        layout: {
-                            'line-join': 'round',
-                            'line-cap': 'round',
-                        },
-                        paint: {
-                            'line-color': '#4285F4',
-                            'line-width': 4,
-                        },
+                    map.addLayer({
+                        id: "route", type: "line", source: "route",
+                        layout: { "line-join": "round", "line-cap": "round" },
+                        paint: { "line-color": "#4285F4", "line-width": 4 },
                     });
                 }
 
-                // Fit map to bounds
-                if (hasCoordinates) {
-                    mapRef.current.fitBounds(bounds, { padding: 50 });
-                }
+                if (hasCoords) map.fitBounds(bounds, { padding: 50 });
             };
 
-            if (mapRef.current.isStyleLoaded()) {
-                updateMap();
-            } else {
-                mapRef.current.on('load', updateMap);
-            }
-        }, 500); // 500ms debounce delay
+            map.isStyleLoaded() ? updateMap() : map.once("load", updateMap);
+        }, 500);
 
-        // Cleanup timeout
-        return () => clearTimeout(timeoutId);
+        return () => clearTimeout(id);
     }, [pickupCoords, destinationCoords, viaCoords, isLoaded]);
 
     return (
-        <div
-            ref={containerRef}
-            style={{ width: "100%", height: "400px", borderRadius: "8px" }}
-        >
-            {!isLoaded && (
-                <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    height: '100%',
-                    backgroundColor: '#f3f4f6',
-                    borderRadius: '8px'
-                }}>
-                    <p style={{ color: '#6b7280' }}>Loading map...</p>
-                </div>
-            )}
+        <div ref={containerRef} style={{ width: "100%", height: "400px", borderRadius: "8px" }}>
+            {!isLoaded && <LoadingPlaceholder />}
         </div>
     );
 };
+
+const LoadingPlaceholder = () => (
+    <div style={{
+        display: "flex", alignItems: "center", justifyContent: "center",
+        height: "100%", backgroundColor: "#f3f4f6", borderRadius: "8px",
+    }}>
+        <p style={{ color: "#6b7280" }}>Loading map...</p>
+    </div>
+);
 
 export default function Maps({
     mapsApi,
@@ -595,37 +405,17 @@ export default function Maps({
     fetchPlotName,
     setPickupPlotData,
     setDestinationPlotData,
-    SEARCH_API
+    SEARCH_API,
 }) {
-    const barikoiApiKey = "bkoi_a468389d0211910bd6723de348e0de79559c435f07a17a5419cbe55ab55a890a";
-    const googleApiKey = "AIzaSyDTlV1tPVuaRbtvBQu4-kjDhTV54tR4cDU";
+    const sharedProps = {
+        pickupCoords, destinationCoords, viaCoords,
+        setFieldValue, fetchPlotName,
+        setPickupPlotData, setDestinationPlotData,
+    };
 
     if (mapsApi === "barikoi") {
-        return (
-            <BarikoiMap
-                apiKey={barikoiApiKey}
-                pickupCoords={pickupCoords}
-                destinationCoords={destinationCoords}
-                viaCoords={viaCoords}
-                setFieldValue={setFieldValue}
-                fetchPlotName={fetchPlotName}
-                setPickupPlotData={setPickupPlotData}
-                setDestinationPlotData={setDestinationPlotData}
-            />
-        );
+        return <BarikoiMap {...sharedProps} />;
     }
 
-    return (
-        <GoogleMap
-            googleApiKey={googleApiKey}
-            pickupCoords={pickupCoords}
-            destinationCoords={destinationCoords}
-            viaCoords={viaCoords}
-            setFieldValue={setFieldValue}
-            fetchPlotName={fetchPlotName}
-            setPickupPlotData={setPickupPlotData}
-            setDestinationPlotData={setDestinationPlotData}
-            SEARCH_API={SEARCH_API}
-        />
-    );
+    return <GoogleMap {...sharedProps} SEARCH_API={SEARCH_API} />;
 }

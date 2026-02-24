@@ -19,6 +19,8 @@ import CallQueueModel from "./components/CallQueueModel/CallQueueModel";
 import RedCarIcon from "../../../../components/svg/RedCarIcon";
 import GreenCarIcon from "../../../../components/svg/GreenCarIcon";
 import { renderToString } from "react-dom/server";
+import { getTenantData } from "../../../../utils/functions/tokenEncryption";
+import toast from "react-hot-toast";
 
 const GOOGLE_KEY = "AIzaSyDTlV1tPVuaRbtvBQu4-kjDhTV54tR4cDU";
 const BARIKOI_KEY = "bkoi_a468389d0211910bd6723de348e0de79559c435f07a17a5419cbe55ab55a890a";
@@ -49,7 +51,7 @@ const COUNTRY_CENTERS = {
   CA: { lat: 56.1304, lng: -106.3468 },
   AE: { lat: 23.4241, lng: 53.8478 },
   PK: { lat: 30.3753, lng: 69.3451 },
-  BD: { lat: 23.685, lng: 90.3563 },
+  BD: { lat: 23.8103, lng: 90.4125 },
   SA: { lat: 23.8859, lng: 45.0792 },
   NG: { lat: 9.082, lng: 8.6753 },
   ZA: { lat: -30.5595, lng: 22.9375 },
@@ -61,64 +63,81 @@ const COUNTRY_CENTERS = {
   SG: { lat: 1.3521, lng: 103.8198 },
   MY: { lat: 4.2105, lng: 101.9758 },
   NZ: { lat: -40.9006, lng: 172.886 },
+  DEFAULT: { lat: 0, lng: 0 },
 };
 
+const CARD_CONFIG = [
+  {
+    label: "TODAY'S BOOKING",
+    filter: "todays_booking",
+    countKey: "todaysBooking",
+    icon: TodayBookingIcon,
+  },
+  {
+    label: "PRE BOOKINGS",
+    filter: "pre_bookings",
+    countKey: "preBookings",
+    icon: PreBookingIcon,
+  },
+  {
+    label: "RECENT JOBS",
+    filter: "recent_jobs",
+    countKey: "recentJobs",
+    icon: TodayBookingIcon,
+  },
+  {
+    label: "COMPLETED",
+    filter: "completed",
+    countKey: "completed",
+    icon: TodayBookingIcon,
+  },
+  {
+    label: "NO SHOW",
+    filter: "no_show",
+    countKey: "noShow",
+    icon: NoShowIcon,
+  },
+  {
+    label: "CANCELLED",
+    filter: "cancelled",
+    countKey: "cancelled",
+    icon: CancelledIcon,
+  },
+];
+
 const getMapType = () => {
-  try {
-    const allKeys = Object.keys(localStorage);
-    for (const key of allKeys) {
-      const raw = localStorage.getItem(key);
-      if (!raw) continue;
-      try {
-        const parsed = JSON.parse(raw);
-        const mapsApi =
-          parsed?.data?.maps_api ||
-          parsed?.maps_api ||
-          parsed?.company_data?.data?.maps_api ||
-          parsed?.tenant?.maps_api ||
-          null;
-        if (mapsApi) {
-          return mapsApi.trim().toLowerCase() === "barikoi" ? "barikoi" : "google";
-        }
-      } catch {
-        continue;
-      }
-    }
-    return "google";
-  } catch {
-    return "google";
-  }
+  const tenant = getTenantData();
+  const data = tenant?.data || {};
+
+  const mapsApi = data?.maps_api?.trim().toLowerCase();
+  const countryOfUse = data?.country_of_use?.trim().toUpperCase();
+
+  if (mapsApi === "barikoi") return "barikoi";
+  if (mapsApi === "google") return "google";
+
+  if (countryOfUse === "BD") return "barikoi";
+
+  return "google";
+};
+
+const getApiKeys = () => {
+  const tenant = getTenantData();
+  const data = tenant?.data || {};
+
+  return {
+    googleKey: data?.google_api_key || GOOGLE_KEY,
+    barikoiKey: data?.barikoi_api_key || BARIKOI_KEY,
+  };
 };
 
 const getCountryCenter = () => {
-  const defaultCenter = { lat: 23.8103, lng: 90.4125 };
-  try {
-    const allKeys = Object.keys(localStorage);
-    for (const key of allKeys) {
-      const raw = localStorage.getItem(key);
-      if (!raw) continue;
-      try {
-        const parsed = JSON.parse(raw);
-        const countryCode =
-          parsed?.data?.country_of_use ||
-          parsed?.country_of_use ||
-          parsed?.company_data?.data?.country_of_use ||
-          parsed?.tenant?.country_of_use ||
-          null;
-        if (countryCode) {
-          const code = countryCode.trim().toUpperCase();
-          const center = COUNTRY_CENTERS[code];
-          if (center) return center;
-        }
-      } catch {
-        continue;
-      }
-    }
-  } catch { }
-  return defaultCenter;
+  const tenant = getTenantData();
+  const code = tenant?.data?.country_of_use?.trim().toUpperCase();
+
+  return COUNTRY_CENTERS[code] || COUNTRY_CENTERS.DEFAULT;
 };
 
-const loadGoogleMaps = () => {
+const loadGoogleMaps = (apiKey) => {
   return new Promise((resolve, reject) => {
     if (window.google?.maps) return resolve();
     const existing = document.getElementById("google-maps-script");
@@ -129,10 +148,10 @@ const loadGoogleMaps = () => {
     }
     const script = document.createElement("script");
     script.id = "google-maps-script";
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_KEY}&libraries=places`;
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`;
     script.async = true;
     script.defer = true;
-    script.onload = () => resolve();
+    script.onload = resolve;
     script.onerror = () => reject(new Error("Google Maps failed"));
     document.head.appendChild(script);
   });
@@ -141,15 +160,13 @@ const loadGoogleMaps = () => {
 const loadBarikoiMaps = () => {
   return new Promise((resolve, reject) => {
     if (window.maplibregl) return resolve();
-
     if (!document.getElementById("maplibre-css")) {
       const link = document.createElement("link");
       link.id = "maplibre-css";
       link.rel = "stylesheet";
-      link.href = `https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.css`;
+      link.href = "https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.css";
       document.head.appendChild(link);
     }
-
     const existing = document.getElementById("maplibre-script");
     if (existing) {
       if (window.maplibregl) return resolve();
@@ -157,38 +174,65 @@ const loadBarikoiMaps = () => {
       existing.addEventListener("error", reject);
       return;
     }
-
     const script = document.createElement("script");
     script.id = "maplibre-script";
-    script.src = `https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.js`;
+    script.src = "https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.js";
     script.async = true;
-    script.onload = () => resolve();
+    script.onload = resolve;
     script.onerror = () => reject(new Error("MapLibre GL failed"));
     document.head.appendChild(script);
   });
 };
 
+const makeGoogleIcon = (status) => {
+  const icon = MARKER_ICONS[status] || MARKER_ICONS.idle;
+  return {
+    url: icon.url,
+    scaledSize: new window.google.maps.Size(icon.scaledSize.width, icon.scaledSize.height),
+    anchor: new window.google.maps.Point(icon.anchor.x, icon.anchor.y),
+  };
+};
+
+const createSvgMarkerEl = (status) => {
+  const icon = MARKER_ICONS[status] || MARKER_ICONS.idle;
+  const el = document.createElement("div");
+  Object.assign(el.style, {
+    width: `${icon.scaledSize.width}px`,
+    height: `${icon.scaledSize.height}px`,
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+  });
+  const img = document.createElement("img");
+  img.src = icon.url;
+  Object.assign(img.style, {
+    width: "100%",
+    height: "100%",
+    objectFit: "contain",
+    filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.3))",
+  });
+  el.appendChild(img);
+  return el;
+};
+
 const animateMarker = (marker, newPosition, duration = 1000) => {
-  const startPosition = marker.getPosition();
-  const startLat = startPosition.lat();
-  const startLng = startPosition.lng();
-  const endLat = newPosition.lat;
-  const endLng = newPosition.lng;
+  const start = marker.getPosition();
+  const startLat = start.lat(), startLng = start.lng();
+  const endLat = newPosition.lat, endLng = newPosition.lng;
   const startTime = Date.now();
-  const animate = () => {
-    const elapsed = Date.now() - startTime;
-    const progress = Math.min(elapsed / duration, 1);
-    const ease =
-      progress < 0.5
-        ? 2 * progress * progress
-        : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+  const tick = () => {
+    const progress = Math.min((Date.now() - startTime) / duration, 1);
+    const ease = progress < 0.5
+      ? 2 * progress * progress
+      : 1 - Math.pow(-2 * progress + 2, 2) / 2;
     marker.setPosition({
       lat: startLat + (endLat - startLat) * ease,
       lng: startLng + (endLng - startLng) * ease,
     });
-    if (progress < 1) requestAnimationFrame(animate);
+    if (progress < 1) requestAnimationFrame(tick);
   };
-  animate();
+  tick();
 };
 
 const parseDriverData = (rawData) => {
@@ -200,27 +244,24 @@ const parseDriverData = (rawData) => {
   }
 };
 
-// ─────────────────────────────────────────────
-// Google Map Section
-// ─────────────────────────────────────────────
-const GoogleMapSection = ({
-  mapRef,
-  mapInstance,
-  markers,
-  driverData,
-  setDriverData,
-  socket,
-  countryCenter,
-}) => {
+const buildPopupHTML = (name) => `
+  <div style="
+    padding:6px 10px;
+    font-weight:600;
+    font-size:14px;
+  ">
+    ${name}
+  </div>`;
+
+const GoogleMapSection = ({ mapRef, mapInstance, markers, driverData, setDriverData, socket, countryCenter }) => {
+  const { googleKey } = getApiKeys();
+
   const fitMapToMarkers = () => {
     if (!mapInstance.current || Object.keys(markers.current).length === 0) return;
     const bounds = new window.google.maps.LatLngBounds();
     let hasVisible = false;
-    Object.values(markers.current).forEach((marker) => {
-      if (marker.getVisible()) {
-        bounds.extend(marker.getPosition());
-        hasVisible = true;
-      }
+    Object.values(markers.current).forEach((m) => {
+      if (m.getVisible()) { bounds.extend(m.getPosition()); hasVisible = true; }
     });
     if (hasVisible) {
       mapInstance.current.fitBounds(bounds);
@@ -229,27 +270,23 @@ const GoogleMapSection = ({
   };
 
   useEffect(() => {
-    let isMounted = true;
-    loadGoogleMaps()
+    let mounted = true;
+    loadGoogleMaps(googleKey)
       .then(() => {
-        if (!isMounted || !mapRef.current || mapInstance.current) return;
+        if (!mounted || !mapRef.current || mapInstance.current) return;
         mapInstance.current = new window.google.maps.Map(mapRef.current, {
           center: { lat: countryCenter.lat, lng: countryCenter.lng },
-          zoom: 13,
-          styles: [
-            { featureType: "poi", elementType: "labels", stylers: [{ visibility: "off" }] },
-          ],
+          zoom: 5,
+          styles: [{ featureType: "poi", elementType: "labels", stylers: [{ visibility: "off" }] }],
         });
       })
-      .catch((err) => console.error("❌ Google Map load failed:", err));
-    return () => {
-      isMounted = false;
-    };
+      .catch((err) => console.error("Google Map load failed:", err));
+    return () => { mounted = false; };
   }, []);
 
   useEffect(() => {
     if (!socket) return;
-    const handleDriverUpdate = (rawData) => {
+    const handle = (rawData) => {
       if (!mapInstance.current) return;
       const data = parseDriverData(rawData);
       if (!data) return;
@@ -257,54 +294,33 @@ const GoogleMapSection = ({
       const driverId = data?.id;
       const latitude = data?.latitude;
       const longitude = data?.longitude;
-      const drivingStatus = data?.driving_status;
+      const status = data?.driving_status || "idle";
+      const validStatus = status === "busy" ? "busy" : "idle";
       const name = data?.name || `Driver ${driverId}`;
       const phoneNo = data?.phone_no || "";
-      const vehiclePlateNo = data?.plate_no || "";
+      const plateNo = data?.plate_no || "";
 
       if (!driverId && driverId !== 0) return;
-      if (!latitude || !longitude) return;
+      if (!latitude || !longitude || isNaN(latitude) || isNaN(longitude)) return;
 
-      const validStatus =
-        drivingStatus === "busy" || drivingStatus === "idle" ? drivingStatus : "idle";
       const position = { lat: Number(latitude), lng: Number(longitude) };
+      setDriverData((prev) => ({ ...prev, [driverId]: { ...data, position, name, status: validStatus } }));
 
-      setDriverData((prev) => ({
-        ...prev,
-        [driverId]: { ...data, position, name, status: validStatus },
-      }));
-
-      const icon = MARKER_ICONS[validStatus];
-      const markerIcon = {
-        url: icon.url,
-        scaledSize: new window.google.maps.Size(icon.scaledSize.width, icon.scaledSize.height),
-        anchor: new window.google.maps.Point(icon.anchor.x, icon.anchor.y),
-      };
-
-      const infoContent = `
-        <div style="padding:5px;">
-          <strong>${name}</strong><br/>
-          Phone: ${phoneNo}<br/>
-          Vehicle: ${vehiclePlateNo}
-        </div>`;
+      const infoContent = buildPopupHTML(name);
 
       if (markers.current[driverId]) {
         const marker = markers.current[driverId];
         const oldPos = marker.getPosition();
-        const dist = Math.sqrt(
-          Math.abs(oldPos.lat() - position.lat) ** 2 +
-          Math.abs(oldPos.lng() - position.lng) ** 2
-        );
-        if (dist < 0.01) animateMarker(marker, position, 1000);
-        else marker.setPosition(position);
-        marker.setIcon(markerIcon);
+        const dist = Math.sqrt((oldPos.lat() - position.lat) ** 2 + (oldPos.lng() - position.lng) ** 2);
+        dist < 0.01 ? animateMarker(marker, position, 1000) : marker.setPosition(position);
+        marker.setIcon(makeGoogleIcon(validStatus));
         marker.infoWindow?.setContent(infoContent);
       } else {
         const marker = new window.google.maps.Marker({
           position,
           map: mapInstance.current,
           title: name,
-          icon: markerIcon,
+          icon: makeGoogleIcon(validStatus),
           animation: window.google.maps.Animation.DROP,
         });
         const infoWindow = new window.google.maps.InfoWindow({ content: infoContent });
@@ -317,86 +333,55 @@ const GoogleMapSection = ({
       }
 
       Object.values(markers.current).forEach((m) => m.setVisible(true));
-      if (Object.keys(markers.current).length <= 1) {
-        setTimeout(() => fitMapToMarkers(), 100);
-      }
+      if (Object.keys(markers.current).length <= 1) setTimeout(fitMapToMarkers, 100);
     };
 
-    socket.on("driver-location-update", handleDriverUpdate);
-    return () => socket.off("driver-location-update", handleDriverUpdate);
+    socket.on("driver-location-update", handle);
+    return () => socket.off("driver-location-update", handle);
   }, [socket]);
 
   useEffect(() => {
     Object.values(markers.current).forEach((m) => m.setVisible(true));
-    setTimeout(() => fitMapToMarkers(), 100);
+    setTimeout(fitMapToMarkers, 100);
   }, [driverData]);
 
-  return (
-    <div ref={mapRef} style={{ width: "100%", height: "100%", minHeight: "400px" }} />
-  );
+  return <div ref={mapRef} style={{ width: "100%", height: "100%", minHeight: "400px" }} />;
 };
 
-
-const BarikoiMapSection = ({
-  mapRef,
-  mapInstance,
-  markers,
-  driverData,
-  setDriverData,
-  socket,
-  countryCenter,
-}) => {
+const BarikoiMapSection = ({ mapRef, mapInstance, markers, driverData, setDriverData, socket, countryCenter }) => {
   const [mapReady, setMapReady] = useState(false);
+  const { barikoiKey } = getApiKeys();
 
-  // Initialize map
   useEffect(() => {
-    let isMounted = true;
-
+    let mounted = true;
     const init = async () => {
-      try {
-        await loadBarikoiMaps();
-      } catch (err) {
-        console.error("❌ [BARIKOI] Failed to load MapLibre:", err);
-        return;
-      }
+      try { await loadBarikoiMaps(); }
+      catch (err) { console.error("Barikoi load failed:", err); return; }
 
-      if (!isMounted || !mapRef.current || mapInstance.current) return;
+      if (!mounted || !mapRef.current || mapInstance.current) return;
 
-      // Ensure container has explicit dimensions before map init
       mapRef.current.style.width = "100%";
       mapRef.current.style.height = "100%";
       mapRef.current.style.minHeight = "400px";
 
       const map = new window.maplibregl.Map({
         container: mapRef.current,
-        style: `https://map.barikoi.com/styles/barikoi-light/style.json?key=${BARIKOI_KEY}`,
-        // center: [countryCenter.lng, countryCenter.lat],
-        center: [90.4125, 23.8103],
-        zoom: 13,
+        style: `https://map.barikoi.com/styles/barikoi-light/style.json?key=${barikoiKey}`,
+        center: [countryCenter.lng, countryCenter.lat],
+        zoom: 5,
       });
 
       map.addControl(new window.maplibregl.NavigationControl(), "top-right");
-
-      map.on("load", () => {
-        mapInstance.current.resize();
-      });
-
-      map.on("error", (e) => {
-        console.error("❌ [BARIKOI] Map error:", e.error?.message || e);
-      });
-
-      // Also resize on style data load
-      map.on("styledata", () => {
-        map.resize();
-      });
-
+      map.on("load", () => { map.resize(); setMapReady(true); });
+      map.on("error", (e) => console.error("Barikoi map error:", e.error?.message || e));
+      map.on("styledata", () => map.resize());
       mapInstance.current = map;
     };
 
     init();
 
     return () => {
-      isMounted = false;
+      mounted = false;
       if (mapInstance.current) {
         Object.values(markers.current).forEach((m) => m.remove());
         markers.current = {};
@@ -406,31 +391,18 @@ const BarikoiMapSection = ({
     };
   }, []);
 
-  // Handle window resize
   useEffect(() => {
-    const handleResize = () => {
-      if (mapInstance.current) mapInstance.current.resize();
-    };
+    const handleResize = () => { if (mapInstance.current) mapInstance.current.resize(); };
     window.addEventListener("resize", handleResize);
-
-    // Also trigger resize on next frame in case container size changed
-    const raf = requestAnimationFrame(() => {
-      if (mapInstance.current) mapInstance.current.resize();
-    });
-
-    return () => {
-      window.removeEventListener("resize", handleResize);
-      cancelAnimationFrame(raf);
-    };
+    const raf = requestAnimationFrame(() => { if (mapInstance.current) mapInstance.current.resize(); });
+    return () => { window.removeEventListener("resize", handleResize); cancelAnimationFrame(raf); };
   }, [mapReady]);
 
-  // Socket — driver location updates
   useEffect(() => {
     if (!socket || !mapReady) return;
 
-    const handleDriverUpdate = (rawData) => {
+    const handle = (rawData) => {
       if (!mapInstance.current) return;
-
       const data = parseDriverData(rawData);
       if (!data?.latitude || !data?.longitude) return;
 
@@ -439,87 +411,73 @@ const BarikoiMapSection = ({
 
       const lat = Number(data.latitude);
       const lng = Number(data.longitude);
-      const position = [lng, lat];
-      const isBusy = data.driving_status === "busy";
-      const statusKey = isBusy ? "busy" : "idle";
-      const icon = MARKER_ICONS[statusKey];
-
+      const lngLat = [lng, lat];
+      const status = data.driving_status || "idle";
+      const validStatus = status === "busy" ? "busy" : "idle";
       const name = data.name || `Driver ${driverId}`;
       const phoneNo = data.phone_no || "N/A";
-      const vehiclePlateNo = data.plate_no || "N/A";
+      const plateNo = data.plate_no || "N/A";
 
       setDriverData((prev) => ({
         ...prev,
-        [driverId]: {
-          ...data,
-          position: { lat, lng },
-          status: statusKey,
-          name,
-        },
+        [driverId]: { ...data, position: { lat, lng }, status: validStatus, name },
       }));
 
+      const popupHTML = buildPopupHTML(name);
+
       if (markers.current[driverId]) {
-        // Update existing marker position & icon
-        markers.current[driverId].setLngLat(position);
-        const el = markers.current[driverId].getElement();
-        if (el) {
-          el.style.backgroundImage = `url("${icon.url}")`;
-        }
-        markers.current[driverId].getPopup()?.setHTML(buildPopupHTML(name, phoneNo, vehiclePlateNo, isBusy));
+        markers.current[driverId].setLngLat(lngLat);
+        const img = markers.current[driverId].getElement().querySelector("img");
+        if (img) img.src = (MARKER_ICONS[validStatus] || MARKER_ICONS.idle).url;
+        markers.current[driverId].getPopup()?.setHTML(popupHTML);
       } else {
-        // Create new marker
-        const el = document.createElement("div");
-        Object.assign(el.style, {
-          width: `${icon.scaledSize.width}px`,
-          height: `${icon.scaledSize.height}px`,
-          backgroundImage: `url("${icon.url}")`,
-          backgroundSize: "contain",
-          backgroundRepeat: "no-repeat",
-          backgroundPosition: "center",
-          cursor: "pointer",
-          filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.4))",
-        });
+        const el = createSvgMarkerEl(validStatus);
+        const popup = new window.maplibregl.Popup({
+          offset: 25,
+          closeButton: false,
+          closeOnClick: false,
+        }).setHTML(popupHTML);
 
-        const popup = new window.maplibregl.Popup({ offset: 25 }).setHTML(
-          buildPopupHTML(name, phoneNo, vehiclePlateNo, isBusy)
-        );
-
-        const marker = new window.maplibregl.Marker({ element: el, anchor: "center" })
-          .setLngLat(position)
+        const marker = new window.maplibregl.Marker({
+          element: el,
+          anchor: "center",
+        })
+          .setLngLat(lngLat)
           .setPopup(popup)
           .addTo(mapInstance.current);
 
+        marker._isOpen = false;
+
+        el.addEventListener("click", () => {
+          if (marker._isOpen) {
+            popup.remove();
+            marker._isOpen = false;
+          } else {
+            // close all other popups
+            Object.values(markers.current).forEach((m) => {
+              m.getPopup()?.remove();
+              m._isOpen = false;
+            });
+
+            popup.addTo(mapInstance.current);
+            marker._isOpen = true;
+          }
+        });
+        marker._visible = true;
         markers.current[driverId] = marker;
       }
 
-      // Fly to first driver
       if (Object.keys(markers.current).length === 1) {
-        mapInstance.current.flyTo({ center: position, zoom: 14, speed: 0.8 });
+        mapInstance.current.flyTo({ center: lngLat, zoom: 14, speed: 0.8 });
       }
     };
 
-    socket.on("driver-location-update", handleDriverUpdate);
-    return () => socket.off("driver-location-update", handleDriverUpdate);
+    socket.on("driver-location-update", handle);
+    return () => socket.off("driver-location-update", handle);
   }, [socket, mapReady]);
 
-  return (
-    <div
-      ref={mapRef}
-      style={{ width: "100%", height: "100%", minHeight: "400px" }}
-    />
-  );
+  return <div ref={mapRef} style={{ width: "100%", height: "100%", minHeight: "400px" }} />;
 };
-
-const buildPopupHTML = (name, phoneNo, vehiclePlateNo, isBusy) => `
-  <div style="padding:6px 10px; min-width:140px; font-size:13px;">
-    <strong>${name}</strong><br/>
-    Phone: ${phoneNo}<br/>
-    Vehicle: ${vehiclePlateNo}<br/>
-    <span style="color:${isBusy ? "#16a34a" : "#dc2626"}">
-      ${isBusy ? "● On Job" : "● Idle"}
-    </span>
-  </div>
-`;
 
 const Overview = () => {
   const [isBookingModelOpen, setIsBookingModelOpen] = useState({ type: "new", isOpen: false });
@@ -541,12 +499,10 @@ const Overview = () => {
   const countryCenter = React.useMemo(() => getCountryCenter(), []);
 
   const socket = useSocket();
-
   const mapRef = useRef(null);
   const mapInstance = useRef(null);
   const markers = useRef({});
   const [driverData, setDriverData] = useState({});
-
   const [waitingDrivers, setWaitingDrivers] = useState([]);
   const [onJobDrivers, setOnJobDrivers] = useState([]);
 
@@ -579,9 +535,9 @@ const Overview = () => {
 
   useEffect(() => {
     if (!socket) return;
-    const handleDashboardCardsUpdate = (data) => setDashboardCounts(data);
-    socket.on("dashboard-cards-update", handleDashboardCardsUpdate);
-    return () => socket.off("dashboard-cards-update", handleDashboardCardsUpdate);
+    const handle = (data) => setDashboardCounts(data);
+    socket.on("dashboard-cards-update", handle);
+    return () => socket.off("dashboard-cards-update", handle);
   }, [socket]);
 
   useEffect(() => {
@@ -603,37 +559,21 @@ const Overview = () => {
         if (data && typeof data === "object") {
           const possibleArrayKeys = ["items", "results", "dispatches", "systems", "list"];
           for (const key of possibleArrayKeys) {
-            if (Array.isArray(data[key])) {
-              data = data[key];
-              break;
-            }
+            if (Array.isArray(data[key])) { data = data[key]; break; }
           }
         }
         if (!Array.isArray(data)) {
           if (data && typeof data === "object" && Object.keys(data).length > 0) data = [data];
-          else {
-            setIsAddBookingDisabled(true);
-            return;
-          }
+          else { setIsAddBookingDisabled(true); return; }
         }
       }
 
-      const hasManual = data.some(
-        (item) =>
-          item.dispatch_system === "manual_dispatch_only" &&
-          (item.status === "enable" ||
-            item.status === "enabled" ||
-            item.status === 1 ||
-            item.status === true)
-      );
-      const hasAutoNearest = data.some(
-        (item) =>
-          item.dispatch_system === "auto_dispatch_nearest_driver" &&
-          (item.status === "enable" ||
-            item.status === "enabled" ||
-            item.status === 1 ||
-            item.status === true)
-      );
+      const isEnabled = (item) =>
+        item.status === "enable" || item.status === "enabled" ||
+        item.status === 1 || item.status === true;
+
+      const hasManual = data.some((i) => i.dispatch_system === "manual_dispatch_only" && isEnabled(i));
+      const hasAutoNearest = data.some((i) => i.dispatch_system === "auto_dispatch_nearest_driver" && isEnabled(i));
       setIsAddBookingDisabled(!(hasManual || hasAutoNearest));
     } catch (error) {
       console.error("Dispatch system error:", error);
@@ -643,115 +583,104 @@ const Overview = () => {
     }
   };
 
-  useEffect(() => {
-    checkDispatchSystem();
-  }, []);
+  useEffect(() => { checkDispatchSystem(); }, []);
 
   useEffect(() => {
     if (!socket) return;
-    const handleWaitingDrivers = (rawData) => {
+    const handle = (rawData) => {
       let data;
-      try {
-        data = typeof rawData === "string" ? JSON.parse(rawData) : rawData;
-      } catch {
-        data = rawData;
-      }
+      try { data = typeof rawData === "string" ? JSON.parse(rawData) : rawData; }
+      catch { data = rawData; }
 
       if (Array.isArray(data)) setWaitingDrivers(data);
       else if (data?.drivers && Array.isArray(data.drivers)) setWaitingDrivers(data.drivers);
       else if (data?.data && Array.isArray(data.data)) setWaitingDrivers(data.data);
       else if (data?.driverName || data?.driver_name) {
-        const driverObj = {
-          id: Date.now(),
-          name: data.driverName || data.driver_name,
-          plot: data.plot || data.plot_name || "N/A",
-          vehicle: data.vehicle || data.vehicle_type || "N/A",
-          rank: data.rank || 1,
-          ...data,
-        };
+        const obj = { id: Date.now(), name: data.driverName || data.driver_name, plot: data.plot || "N/A", rank: data.rank || 1, ...data };
         setWaitingDrivers((prev) => {
-          const exists = prev.some(
-            (d) => d.name === driverObj.name && d.plot === driverObj.plot
-          );
-          if (exists)
-            return prev.map((d) =>
-              d.name === driverObj.name && d.plot === driverObj.plot ? driverObj : d
-            );
-          return [...prev, driverObj];
+          const exists = prev.some((d) => d.name === obj.name && d.plot === obj.plot);
+          return exists ? prev.map((d) => d.name === obj.name && d.plot === obj.plot ? obj : d) : [...prev, obj];
         });
       } else if (typeof data === "object" && data !== null) {
         setWaitingDrivers([{ ...data, id: data.id || Date.now() }]);
       } else setWaitingDrivers([]);
     };
-
-    socket.on("waiting-driver-event", handleWaitingDrivers);
-    return () => socket.off("waiting-driver-event", handleWaitingDrivers);
+    socket.on("waiting-driver-event", handle);
+    return () => socket.off("waiting-driver-event", handle);
   }, [socket]);
 
   useEffect(() => {
     if (!socket) return;
-    const handleOnJobDrivers = (rawData) => {
+    const handle = (rawData) => {
       let data;
-      try {
-        data = typeof rawData === "string" ? JSON.parse(rawData) : rawData;
-      } catch {
-        data = rawData;
-      }
+      try { data = typeof rawData === "string" ? JSON.parse(rawData) : rawData; }
+      catch { data = rawData; }
 
       if (Array.isArray(data)) setOnJobDrivers(data);
       else if (data?.drivers && Array.isArray(data.drivers)) setOnJobDrivers(data.drivers);
       else if (data?.data && Array.isArray(data.data)) setOnJobDrivers(data.data);
       else if (data?.driverName || data?.driver_name) {
-        const driverObj = { id: Date.now(), name: data.driverName || data.driver_name, ...data };
+        const obj = { id: Date.now(), name: data.driverName || data.driver_name, ...data };
         setOnJobDrivers((prev) => {
-          const exists = prev.some((d) => d.name === driverObj.name);
-          if (exists) return prev.map((d) => (d.name === driverObj.name ? driverObj : d));
-          return [...prev, driverObj];
+          const exists = prev.some((d) => d.name === obj.name);
+          return exists ? prev.map((d) => d.name === obj.name ? obj : d) : [...prev, obj];
         });
       } else if (typeof data === "object" && data !== null) {
         setOnJobDrivers([{ ...data, id: data.id || Date.now() }]);
       } else setOnJobDrivers([]);
     };
-
-    socket.on("on-job-driver-event", handleOnJobDrivers);
-    return () => socket.off("on-job-driver-event", handleOnJobDrivers);
+    socket.on("on-job-driver-event", handle);
+    return () => socket.off("on-job-driver-event", handle);
   }, [socket]);
 
   useEffect(() => {
     if (!socket) return;
-    socket.on("ride-accepted-by-driver", (data) => {
-      console.log("Ride accepted:", data);
-    });
+    socket.on("ride-accepted-by-driver", (data) => { 
+    console.log("Ride accepted:", data); });
     return () => socket.off("ride-accepted-by-driver");
   }, [socket]);
 
-  const tabs = [
-    { id: "today", label: "TODAY'S BOOKING", count: dashboardCounts.todaysBooking, icon: TodayBookingIcon },
-    { id: "pre", label: "PRE BOOKINGS", count: dashboardCounts.preBookings, icon: PreBookingIcon },
-    { id: "recent", label: "RECENT JOBS", count: dashboardCounts.recentJobs, icon: TodayBookingIcon },
-    { id: "completed", label: "COMPLETED", count: dashboardCounts.completed, icon: TodayBookingIcon },
-    { id: "noshow", label: "NO SHOW", count: dashboardCounts.noShow, icon: NoShowIcon },
-    { id: "cancelled", label: "CANCELLED", count: dashboardCounts.cancelled, icon: CancelledIcon },
-  ];
+  useEffect(() => {
+    if (!socket) return;
 
-  const TAB_FILTER_MAP = {
-    today: "todays_booking",
-    pre: "pre_bookings",
-    recent: "recent_jobs",
-    completed: "completed",
-    noshow: "no_show",
-    cancelled: "cancelled",
-  };
+    const handle = (rawData) => {
+      console.log("notification-ride RAW:", rawData);
 
-  const mapProps = {
-    mapRef,
-    mapInstance,
-    markers,
-    driverData,
-    setDriverData,
-    socket,
-    countryCenter,
-  };
+      let data;
+
+      try {
+        data = typeof rawData === "string"
+          ? JSON.parse(rawData)
+          : rawData;
+      } catch (error) {
+        console.error("JSON Parse Error:", error);
+        data = rawData;
+      }
+
+      console.log("Parsed notification-ride DATA:", data);
+
+      const message =
+        data?.message ||
+        data?.notification ||
+        data?.msg ||
+        (data?.driver_name
+          ? `Ride update from ${data.driver_name}`
+          : "New ride notification");
+
+      console.log("Final Toast Message:", message);
+
+      toast(message, { duration: 4000 });
+    };
+
+    socket.on("notification-ride", handle);
+
+    return () => {
+      socket.off("notification-ride", handle);
+      console.log("notification-ride listener removed");
+    };
+  }, [socket]);
+
+  const mapProps = { mapRef, mapInstance, markers, driverData, setDriverData, socket, countryCenter };
 
   return (
     <div className="h-full">
@@ -769,18 +698,11 @@ const Overview = () => {
         <div className="flex flex-col sm:flex-row gap-3 items-center justify-center w-full sm:w-auto">
           <Button
             className="w-full sm:w-auto px-3 py-1.5 border border-[#1f41bb] rounded-full"
-            onClick={() => {
-              lockBodyScroll();
-              setIsMessageModelOpen({ isOpen: true, type: "new" });
-            }}
+            onClick={() => { lockBodyScroll(); setIsMessageModelOpen({ isOpen: true, type: "new" }); }}
           >
             <div className="flex gap-1 items-center justify-center whitespace-nowrap">
-              <span className="hidden sm:inline-block">
-                <PlusIcon fill={"#1f41bb"} height={13} width={13} />
-              </span>
-              <span className="sm:hidden">
-                <PlusIcon height={8} width={8} />
-              </span>
+              <span className="hidden sm:inline-block"><PlusIcon fill={"#1f41bb"} height={13} width={13} /></span>
+              <span className="sm:hidden"><PlusIcon height={8} width={8} /></span>
               <span>Call Queue</span>
             </div>
           </Button>
@@ -796,35 +718,23 @@ const Overview = () => {
             }}
             disabled={isAddBookingDisabled || isLoadingDispatchSystem}
             className={`w-full sm:w-auto -mb-2 sm:-mb-3 lg:-mb-3 !py-3.5 sm:!py-3 lg:!py-3 ${isAddBookingDisabled || isLoadingDispatchSystem
-              ? "!bg-gray-400 !cursor-not-allowed opacity-60 hover:!bg-gray-400"
-              : ""
+              ? "!bg-gray-400 !cursor-not-allowed opacity-60 hover:!bg-gray-400" : ""
               }`}
-            style={
-              isAddBookingDisabled || isLoadingDispatchSystem ? { pointerEvents: "none" } : {}
-            }
+            style={isAddBookingDisabled || isLoadingDispatchSystem ? { pointerEvents: "none" } : {}}
           >
             <div className="flex gap-2 sm:gap-[15px] items-center justify-center whitespace-nowrap">
-              <span className="hidden sm:inline-block">
-                <PlusIcon />
-              </span>
-              <span className="sm:hidden">
-                <PlusIcon height={16} width={16} />
-              </span>
+              <span className="hidden sm:inline-block"><PlusIcon /></span>
+              <span className="sm:hidden"><PlusIcon height={16} width={16} /></span>
               <span>Create Booking</span>
             </div>
           </Button>
         </div>
       </div>
 
-      {/* Map + Driver Panels */}
       <div className="px-5 pt-5" style={{ height: "500px" }}>
         <div className="flex flex-col md:flex-row gap-4 h-full">
 
-          {/* Map Panel */}
-          <div
-            className="w-full lg:w-[55%] bg-[#F4F7FF] rounded-2xl shadow p-2 flex flex-col"
-            style={{ height: "100%" }}
-          >
+          <div className="w-full lg:w-[55%] bg-[#F4F7FF] rounded-2xl shadow p-2 flex flex-col" style={{ height: "100%" }}>
             <div className="flex flex-wrap items-center justify-between mb-3 border-b gap-2 max-sm:flex-col">
               <div className="flex flex-wrap gap-4 text-sm">
                 <div className="flex items-center gap-1 text-green-600">
@@ -847,7 +757,6 @@ const Overview = () => {
             </div>
           </div>
 
-          {/* Waiting Drivers */}
           <div className="w-full lg:w-[20.5%] bg-orange-50 rounded-2xl shadow p-3 overflow-y-auto">
             <div className="flex items-center justify-between mb-2">
               <h3 className="font-semibold">Drivers Waiting</h3>
@@ -873,17 +782,12 @@ const Overview = () => {
                     </tr>
                   ))
                 ) : (
-                  <tr>
-                    <td colSpan="4" className="text-center py-4 text-gray-500">
-                      No waiting drivers
-                    </td>
-                  </tr>
+                  <tr><td colSpan="4" className="text-center py-4 text-gray-500">No waiting drivers</td></tr>
                 )}
               </tbody>
             </table>
           </div>
 
-          {/* On Jobs Panel */}
           <div className="w-full lg:w-[20.5%] bg-green-50 rounded-2xl shadow p-3 overflow-y-auto">
             <div className="flex items-center justify-between mb-2">
               <h3 className="font-semibold">On Jobs</h3>
@@ -905,11 +809,7 @@ const Overview = () => {
                     </tr>
                   ))
                 ) : (
-                  <tr>
-                    <td colSpan="2" className="text-center py-4 text-gray-500">
-                      No active jobs
-                    </td>
-                  </tr>
+                  <tr><td colSpan="2" className="text-center py-4 text-gray-500">No active jobs</td></tr>
                 )}
               </tbody>
             </table>
@@ -917,34 +817,31 @@ const Overview = () => {
         </div>
       </div>
 
-      {/* Booking Details */}
       <div className="px-4 sm:p-6">
         <OverViewDetails filter={activeBookingFilter} />
       </div>
 
-      {/* Bottom Tabs */}
       <div className="sticky bottom-0 left-0 right-0 z-30 bg-white shadow-lg">
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-0.5 overflow-hidden">
-          {tabs.map((tab) => {
-            const backendFilter = TAB_FILTER_MAP[tab.id] || "";
-            const isActive = activeBookingFilter === backendFilter;
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-0.5 overflow-hidden rounded-lg shadow">
+          {CARD_CONFIG.map((card) => {
+            const isActive = activeBookingFilter === card.filter;
+            const Icon = card.icon;
             return (
               <button
-                key={tab.id}
-                onClick={() => setActiveBookingFilter(backendFilter)}
-                className={`flex items-center justify-center gap-2 px-3 py-2.5 font-semibold text-white text-[11px] transition-colors ${isActive ? "bg-[#1F41BB]" : "bg-blue-500"
+                key={card.filter}
+                onClick={() => setActiveBookingFilter(card.filter)}
+                className={`flex items-center justify-center gap-2 px-3 py-2.5 font-semibold text-white text-[11px] transition-colors ${isActive ? "bg-[#1F41BB]" : "bg-blue-500 hover:bg-blue-600"
                   }`}
               >
-                {tab.icon && <tab.icon className="w-4 h-4" />}
-                <span>{tab.label}</span>
-                {tab.count !== undefined && <span>({tab.count})</span>}
+                {Icon && <Icon className="w-4 h-4" />}
+                <span>{card.label}</span>
+                <span>({dashboardCounts[card.countKey] ?? 0})</span>
               </button>
             );
           })}
         </div>
       </div>
 
-      {/* Modals */}
       <Modal isOpen={isBookingModelOpen.isOpen} className="p-4 sm:p-6 lg:p-10">
         <AddBooking setIsOpen={setIsBookingModelOpen} />
       </Modal>

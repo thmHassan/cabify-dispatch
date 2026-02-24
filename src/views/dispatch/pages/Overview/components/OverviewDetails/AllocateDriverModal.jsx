@@ -10,6 +10,9 @@ const AllocateDriverModal = ({ bookingData, onClose, onSuccess }) => {
     const [loading, setLoading] = useState(false);
     const [saving, setSaving] = useState(false);
 
+    const assignmentType = bookingData?._assignmentType || "allocate_driver";
+    const isPreJob = assignmentType === "pre_job";
+
     useEffect(() => {
         fetchDrivers();
     }, []);
@@ -23,21 +26,10 @@ const AllocateDriverModal = ({ bookingData, onClose, onSuccess }) => {
     const fetchDrivers = async () => {
         setLoading(true);
         try {
-            const params = {
-                page: 1,
-                perPage: 100,
-            };
-
-            const response = await apiGetDriverManagement(params);
-
+            const response = await apiGetDriverManagement({ page: 1, perPage: 100 });
             if (response?.data?.success === 1) {
                 const driversList = response.data.list?.data || [];
-
-                const idleDrivers = driversList.filter(
-                    (driver) => driver.driving_status === "idle"
-                );
-
-                setDrivers(idleDrivers);
+                setDrivers(driversList.filter((d) => d.driving_status === "idle"));
             } else {
                 setDrivers([]);
             }
@@ -58,22 +50,39 @@ const AllocateDriverModal = ({ bookingData, onClose, onSuccess }) => {
 
         setSaving(true);
         try {
-            console.log("Assigning driver:", selectedDriverId, "to booking:", bookingData.id);
-
-            const response = await assignDriverToBooking(bookingData.id, selectedDriverId);
-
-            console.log("Assign driver response:", response);
+            const response = await assignDriverToBooking(
+                bookingData.id,
+                selectedDriverId,
+                assignmentType
+            );
 
             if (response?.data?.success) {
-                toast.success("Driver assigned successfully");
+                const successMessage = isPreJob
+                    ? `Pre-job sent to driver. Waiting for driver response.`
+                    : `Driver assigned successfully. Waiting for driver response.`;
+
+                toast.success(successMessage);
+
+                const selectedDriver = drivers.find(
+                    (d) => d.id.toString() === selectedDriverId.toString()
+                );
+
                 onSuccess({
-                    booking_id: bookingData.booking_id,
-                    driver_id: selectedDriverId,
-                    message: response.data.message
+                    ...bookingData,
+                    driver: selectedDriverId,
+                    driverDetail: selectedDriver
+                        ? {
+                            id: selectedDriver.id,
+                            name: selectedDriver.name,
+                            phone_no: selectedDriver.phone_no,
+                        }
+                        : null,
+                    _assignmentType: assignmentType,
+                    _successMessage: successMessage,
                 });
                 onClose();
             } else {
-                toast.error("Failed to assign driver");
+                toast.error(response?.data?.message || "Failed to assign driver");
             }
         } catch (error) {
             console.error("Assign driver error:", error);
@@ -85,10 +94,10 @@ const AllocateDriverModal = ({ bookingData, onClose, onSuccess }) => {
 
     return (
         <div className="w-full">
-            {/* Header */}
+            {/* Header — dynamic title */}
             <div className="px-6 py-4 flex items-center justify-between">
                 <h2 className="text-xl font-semibold text-gray-800">
-                    Allocate Driver
+                    {isPreJob ? "Send Pre-Job" : "Allocate Driver"}
                 </h2>
                 <button
                     onClick={onClose}
@@ -99,14 +108,18 @@ const AllocateDriverModal = ({ bookingData, onClose, onSuccess }) => {
             </div>
 
             {/* Booking Info */}
-            <div className="py-3 px-1 bg-gray-100 mx-6">
+            <div className="py-3 px-4 bg-gray-100 mx-6 rounded">
                 <div className="flex items-center gap-4 text-sm">
                     <span className="font-medium">Booking ID:</span>
                     <span>{bookingData.booking_id}</span>
                 </div>
+                {isPreJob && (
+                    <div className="mt-1 text-xs text-blue-600 font-medium">
+                        This will send a pre-job notification to the selected driver
+                    </div>
+                )}
             </div>
 
-            {/* Driver Selection Dropdown */}
             <div className="px-6 py-6">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                     Select Driver
@@ -132,9 +145,7 @@ const AllocateDriverModal = ({ bookingData, onClose, onSuccess }) => {
                 )}
 
                 {drivers.length === 0 && !loading && (
-                    <p className="text-sm text-red-500 mt-2">
-                        No drivers available
-                    </p>
+                    <p className="text-sm text-red-500 mt-2">No idle drivers available</p>
                 )}
             </div>
 
@@ -156,7 +167,11 @@ const AllocateDriverModal = ({ bookingData, onClose, onSuccess }) => {
                     onClick={handleAssignDriver}
                     disabled={!selectedDriverId || saving || loading}
                 >
-                    <span>{saving ? "Assigning..." : "Assign Driver"}</span>
+                    <span>
+                        {saving
+                            ? isPreJob ? "Sending..." : "Assigning..."
+                            : isPreJob ? "Send Pre-Job" : "Assign Driver"}
+                    </span>
                 </Button>
             </div>
         </div>

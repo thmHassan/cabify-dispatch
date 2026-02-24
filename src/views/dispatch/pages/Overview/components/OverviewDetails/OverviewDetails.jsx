@@ -110,122 +110,6 @@ const OverViewDetails = ({ filter }) => {
         fetchBookings();
     }, [page, limit, search, selectedStatus, selectedSubCompany, filter]);
 
-    // useEffect(() => {
-    //     if (!socket) return;
-
-    //     console.log("Socket connected, listening for bookings...");
-
-    //     const safeMap = (prev, mapFn) =>
-    //         prev.filter(Boolean).map(mapFn).filter(Boolean);
-
-    //     const handleNewBooking = (booking) => {
-    //         console.log("New booking received:", booking);
-    //         if (!booking || booking.id == null) return;
-    //         setBookings((prev) => {
-    //             const safe = prev.filter(Boolean);
-    //             if (safe.find((b) => b.id === booking.id)) return safe;
-    //             return [booking, ...safe];
-    //         });
-    //     };
-
-    //     const handleBookingListUpdate = (data) => {
-    //         if (data?.bookings) setBookings(data.bookings.filter(Boolean));
-    //     };
-
-    //     const handleDriverAssignmentPending = (data) => {
-    //         console.log("Socket: driver-assignment-pending received:", data);
-
-    //         const updatedBooking = data?.booking ?? null;
-
-    //         if (updatedBooking && updatedBooking.id != null) {
-    //             setBookings((prev) =>
-    //                 safeMap(prev, (b) =>
-    //                     b.id === updatedBooking.id ? updatedBooking : b
-    //                 )
-    //             );
-    //         }
-    //         showNotification(data);
-    //     };
-
-    //     const handleJobAccepted = (data) => {
-    //         console.log("Job accepted by driver:", data);
-    //         if (!data?.booking_id) return;
-
-    //         setBookings((prev) =>
-    //             safeMap(prev, (b) =>
-    //                 b.id === data.booking_id
-    //                     ? { ...b, ...data.booking, booking_status: "ongoing" }
-    //                     : b
-    //             )
-    //         );
-
-    //         showNotification({
-    //             booking_id: data.booking_id,
-    //             driver_name: data.driver_name || "Driver",
-    //             driver_profile_image: data.driver_profile_image,
-    //             booking: data.booking || {
-    //                 id: data.booking_id,
-    //                 booking_status: "ongoing",
-    //                 pickup_location: data.booking?.pickup_location,
-    //                 destination_location: data.booking?.destination_location,
-    //                 booking_date: data.booking?.booking_date,
-    //                 pickup_time: data.booking?.pickup_time,
-    //             },
-    //             message: data.message || `${data.driver_name || "Driver"} accepted the ride`,
-    //             type: "accepted"
-    //         });
-    //     };
-
-    //     const handleJobRejected = (data) => {
-    //         console.log("Job rejected by driver:", data);
-    //         if (!data?.booking_id) return;
-
-    //         setBookings((prev) =>
-    //             safeMap(prev, (b) =>
-    //                 b.id === data.booking_id
-    //                     ? {
-    //                         ...b,
-    //                         booking_status: "pending",
-    //                         driver: null,
-    //                         driverDetail: null,
-    //                         driver_response: "rejected",
-    //                     }
-    //                     : b
-    //             )
-    //         );
-
-    //         showNotification({
-    //             booking_id: data.booking_id,
-    //             driver_name: data.driver_name || "Driver",
-    //             driver_profile_image: data.driver_profile_image,
-    //             booking: data.booking || {
-    //                 id: data.booking_id,
-    //                 booking_status: "pending",
-    //                 pickup_location: data.booking?.pickup_location,
-    //                 destination_location: data.booking?.destination_location,
-    //                 booking_date: data.booking?.booking_date,
-    //                 pickup_time: data.booking?.pickup_time,
-    //             },
-    //             message: data.message || `${data.driver_name || "Driver"} cancelled the ride`,
-    //             type: "cancelled"
-    //         });
-    //     };
-
-    //     socket.on("new-booking-event", handleNewBooking);
-    //     socket.on("bookings-list-update", handleBookingListUpdate);
-    //     socket.on("driver-assignment-pending", handleDriverAssignmentPending);
-    //     socket.on("job-accepted-by-driver", handleJobAccepted);
-    //     socket.on("job-rejected-by-driver", handleJobRejected);
-
-    //     return () => {
-    //         socket.off("new-booking-event", handleNewBooking);
-    //         socket.off("bookings-list-update", handleBookingListUpdate);
-    //         socket.off("driver-assignment-pending", handleDriverAssignmentPending);
-    //         socket.off("job-accepted-by-driver", handleJobAccepted);
-    //         socket.off("job-rejected-by-driver", handleJobRejected);
-    //     };
-    // }, [socket, showNotification]);
-
     useEffect(() => {
         if (!socket) return;
 
@@ -350,28 +234,35 @@ const OverViewDetails = ({ filter }) => {
     const handleBookingUpdate = (updated) => {
         if (!updated || updated.id == null) return;
         setBookings((prev) =>
-            prev.filter(Boolean).map((b) => (b.id === updated.id ? updated : b))
+            prev.filter(Boolean).map((b) =>
+                b.id === updated.id ? { ...b, ...updated } : b
+            )
         );
-    };
+    }
 
-    const handleOpenAllocateModal = (booking) => {
-        setSelectedBooking(booking);
+    const handleOpenAllocateModal = (booking, assignmentType = "allocate_driver") => {
+        setSelectedBooking({ ...booking, _assignmentType: assignmentType });
         setShowAllocateModal(true);
         setOpenMenu(null);
     };
 
     const handleAllocateSuccess = (updatedBooking) => {
-        console.log("Driver allocated, updatedBooking:", updatedBooking);
-
         handleBookingUpdate(updatedBooking);
-
         setShowAllocateModal(false);
         setSelectedBooking(null);
+
+        const isPreJob = updatedBooking?._assignmentType === "pre_job";
+
         if (updatedBooking) {
             showNotification({
                 booking: updatedBooking,
                 driver_name: updatedBooking?.driverDetail?.name ?? "Driver",
-                message: `Job assigned to ${updatedBooking?.driverDetail?.name ?? "driver"}. Waiting for driver response.`,
+                message: updatedBooking._successMessage || (
+                    isPreJob
+                        ? `Pre-job sent to ${updatedBooking?.driverDetail?.name ?? "driver"}. Waiting for response.`
+                        : `Job assigned to ${updatedBooking?.driverDetail?.name ?? "driver"}. Waiting for driver response.`
+                ),
+                type: "default",
             });
         }
     };
@@ -433,7 +324,7 @@ const OverViewDetails = ({ filter }) => {
                         <div className="overflow-x-auto">
                             <div className="min-w-max">
                                 <div className="flex border-b text-sm font-semibold text-gray-700 bg-gray-50">
-                                    <Col w="w-[80px]">Lead</Col>
+                                    <Col w="w-[80px]">ID</Col>
                                     <Col w="w-[120px]">Pickup Date</Col>
                                     <Col w="w-[100px]">Time</Col>
                                     <Col w="w-[100px]">Passenger</Col>
@@ -446,7 +337,7 @@ const OverViewDetails = ({ filter }) => {
                                     <Col w="w-[170px]">Status</Col>
                                 </div>
 
-                                {bookings.map((b) => {
+                                {bookings.map((b, index) => {
                                     if (!b || b.id == null) return null;
 
                                     const btnRef = getButtonRef(b.id);
@@ -455,7 +346,7 @@ const OverViewDetails = ({ filter }) => {
                                             key={b.id}
                                             className="flex border-b text-sm bg-white hover:bg-gray-50 transition-colors"
                                         >
-                                            <Col w="w-[80px]">{b.id}</Col>
+                                            <Col w="w-[80px]">{index + 1}</Col>
 
                                             <Col w="w-[120px]">
                                                 {b.booking_date
