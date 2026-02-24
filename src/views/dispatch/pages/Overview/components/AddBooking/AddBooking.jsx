@@ -1273,48 +1273,6 @@ const AddBooking = ({ setIsOpen }) => {
                                                                         <select
                                                                             name="driver"
                                                                             value={values.driver || ""}
-                                                                            // onChange={(e) => {
-                                                                            //     const selectedDriverId = e.target.value;
-                                                                            //     setFieldValue("driver", selectedDriverId);
-                                                                            //     clearBookingError("driver");
-
-                                                                            //     if (selectedDriverId) {
-                                                                            //         const selectedDriver = driverList.find(d => d.value === selectedDriverId);
-
-                                                                            //         if (selectedDriver) {
-                                                                            //             const assignedVehicleId = selectedDriver.assigned_vehicle;
-                                                                            //             const vehicleTypeId = selectedDriver.vehicle_type;
-
-                                                                            //             if (assignedVehicleId) {
-                                                                            //                 const filteredVehicles = vehicleList.filter(
-                                                                            //                     v => v.value === assignedVehicleId.toString()
-                                                                            //                 );
-                                                                            //                 setFilteredVehicleList(filteredVehicles);
-
-                                                                            //                 if (filteredVehicles.length === 1) {
-                                                                            //                     setFieldValue("vehicle", filteredVehicles[0].value);
-                                                                            //                     invalidateFare();
-                                                                            //                 }
-                                                                            //             } else if (vehicleTypeId) {
-                                                                            //                 const filteredVehicles = vehicleList.filter(
-                                                                            //                     v => v.value === vehicleTypeId.toString()
-                                                                            //                 );
-                                                                            //                 setFilteredVehicleList(filteredVehicles);
-
-                                                                            //                 if (filteredVehicles.length === 1) {
-                                                                            //                     setFieldValue("vehicle", filteredVehicles[0].value);
-                                                                            //                     invalidateFare();
-                                                                            //                 }
-                                                                            //             } else {
-                                                                            //                 setFilteredVehicleList(vehicleList);
-                                                                            //             }
-                                                                            //         }
-                                                                            //     } else {
-                                                                            //         setFilteredVehicleList(vehicleList);
-                                                                            //         setFieldValue("vehicle", "");
-                                                                            //         invalidateFare();
-                                                                            //     }
-                                                                            // }} 
                                                                             onChange={(e) => {
                                                                                 const selectedDriverId = e.target.value;
                                                                                 setFieldValue("driver", selectedDriverId);

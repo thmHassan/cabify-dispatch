@@ -82,6 +82,7 @@ const DriverDetails = () => {
     const [formData, setFormData] = useState({
         name: "",
         email: "",
+        country_code: "",
         phone_no: "",
         address: "",
         driver_license: "",
@@ -133,6 +134,7 @@ const DriverDetails = () => {
                 setFormData({
                     name: data.name || "",
                     email: data.email || "",
+                    country_code: data.country_code || "",
                     phone_no: data.phone_no || "",
                     address: data.address || "",
                     driver_license: data.driver_license || "",
@@ -283,17 +285,20 @@ const DriverDetails = () => {
                                 className="w-full h-11 rounded-lg border border-gray-300 px-4 text-sm focus:ring-1 focus:ring-blue-600 focus:outline-none"
                             />
                         </div>
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                                Phone Number
-                            </label>
-                            <input
-                                type="text"
-                                value={formData.phone_no}
-                                onChange={(e) => handleInputChange('phone_no', e.target.value)}
-                                placeholder="Enter Phone Number"
-                                className="w-full h-11 rounded-lg border border-gray-300 px-4 text-sm focus:ring-1 focus:ring-blue-600 focus:outline-none"
-                            />
+                        <div className="flex flex-col gap-1">
+                            <label className="text-sm font-medium text-gray-700">Phone Number</label>
+                            <div className="flex border border-gray-300 rounded-lg overflow-hidden focus-within:ring-1 focus-within:ring-blue-600">
+                                <span className="px-3 bg-gray-100 border-r border-gray-300 font-semibold text-sm flex items-center text-gray-700">
+                                    {formData.country_code || "+91"}
+                                </span>
+                                <input
+                                    type="text"
+                                    value={formData.phone_no}
+                                    onChange={(e) => handleInputChange("phone_no", e.target.value)}
+                                    placeholder="Enter Phone Number"
+                                    className="w-full h-11 px-4 text-sm focus:outline-none"
+                                />
+                            </div>
                         </div>
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-2">

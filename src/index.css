@@ -90,3 +90,7 @@ textarea,
 [contenteditable="true"] {
   transition: none;
 }
+
+.gm-ui-hover-effect {
+  display: none !important;
+}
