@@ -379,7 +379,7 @@ const BarikoiMapView = ({
         const center = getCountryCenter();
         mapInstance.current = new window.maplibregl.Map({
           container: mapRef.current,
-          style: `https://map.barikoi.com/styles/barikoi-light/style.json?key=${barikoiKey}`,
+          style: `https://map.barikoi.com/styles/osm-liberty/style.json?key=${barikoiKey}`,
           center: [center.lng, center.lat],
           zoom: 5,
         });

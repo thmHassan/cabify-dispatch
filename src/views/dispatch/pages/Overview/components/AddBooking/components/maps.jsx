@@ -270,8 +270,8 @@ const BarikoiMap = ({
 
             mapRef.current = new window.maplibregl.Map({
                 container: containerRef.current,
-                style: `https://map.barikoi.com/styles/barikoi-light/style.json?key=${barikoiKey}`,
-                center: [center.lng, center.lat], // ✅ dynamic, not hardcoded BD
+                style: `https://map.barikoi.com/styles/osm-liberty/style.json?key=${barikoiKey}`,
+                center: [center.lng, center.lat],
                 zoom: 5,
             });
 
