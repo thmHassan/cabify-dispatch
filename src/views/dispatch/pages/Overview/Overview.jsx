@@ -20,10 +20,219 @@ import RedCarIcon from "../../../../components/svg/RedCarIcon";
 import GreenCarIcon from "../../../../components/svg/GreenCarIcon";
 import { renderToString } from "react-dom/server";
 import { getTenantData } from "../../../../utils/functions/tokenEncryption";
-import toast from "react-hot-toast";
 
 const GOOGLE_KEY = "AIzaSyDTlV1tPVuaRbtvBQu4-kjDhTV54tR4cDU";
 const BARIKOI_KEY = "bkoi_a468389d0211910bd6723de348e0de79559c435f07a17a5419cbe55ab55a890a";
+
+
+const notifListeners = new Set();
+const showRideNotification = (data) => notifListeners.forEach((fn) => fn(data));
+
+const formatCoord = (str) => {
+  if (!str) return "—";
+  const [lat, lng] = str.split(",").map((s) => parseFloat(s.trim()));
+  if (isNaN(lat) || isNaN(lng)) return str;
+  return `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+};
+
+const formatAmount = (val) => {
+  if (!val) return "—";
+  const num = parseFloat(val);
+  return isNaN(num) ? val : `৳${num.toLocaleString()}`;
+};
+
+const NotifRow = ({ icon, label, value, color, bold }) => (
+  <div style={{ display: "flex", alignItems: "flex-start", gap: "8px", marginBottom: "8px" }}>
+    <span style={{ fontSize: "14px", flexShrink: 0, marginTop: "1px" }}>{icon}</span>
+    <div style={{ minWidth: 0 }}>
+      <span style={{
+        fontSize: "10px", color: "#6b7280", display: "block",
+        textTransform: "uppercase", letterSpacing: "0.05em", lineHeight: 1, marginBottom: "2px",
+      }}>
+        {label}
+      </span>
+      <span style={{
+        fontSize: "12px", color: color || "#111827",
+        fontWeight: bold ? 700 : 500, wordBreak: "break-word", lineHeight: 1.4,
+      }}>
+        {value || "—"}
+      </span>
+    </div>
+  </div>
+);
+
+const RideCard = ({ data, onClose }) => {
+  const [visible, setVisible] = useState(false);
+  const [leaving, setLeaving] = useState(false);
+
+  useEffect(() => {
+    requestAnimationFrame(() => setVisible(true));
+    const timer = setTimeout(() => handleClose(), 8000);
+    return () => clearTimeout(timer);
+  }, []);
+
+  const handleClose = () => {
+    setLeaving(true);
+    setTimeout(onClose, 350);
+  };
+
+  return (
+    <>
+      <style>{`
+        @keyframes rideNotifShrink {
+          from { width: 100%; }
+          to   { width: 0%; }
+        }
+        @keyframes rideNotifPulse {
+          0%, 100% { box-shadow: 0 0 0 0 rgba(31,65,187,0.25); }
+          50%       { box-shadow: 0 0 0 6px rgba(31,65,187,0); }
+        }
+      `}</style>
+      <div
+        style={{
+          transform: visible && !leaving ? "translateX(0) scale(1)" : "translateX(110%) scale(0.95)",
+          opacity: visible && !leaving ? 1 : 0,
+          transition: "transform 0.4s cubic-bezier(.22,1,.36,1), opacity 0.35s ease",
+          background: "#ffffff",
+          borderRadius: "16px",
+          boxShadow: "0 12px 40px rgba(31,65,187,0.18), 0 2px 12px rgba(0,0,0,0.08)",
+          border: "1.5px solid #e0e7ff",
+          width: "320px",
+          overflow: "hidden",
+          marginBottom: "12px",
+          fontFamily: "'Segoe UI', system-ui, sans-serif",
+          animation: "rideNotifPulse 2s ease-in-out 3",
+        }}
+      >
+        <div style={{
+          background: "linear-gradient(135deg, #1F41BB 0%, #3a5fd9 100%)",
+          padding: "12px 14px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <div>
+              <div style={{ color: "#fff", fontWeight: 700, fontSize: "14px", lineHeight: 1.2 }}>
+                New Ride Request
+              </div>
+              {data.booking_id && (
+                <div style={{ color: "#c7d4ff", fontSize: "11px", marginTop: "2px", fontWeight: 500 }}>
+                  #{data.booking_id}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <button
+            onClick={handleClose}
+            style={{
+              background: "rgba(255,255,255,0.18)",
+              border: "1px solid rgba(255,255,255,0.3)",
+              borderRadius: "50%",
+              width: "28px", height: "28px",
+              cursor: "pointer",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              color: "#fff", fontSize: "13px",
+              transition: "background 0.2s",
+              flexShrink: 0,
+            }}
+            onMouseEnter={(e) => e.currentTarget.style.background = "rgba(255,255,255,0.32)"}
+            onMouseLeave={(e) => e.currentTarget.style.background = "rgba(255,255,255,0.18)"}
+            aria-label="Close"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div style={{ padding: "14px 16px 10px" }}>
+          <NotifRow
+            label="Pickup"
+            value={data.pickup_location || formatCoord(data.pickup_point)}
+            color="#16a34a"
+          />
+          <NotifRow
+            label="Destination"
+            value={data.destination_location || formatCoord(data.destination_point)}
+            color="#dc2626"
+          />
+          {data.offered_amount && (
+            <NotifRow
+              label="Offered Amount"
+              value={formatAmount(data.offered_amount)}
+              color="#1F41BB"
+              bold
+            />
+          )}
+        </div>
+
+        <div style={{ padding: "0 16px 12px", display: "flex", gap: "6px", flexWrap: "wrap" }}>
+          {data.payment_method && (
+            <span style={{
+              background: "#eff6ff", color: "#1F41BB",
+              fontSize: "10px", fontWeight: 600,
+              padding: "3px 8px", borderRadius: "20px",
+              border: "1px solid #bfdbfe",
+            }}>
+              {data.payment_method}
+            </span>
+          )}
+          {data.ride_type && (
+            <span style={{
+              background: "#f0fdf4", color: "#16a34a",
+              fontSize: "10px", fontWeight: 600,
+              padding: "3px 8px", borderRadius: "20px",
+              border: "1px solid #bbf7d0",
+            }}>
+              {data.ride_type}
+            </span>
+          )}
+        </div>
+
+        <div style={{ height: "3px", background: "#e0e7ff", position: "relative", overflow: "hidden" }}>
+          <div style={{
+            position: "absolute", top: 0, left: 0, height: "100%",
+            background: "linear-gradient(90deg, #1F41BB, #60a5fa)",
+            animation: "rideNotifShrink 8s linear forwards",
+          }} />
+        </div>
+      </div>
+    </>
+  );
+};
+const RideNotificationContainer = () => {
+  const [notifications, setNotifications] = useState([]);
+
+  useEffect(() => {
+    const handler = (data) => {
+      const id = Date.now() + Math.random();
+      setNotifications((prev) => [...prev, { id, data }]);
+    };
+    notifListeners.add(handler);
+    return () => notifListeners.delete(handler);
+  }, []);
+
+  const remove = (id) => setNotifications((prev) => prev.filter((n) => n.id !== id));
+
+  return (
+    <div style={{
+      position: "fixed",
+      bottom: "80px",
+      right: "20px",
+      zIndex: 9999,
+      display: "flex",
+      flexDirection: "column-reverse",
+      alignItems: "flex-end",
+      pointerEvents: "none",
+    }}>
+      {notifications.map(({ id, data }) => (
+        <div key={id} style={{ pointerEvents: "auto" }}>
+          <RideCard data={data} onClose={() => remove(id)} />
+        </div>
+      ))}
+    </div>
+  );
+};
 
 const svgToDataUrl = (SvgComponent, width = 40, height = 40) => {
   const svgString = renderToString(<SvgComponent width={width} height={height} />);
@@ -67,42 +276,12 @@ const COUNTRY_CENTERS = {
 };
 
 const CARD_CONFIG = [
-  {
-    label: "TODAY'S BOOKING",
-    filter: "todays_booking",
-    countKey: "todaysBooking",
-    icon: TodayBookingIcon,
-  },
-  {
-    label: "PRE BOOKINGS",
-    filter: "pre_bookings",
-    countKey: "preBookings",
-    icon: PreBookingIcon,
-  },
-  {
-    label: "RECENT JOBS",
-    filter: "recent_jobs",
-    countKey: "recentJobs",
-    icon: TodayBookingIcon,
-  },
-  {
-    label: "COMPLETED",
-    filter: "completed",
-    countKey: "completed",
-    icon: TodayBookingIcon,
-  },
-  {
-    label: "NO SHOW",
-    filter: "no_show",
-    countKey: "noShow",
-    icon: NoShowIcon,
-  },
-  {
-    label: "CANCELLED",
-    filter: "cancelled",
-    countKey: "cancelled",
-    icon: CancelledIcon,
-  },
+  { label: "TODAY'S BOOKING", filter: "todays_booking", countKey: "todaysBooking", icon: TodayBookingIcon },
+  { label: "PRE BOOKINGS", filter: "pre_bookings", countKey: "preBookings", icon: PreBookingIcon },
+  { label: "RECENT JOBS", filter: "recent_jobs", countKey: "recentJobs", icon: TodayBookingIcon },
+  { label: "COMPLETED", filter: "completed", countKey: "completed", icon: TodayBookingIcon },
+  { label: "NO SHOW", filter: "no_show", countKey: "noShow", icon: NoShowIcon },
+  { label: "CANCELLED", filter: "cancelled", countKey: "cancelled", icon: CancelledIcon },
 ];
 
 const getMapType = () => {
@@ -115,6 +294,7 @@ const getMapType = () => {
   if (mapsApi === "barikoi") return "barikoi";
   if (mapsApi === "google") return "google";
 
+  // fallback logic
   if (countryOfUse === "BD") return "barikoi";
 
   return "google";
@@ -245,11 +425,7 @@ const parseDriverData = (rawData) => {
 };
 
 const buildPopupHTML = (name) => `
-  <div style="
-    padding:6px 10px;
-    font-weight:600;
-    font-size:14px;
-  ">
+  <div style="padding:6px 10px;font-weight:600;font-size:14px;">
     ${name}
   </div>`;
 
@@ -297,8 +473,6 @@ const GoogleMapSection = ({ mapRef, mapInstance, markers, driverData, setDriverD
       const status = data?.driving_status || "idle";
       const validStatus = status === "busy" ? "busy" : "idle";
       const name = data?.name || `Driver ${driverId}`;
-      const phoneNo = data?.phone_no || "";
-      const plateNo = data?.plate_no || "";
 
       if (!driverId && driverId !== 0) return;
       if (!latitude || !longitude || isNaN(latitude) || isNaN(longitude)) return;
@@ -360,14 +534,16 @@ const BarikoiMapSection = ({ mapRef, mapInstance, markers, driverData, setDriver
 
       if (!mounted || !mapRef.current || mapInstance.current) return;
 
+      const center = getCountryCenter();
+
       mapRef.current.style.width = "100%";
       mapRef.current.style.height = "100%";
       mapRef.current.style.minHeight = "400px";
 
       const map = new window.maplibregl.Map({
         container: mapRef.current,
-        style: `https://map.barikoi.com/styles/barikoi-light/style.json?key=${barikoiKey}`,
-        center: [countryCenter.lng, countryCenter.lat],
+        style: `https://map.barikoi.com/styles/osm-liberty/style.json?key=${barikoiKey}`,
+        center: [center.lng, center.lat],
         zoom: 5,
       });
 
@@ -415,8 +591,6 @@ const BarikoiMapSection = ({ mapRef, mapInstance, markers, driverData, setDriver
       const status = data.driving_status || "idle";
       const validStatus = status === "busy" ? "busy" : "idle";
       const name = data.name || `Driver ${driverId}`;
-      const phoneNo = data.phone_no || "N/A";
-      const plateNo = data.plate_no || "N/A";
 
       setDriverData((prev) => ({
         ...prev,
@@ -438,10 +612,7 @@ const BarikoiMapSection = ({ mapRef, mapInstance, markers, driverData, setDriver
           closeOnClick: false,
         }).setHTML(popupHTML);
 
-        const marker = new window.maplibregl.Marker({
-          element: el,
-          anchor: "center",
-        })
+        const marker = new window.maplibregl.Marker({ element: el, anchor: "center" })
           .setLngLat(lngLat)
           .setPopup(popup)
           .addTo(mapInstance.current);
@@ -453,12 +624,10 @@ const BarikoiMapSection = ({ mapRef, mapInstance, markers, driverData, setDriver
             popup.remove();
             marker._isOpen = false;
           } else {
-            // close all other popups
             Object.values(markers.current).forEach((m) => {
               m.getPopup()?.remove();
               m._isOpen = false;
             });
-
             popup.addTo(mapInstance.current);
             marker._isOpen = true;
           }
@@ -635,8 +804,9 @@ const Overview = () => {
 
   useEffect(() => {
     if (!socket) return;
-    socket.on("ride-accepted-by-driver", (data) => { 
-    console.log("Ride accepted:", data); });
+    socket.on("ride-accepted-by-driver", (data) => {
+      console.log("Ride accepted:", data);
+    });
     return () => socket.off("ride-accepted-by-driver");
   }, [socket]);
 
@@ -645,35 +815,19 @@ const Overview = () => {
 
     const handle = (rawData) => {
       console.log("notification-ride RAW:", rawData);
-
       let data;
-
       try {
-        data = typeof rawData === "string"
-          ? JSON.parse(rawData)
-          : rawData;
+        data = typeof rawData === "string" ? JSON.parse(rawData) : rawData;
       } catch (error) {
         console.error("JSON Parse Error:", error);
         data = rawData;
       }
-
       console.log("Parsed notification-ride DATA:", data);
 
-      const message =
-        data?.message ||
-        data?.notification ||
-        data?.msg ||
-        (data?.driver_name
-          ? `Ride update from ${data.driver_name}`
-          : "New ride notification");
-
-      console.log("Final Toast Message:", message);
-
-      toast(message, { duration: 4000 });
+      showRideNotification(data);
     };
 
     socket.on("notification-ride", handle);
-
     return () => {
       socket.off("notification-ride", handle);
       console.log("notification-ride listener removed");
@@ -684,7 +838,7 @@ const Overview = () => {
 
   return (
     <div className="h-full">
-      {/* Header */}
+      <RideNotificationContainer />
       <div className="px-5 pt-10 flex flex-col sm:flex-row sm:justify-between items-center sm:items-start gap-4 sm:gap-02 xl:mb-6 1.5xl:mb-10">
         <div className="w-full sm:w-[calc(100%-240px)] flex justify-center sm:justify-start">
           <div className="flex flex-col gap-2.5 text-center sm:text-left">
@@ -718,7 +872,8 @@ const Overview = () => {
             }}
             disabled={isAddBookingDisabled || isLoadingDispatchSystem}
             className={`w-full sm:w-auto -mb-2 sm:-mb-3 lg:-mb-3 !py-3.5 sm:!py-3 lg:!py-3 ${isAddBookingDisabled || isLoadingDispatchSystem
-              ? "!bg-gray-400 !cursor-not-allowed opacity-60 hover:!bg-gray-400" : ""
+              ? "!bg-gray-400 !cursor-not-allowed opacity-60 hover:!bg-gray-400"
+              : ""
               }`}
             style={isAddBookingDisabled || isLoadingDispatchSystem ? { pointerEvents: "none" } : {}}
           >

@@ -123,10 +123,10 @@ const DriverManagementCard = ({ driver, onEdit, onDelete, onStatusChange }) => {
                     </p>
                 </div>
 
-                <div className="inline-flex flex-col px-4 py-2 rounded-full bg-gray-100 text-left whitespace-nowrap">
+                {/* <div className="inline-flex flex-col px-4 py-2 rounded-full bg-gray-100 text-left whitespace-nowrap">
                     <p className="text-xs text-center text-gray-500">Referral Code</p>
                     <p className="text-black text-center font-semibold text-sm">{driver.referralCode || "-"}</p>
-                </div>
+                </div> */}
 
                 <div className="inline-flex flex-col px-4 py-2 rounded-full bg-[#006FFF1A] text-left whitespace-nowrap">
                     <p className="text-xs text-center text-gray-500">Wallet Balance</p>
