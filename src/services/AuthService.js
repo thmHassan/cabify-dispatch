@@ -33,3 +33,18 @@ export async function apiSignOut() {
     method: "post",
   });
 }
+
+export async function apiForgotPassword(data) {
+  // Create FormData for the forgot password API
+  const formData = new FormData();
+  formData.append('email', data.email);
+
+  return ApiService.fetchData({
+    url: "/company/forgot-password",
+    method: "post",
+    data: formData,
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  });
+}
