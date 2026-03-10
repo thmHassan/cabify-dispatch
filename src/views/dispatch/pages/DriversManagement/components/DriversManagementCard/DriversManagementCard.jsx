@@ -92,8 +92,10 @@ const DriverManagementCard = ({ driver, onEdit, onDelete, onStatusChange }) => {
     useEffect(() => {
         const tenant = getTenantData();
 
-        if (tenant?.currency) {
-            setCurrencySymbol(currencySymbols[tenant.currency] || tenant.currency);
+        const currency = tenant?.currency || tenant?.data?.currency;
+
+        if (currency) {
+            setCurrencySymbol(currencySymbols[currency] || currency);
         }
     }, []);
 
