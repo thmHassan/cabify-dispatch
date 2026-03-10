@@ -72,10 +72,11 @@ const DriverDetails = () => {
 
     useEffect(() => {
         const tenant = getTenantData();
-        console.log("tenant==", tenant);
 
-        if (tenant?.currency) {
-            setCurrencySymbol(currencySymbols[tenant.currency] || tenant.currency);
+        const currency = tenant?.currency || tenant?.data?.currency;
+
+        if (currency) {
+            setCurrencySymbol(currencySymbols[currency] || currency);
         }
     }, []);
 

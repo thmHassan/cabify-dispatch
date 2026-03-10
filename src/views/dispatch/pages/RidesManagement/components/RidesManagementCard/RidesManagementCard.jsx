@@ -33,8 +33,10 @@ const RidesManagementCard = ({ ride, onView }) => {
             setDistanceUnit(unit);
         }
 
-        if (tenant?.currency) {
-            setCurrencySymbol(currencySymbols[tenant.currency] || tenant.currency);
+        const currency = tenant?.currency || tenant?.data?.currency;
+
+        if (currency) {
+            setCurrencySymbol(currencySymbols[currency] || currency);
         }
     }, []);
 
