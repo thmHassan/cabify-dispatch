@@ -117,7 +117,7 @@ const loadGoogleMaps = (apiKey) => {
 
     const script = document.createElement("script");
     script.id = "google-maps-script";
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`;
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_KEY}&libraries=places`;
     script.async = true;
     script.defer = true;
     script.onload = resolve;
@@ -379,7 +379,7 @@ const BarikoiMapView = ({
         const center = getCountryCenter();
         mapInstance.current = new window.maplibregl.Map({
           container: mapRef.current,
-          style: `https://map.barikoi.com/styles/osm-liberty/style.json?key=${barikoiKey}`,
+          style: `https://map.barikoi.com/styles/osm-liberty/style.json?key=${BARIKOI_KEY}`,
           center: [center.lng, center.lat],
           zoom: 5,
         });

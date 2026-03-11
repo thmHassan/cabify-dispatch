@@ -24,7 +24,6 @@ import { getTenantData } from "../../../../utils/functions/tokenEncryption";
 const GOOGLE_KEY = "AIzaSyDTlV1tPVuaRbtvBQu4-kjDhTV54tR4cDU";
 const BARIKOI_KEY = "bkoi_a468389d0211910bd6723de348e0de79559c435f07a17a5419cbe55ab55a890a";
 
-
 const notifListeners = new Set();
 const showRideNotification = (data) => notifListeners.forEach((fn) => fn(data));
 
@@ -123,7 +122,6 @@ const RideCard = ({ data, onClose }) => {
               )}
             </div>
           </div>
-
           <button
             onClick={handleClose}
             style={{
@@ -146,23 +144,10 @@ const RideCard = ({ data, onClose }) => {
         </div>
 
         <div style={{ padding: "14px 16px 10px" }}>
-          <NotifRow
-            label="Pickup"
-            value={data.pickup_location || formatCoord(data.pickup_point)}
-            color="#16a34a"
-          />
-          <NotifRow
-            label="Destination"
-            value={data.destination_location || formatCoord(data.destination_point)}
-            color="#dc2626"
-          />
+          <NotifRow label="Pickup" value={data.pickup_location || formatCoord(data.pickup_point)} color="#16a34a" />
+          <NotifRow label="Destination" value={data.destination_location || formatCoord(data.destination_point)} color="#dc2626" />
           {data.offered_amount && (
-            <NotifRow
-              label="Offered Amount"
-              value={formatAmount(data.offered_amount)}
-              color="#1F41BB"
-              bold
-            />
+            <NotifRow label="Offered Amount" value={formatAmount(data.offered_amount)} color="#1F41BB" bold />
           )}
         </div>
 
@@ -200,6 +185,7 @@ const RideCard = ({ data, onClose }) => {
     </>
   );
 };
+
 const RideNotificationContainer = () => {
   const [notifications, setNotifications] = useState([]);
 
@@ -287,23 +273,17 @@ const CARD_CONFIG = [
 const getMapType = () => {
   const tenant = getTenantData();
   const data = tenant?.data || {};
-
   const mapsApi = data?.maps_api?.trim().toLowerCase();
   const countryOfUse = data?.country_of_use?.trim().toUpperCase();
-
   if (mapsApi === "barikoi") return "barikoi";
   if (mapsApi === "google") return "google";
-
-  // fallback logic
   if (countryOfUse === "BD") return "barikoi";
-
   return "google";
 };
 
 const getApiKeys = () => {
   const tenant = getTenantData();
   const data = tenant?.data || {};
-
   return {
     googleKey: data?.google_api_key || GOOGLE_KEY,
     barikoiKey: data?.barikoi_api_key || BARIKOI_KEY,
@@ -313,7 +293,6 @@ const getApiKeys = () => {
 const getCountryCenter = () => {
   const tenant = getTenantData();
   const code = tenant?.data?.country_of_use?.trim().toUpperCase();
-
   return COUNTRY_CENTERS[code] || COUNTRY_CENTERS.DEFAULT;
 };
 
@@ -328,7 +307,7 @@ const loadGoogleMaps = (apiKey) => {
     }
     const script = document.createElement("script");
     script.id = "google-maps-script";
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`;
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_KEY}&libraries=places`;
     script.async = true;
     script.defer = true;
     script.onload = resolve;
@@ -466,22 +445,17 @@ const GoogleMapSection = ({ mapRef, mapInstance, markers, driverData, setDriverD
       if (!mapInstance.current) return;
       const data = parseDriverData(rawData);
       if (!data) return;
-
       const driverId = data?.id;
       const latitude = data?.latitude;
       const longitude = data?.longitude;
       const status = data?.driving_status || "idle";
       const validStatus = status === "busy" ? "busy" : "idle";
       const name = data?.name || `Driver ${driverId}`;
-
       if (!driverId && driverId !== 0) return;
       if (!latitude || !longitude || isNaN(latitude) || isNaN(longitude)) return;
-
       const position = { lat: Number(latitude), lng: Number(longitude) };
       setDriverData((prev) => ({ ...prev, [driverId]: { ...data, position, name, status: validStatus } }));
-
       const infoContent = buildPopupHTML(name);
-
       if (markers.current[driverId]) {
         const marker = markers.current[driverId];
         const oldPos = marker.getPosition();
@@ -505,11 +479,9 @@ const GoogleMapSection = ({ mapRef, mapInstance, markers, driverData, setDriverD
         marker.infoWindow = infoWindow;
         markers.current[driverId] = marker;
       }
-
       Object.values(markers.current).forEach((m) => m.setVisible(true));
       if (Object.keys(markers.current).length <= 1) setTimeout(fitMapToMarkers, 100);
     };
-
     socket.on("driver-location-update", handle);
     return () => socket.off("driver-location-update", handle);
   }, [socket]);
@@ -531,31 +503,24 @@ const BarikoiMapSection = ({ mapRef, mapInstance, markers, driverData, setDriver
     const init = async () => {
       try { await loadBarikoiMaps(); }
       catch (err) { console.error("Barikoi load failed:", err); return; }
-
       if (!mounted || !mapRef.current || mapInstance.current) return;
-
       const center = getCountryCenter();
-
       mapRef.current.style.width = "100%";
       mapRef.current.style.height = "100%";
       mapRef.current.style.minHeight = "400px";
-
       const map = new window.maplibregl.Map({
         container: mapRef.current,
-        style: `https://map.barikoi.com/styles/osm-liberty/style.json?key=${barikoiKey}`,
+        style: `https://map.barikoi.com/styles/osm-liberty/style.json?key=${BARIKOI_KEY}`,
         center: [center.lng, center.lat],
         zoom: 5,
       });
-
       map.addControl(new window.maplibregl.NavigationControl(), "top-right");
       map.on("load", () => { map.resize(); setMapReady(true); });
       map.on("error", (e) => console.error("Barikoi map error:", e.error?.message || e));
       map.on("styledata", () => map.resize());
       mapInstance.current = map;
     };
-
     init();
-
     return () => {
       mounted = false;
       if (mapInstance.current) {
@@ -576,29 +541,23 @@ const BarikoiMapSection = ({ mapRef, mapInstance, markers, driverData, setDriver
 
   useEffect(() => {
     if (!socket || !mapReady) return;
-
     const handle = (rawData) => {
       if (!mapInstance.current) return;
       const data = parseDriverData(rawData);
       if (!data?.latitude || !data?.longitude) return;
-
       const driverId = data.id;
       if (!driverId && driverId !== 0) return;
-
       const lat = Number(data.latitude);
       const lng = Number(data.longitude);
       const lngLat = [lng, lat];
       const status = data.driving_status || "idle";
       const validStatus = status === "busy" ? "busy" : "idle";
       const name = data.name || `Driver ${driverId}`;
-
       setDriverData((prev) => ({
         ...prev,
         [driverId]: { ...data, position: { lat, lng }, status: validStatus, name },
       }));
-
       const popupHTML = buildPopupHTML(name);
-
       if (markers.current[driverId]) {
         markers.current[driverId].setLngLat(lngLat);
         const img = markers.current[driverId].getElement().querySelector("img");
@@ -607,27 +566,17 @@ const BarikoiMapSection = ({ mapRef, mapInstance, markers, driverData, setDriver
       } else {
         const el = createSvgMarkerEl(validStatus);
         const popup = new window.maplibregl.Popup({
-          offset: 25,
-          closeButton: false,
-          closeOnClick: false,
+          offset: 25, closeButton: false, closeOnClick: false,
         }).setHTML(popupHTML);
-
         const marker = new window.maplibregl.Marker({ element: el, anchor: "center" })
-          .setLngLat(lngLat)
-          .setPopup(popup)
-          .addTo(mapInstance.current);
-
+          .setLngLat(lngLat).setPopup(popup).addTo(mapInstance.current);
         marker._isOpen = false;
-
         el.addEventListener("click", () => {
           if (marker._isOpen) {
             popup.remove();
             marker._isOpen = false;
           } else {
-            Object.values(markers.current).forEach((m) => {
-              m.getPopup()?.remove();
-              m._isOpen = false;
-            });
+            Object.values(markers.current).forEach((m) => { m.getPopup()?.remove(); m._isOpen = false; });
             popup.addTo(mapInstance.current);
             marker._isOpen = true;
           }
@@ -635,12 +584,10 @@ const BarikoiMapSection = ({ mapRef, mapInstance, markers, driverData, setDriver
         marker._visible = true;
         markers.current[driverId] = marker;
       }
-
       if (Object.keys(markers.current).length === 1) {
         mapInstance.current.flyTo({ center: lngLat, zoom: 14, speed: 0.8 });
       }
     };
-
     socket.on("driver-location-update", handle);
     return () => socket.off("driver-location-update", handle);
   }, [socket, mapReady]);
@@ -652,16 +599,15 @@ const Overview = () => {
   const [isBookingModelOpen, setIsBookingModelOpen] = useState({ type: "new", isOpen: false });
   const [isMessageModelOpen, setIsMessageModelOpen] = useState({ type: "new", isOpen: false });
   const [refreshTrigger, setRefreshTrigger] = useState(0);
-  const [isAddBookingDisabled, setIsAddBookingDisabled] = useState(false);
+
+  // ✅ FIX: Create Booking button disabled when manual_dispatch_only is NOT enabled
+  const [isAddBookingDisabled, setIsAddBookingDisabled] = useState(true);
   const [isLoadingDispatchSystem, setIsLoadingDispatchSystem] = useState(true);
+
   const [activeBookingFilter, setActiveBookingFilter] = useState("todays_booking");
   const [dashboardCounts, setDashboardCounts] = useState({
-    todaysBooking: 0,
-    preBookings: 0,
-    recentJobs: 0,
-    completed: 0,
-    noShow: 0,
-    cancelled: 0,
+    todaysBooking: 0, preBookings: 0, recentJobs: 0,
+    completed: 0, noShow: 0, cancelled: 0,
   });
 
   const [mapType] = useState(() => getMapType());
@@ -718,6 +664,7 @@ const Overview = () => {
     return () => window.removeEventListener("openAddBookingModal", handleOpenModal);
   }, []);
 
+  // ✅ FIX: Create Booking button enabled ONLY when manual_dispatch_only status === "enable"
   const checkDispatchSystem = async () => {
     try {
       setIsLoadingDispatchSystem(true);
@@ -732,21 +679,28 @@ const Overview = () => {
           }
         }
         if (!Array.isArray(data)) {
-          if (data && typeof data === "object" && Object.keys(data).length > 0) data = [data];
-          else { setIsAddBookingDisabled(true); return; }
+          data = (data && typeof data === "object" && Object.keys(data).length > 0) ? [data] : [];
         }
       }
 
-      const isEnabled = (item) =>
-        item.status === "enable" || item.status === "enabled" ||
-        item.status === 1 || item.status === true;
+      // Find the manual_dispatch_only record specifically
+      const manualDispatchItem = data.find(
+        (item) => item.dispatch_system === "manual_dispatch_only"
+      );
 
-      const hasManual = data.some((i) => i.dispatch_system === "manual_dispatch_only" && isEnabled(i));
-      const hasAutoNearest = data.some((i) => i.dispatch_system === "auto_dispatch_nearest_driver" && isEnabled(i));
-      setIsAddBookingDisabled(!(hasManual || hasAutoNearest));
+      // Button is ENABLED only when manual_dispatch_only is "enable"
+      const isManualEnabled =
+        manualDispatchItem?.status === "enable" ||
+        manualDispatchItem?.status === "enabled" ||
+        manualDispatchItem?.status === 1 ||
+        manualDispatchItem?.status === true;
+
+      // disabled = true means button is greyed out (manual not enabled)
+      setIsAddBookingDisabled(!isManualEnabled);
+
     } catch (error) {
       console.error("Dispatch system error:", error);
-      setIsAddBookingDisabled(true);
+      setIsAddBookingDisabled(true); // safe default — disable on error
     } finally {
       setIsLoadingDispatchSystem(false);
     }
@@ -757,9 +711,11 @@ const Overview = () => {
   useEffect(() => {
     if (!socket) return;
     const handle = (rawData) => {
+      console.log("waiting-driver-event raw response:", rawData);
       let data;
       try { data = typeof rawData === "string" ? JSON.parse(rawData) : rawData; }
       catch { data = rawData; }
+      console.log("waiting-driver-event parsed response:", data);
 
       if (Array.isArray(data)) setWaitingDrivers(data);
       else if (data?.drivers && Array.isArray(data.drivers)) setWaitingDrivers(data.drivers);
@@ -770,9 +726,9 @@ const Overview = () => {
           const exists = prev.some((d) => d.name === obj.name && d.plot === obj.plot);
           return exists ? prev.map((d) => d.name === obj.name && d.plot === obj.plot ? obj : d) : [...prev, obj];
         });
-      } else if (typeof data === "object" && data !== null) {
-        setWaitingDrivers([{ ...data, id: data.id || Date.now() }]);
-      } else setWaitingDrivers([]);
+      }
+      else if (typeof data === "object" && data !== null) setWaitingDrivers([{ ...data, id: data.id || Date.now() }]);
+      else setWaitingDrivers([]);
     };
     socket.on("waiting-driver-event", handle);
     return () => socket.off("waiting-driver-event", handle);
@@ -784,7 +740,6 @@ const Overview = () => {
       let data;
       try { data = typeof rawData === "string" ? JSON.parse(rawData) : rawData; }
       catch { data = rawData; }
-
       if (Array.isArray(data)) setOnJobDrivers(data);
       else if (data?.drivers && Array.isArray(data.drivers)) setOnJobDrivers(data.drivers);
       else if (data?.data && Array.isArray(data.data)) setOnJobDrivers(data.data);
@@ -794,9 +749,9 @@ const Overview = () => {
           const exists = prev.some((d) => d.name === obj.name);
           return exists ? prev.map((d) => d.name === obj.name ? obj : d) : [...prev, obj];
         });
-      } else if (typeof data === "object" && data !== null) {
-        setOnJobDrivers([{ ...data, id: data.id || Date.now() }]);
-      } else setOnJobDrivers([]);
+      }
+      else if (typeof data === "object" && data !== null) setOnJobDrivers([{ ...data, id: data.id || Date.now() }]);
+      else setOnJobDrivers([]);
     };
     socket.on("on-job-driver-event", handle);
     return () => socket.off("on-job-driver-event", handle);
@@ -804,29 +759,20 @@ const Overview = () => {
 
   useEffect(() => {
     if (!socket) return;
-    socket.on("ride-accepted-by-driver", (data) => {
-      console.log("Ride accepted:", data);
-    });
+    socket.on("ride-accepted-by-driver", (data) => { console.log("Ride accepted:", data); });
     return () => socket.off("ride-accepted-by-driver");
   }, [socket]);
 
   useEffect(() => {
     if (!socket) return;
-
     const handle = (rawData) => {
       console.log("notification-ride RAW:", rawData);
       let data;
-      try {
-        data = typeof rawData === "string" ? JSON.parse(rawData) : rawData;
-      } catch (error) {
-        console.error("JSON Parse Error:", error);
-        data = rawData;
-      }
+      try { data = typeof rawData === "string" ? JSON.parse(rawData) : rawData; }
+      catch (error) { console.error("JSON Parse Error:", error); data = rawData; }
       console.log("Parsed notification-ride DATA:", data);
-
       showRideNotification(data);
     };
-
     socket.on("notification-ride", handle);
     return () => {
       socket.off("notification-ride", handle);
@@ -861,6 +807,7 @@ const Overview = () => {
             </div>
           </Button>
 
+          {/* ✅ FIX: Disabled when manual_dispatch_only is NOT "enable" */}
           <Button
             type="filled"
             btnSize="md"
@@ -871,16 +818,25 @@ const Overview = () => {
               }
             }}
             disabled={isAddBookingDisabled || isLoadingDispatchSystem}
+            title={
+              isLoadingDispatchSystem
+                ? "Checking dispatch settings..."
+                : isAddBookingDisabled
+                  ? "Booking creation is disabled. Enable Manual Dispatch in Settings."
+                  : ""
+            }
             className={`w-full sm:w-auto -mb-2 sm:-mb-3 lg:-mb-3 !py-3.5 sm:!py-3 lg:!py-3 ${isAddBookingDisabled || isLoadingDispatchSystem
-              ? "!bg-gray-400 !cursor-not-allowed opacity-60 hover:!bg-gray-400"
-              : ""
+                ? "!bg-gray-400 !cursor-not-allowed opacity-60 hover:!bg-gray-400"
+                : ""
               }`}
             style={isAddBookingDisabled || isLoadingDispatchSystem ? { pointerEvents: "none" } : {}}
           >
             <div className="flex gap-2 sm:gap-[15px] items-center justify-center whitespace-nowrap">
               <span className="hidden sm:inline-block"><PlusIcon /></span>
               <span className="sm:hidden"><PlusIcon height={16} width={16} /></span>
-              <span>Create Booking</span>
+              <span>
+                {isLoadingDispatchSystem ? "Loading..." : "Create Booking"}
+              </span>
             </div>
           </Button>
         </div>
@@ -888,7 +844,6 @@ const Overview = () => {
 
       <div className="px-5 pt-5" style={{ height: "500px" }}>
         <div className="flex flex-col md:flex-row gap-4 h-full">
-
           <div className="w-full lg:w-[55%] bg-[#F4F7FF] rounded-2xl shadow p-2 flex flex-col" style={{ height: "100%" }}>
             <div className="flex flex-wrap items-center justify-between mb-3 border-b gap-2 max-sm:flex-col">
               <div className="flex flex-wrap gap-4 text-sm">
@@ -902,7 +857,6 @@ const Overview = () => {
                 </div>
               </div>
             </div>
-
             <div className="flex-1 rounded-xl overflow-hidden" style={{ minHeight: 0 }}>
               {mapType === "barikoi" ? (
                 <BarikoiMapSection {...mapProps} />
@@ -921,8 +875,8 @@ const Overview = () => {
               <thead className="text-gray-500">
                 <tr>
                   <th className="text-left py-1 text-[11px]">Sr No</th>
-                  <th className="text-left text-[11px]">Plot</th>
-                  <th className="text-left text-[11px]">Driver</th>
+                  <th className="text-left text-[11px]">PLOT BAHRIA PHASE</th>
+                  {/* <th className="text-left text-[11px]">Driver</th> */}
                   <th className="text-right text-[11px]">Rank</th>
                 </tr>
               </thead>
@@ -932,7 +886,7 @@ const Overview = () => {
                     <tr key={driver.id || driver.driver_id || i} className="border-t">
                       <td className="py-1">{i + 1}</td>
                       <td>{driver.plot || driver.location || driver.plot_name || "N/A"}</td>
-                      <td>{driver.name || driver.driver_name || `Driver ${i + 1}`}</td>
+                      {/* <td>{driver.name || driver.driver_name || `Driver ${i + 1}`}</td> */}
                       <td className="text-right">{driver.rank || driver.ranking || i + 1}</td>
                     </tr>
                   ))

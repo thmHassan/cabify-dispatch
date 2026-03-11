@@ -57,20 +57,16 @@ const COUNTRY_CODE_MAP = {
     VI: "+1340", YE: "+967", ZM: "+260", ZW: "+263",
 };
 
-const COUNTRY_CODE_OPTIONS = [
-    ...new Map(
-        Object.entries(COUNTRY_CODE_MAP).map(([code, dial]) => [dial, { label: `${dial} (${code})`, value: dial }])
-    ).values()
-].sort((a, b) => a.label.localeCompare(b.label));
-
 const AddUserModel = ({ initialValue = {}, setIsOpen, onUserCreated }) => {
     const [submitError, setSubmitError] = useState(null);
     const [isLoading, setIsLoading] = useState(false);
     const [isEditMode, setIsEditMode] = useState(false);
 
     const tenantData = getTenantData();
+
+    // ✅ Get country code from tenant's country_of_use (e.g. "AU" → "+61")
     const defaultCountryCode =
-        COUNTRY_CODE_MAP[tenantData?.country_of_use] || "";
+        COUNTRY_CODE_MAP[tenantData?.data?.country_of_use?.toUpperCase() || tenantData?.country_of_use?.toUpperCase()] || "";
 
     const handleSubmit = async (values) => {
         setIsLoading(true);
@@ -87,15 +83,15 @@ const AddUserModel = ({ initialValue = {}, setIsOpen, onUserCreated }) => {
             formDataObj.append("dispatcher_id", dispatcherId);
             formDataObj.append('name', values.name || '');
             formDataObj.append('email', values.email || '');
-            formData.append("country_code", values.countryCode || "");
+            formDataObj.append("country_code", values.country_code || "");
             formDataObj.append('phone_no', values.phoneNumber || '');
             formDataObj.append('address', values.address || '');
             formDataObj.append('city', values.city || '');
+
             if (isEditMode) {
                 const passwordToSend = values.password.trim() !== ''
                     ? values.password
                     : initialValue.original_password || '';
-
                 if (passwordToSend) {
                     formDataObj.append('password', passwordToSend);
                 }
@@ -108,37 +104,26 @@ const AddUserModel = ({ initialValue = {}, setIsOpen, onUserCreated }) => {
                 : await apiCreateUser(formDataObj);
 
             if (response?.data?.success === 1 || response?.status === 200) {
-                toast.success(
-                    isEditMode ? 'User updated successfully!' : 'User created successfully!',
-                );
-
-                if (onUserCreated) {
-                    onUserCreated();
-                }
+                toast.success(isEditMode ? 'User updated successfully!' : 'User created successfully!');
+                if (onUserCreated) onUserCreated();
                 unlockBodyScroll();
                 setIsOpen({ type: "new", isOpen: false });
             } else {
                 const errorMsg = response?.data?.message || `Failed to ${isEditMode ? 'update' : 'create'} user`;
                 setSubmitError(errorMsg);
-                toast.error(errorMsg, {
-                });
+                toast.error(errorMsg);
             }
         } catch (error) {
             const errorMsg = error?.response?.data?.message || error?.message || `Error ${isEditMode ? 'updating' : 'creating'} user`;
             setSubmitError(errorMsg);
-            toast.error(errorMsg, {
-            });
+            toast.error(errorMsg);
         } finally {
             setIsLoading(false);
         }
     };
 
     useEffect(() => {
-        if (initialValue && initialValue.id) {
-            setIsEditMode(true);
-        } else {
-            setIsEditMode(false);
-        }
+        setIsEditMode(!!(initialValue && initialValue.id));
     }, [initialValue]);
 
     return (
@@ -147,7 +132,8 @@ const AddUserModel = ({ initialValue = {}, setIsOpen, onUserCreated }) => {
                 initialValues={{
                     name: initialValue.name || '',
                     email: initialValue.email || '',
-                    countryCode: initialValue.countryCode || defaultCountryCode,
+                    // ✅ Edit mode: user's saved country_code | Add mode: tenant's country code
+                    country_code: initialValue.country_code || defaultCountryCode,
                     phoneNumber: initialValue.phone_no || '',
                     password: '',
                     address: initialValue.address || '',
@@ -201,20 +187,14 @@ const AddUserModel = ({ initialValue = {}, setIsOpen, onUserCreated }) => {
                                 <ErrorMessage name="email" component="div" className="text-red-500 text-sm mt-1" />
                             </div>
 
+                            {/* ✅ Phone Number — static badge, no dropdown */}
                             <div className="w-[calc((100%-20px)/2)]">
                                 <FormLabel htmlFor="phoneNumber">Phone Number</FormLabel>
                                 <div className="flex items-center border border-[#8D8D8D] rounded-lg shadow-[-4px_4px_6px_0px_#0000001F] overflow-hidden sm:h-16 h-14">
-                                    <Field
-                                        as="select"
-                                        name="country_code"
-                                        className="h-full px-3 sm:px-4 bg-gray-100 border-r border-[#8D8D8D] outline-none font-semibold"
-                                    >
-                                        {COUNTRY_CODE_OPTIONS.map((opt) => (
-                                            <option key={opt.value} value={opt.value}>
-                                                {opt.value}
-                                            </option>
-                                        ))}
-                                    </Field>
+                                    {/* Add: tenant's default code | Edit: user's saved code */}
+                                    <div className="h-full px-3 sm:px-4 bg-gray-100 border-r border-[#8D8D8D] flex items-center font-semibold text-[#252525] sm:text-base text-sm whitespace-nowrap">
+                                        {values.country_code || defaultCountryCode || "+1"}
+                                    </div>
                                     <Field
                                         type="text"
                                         name="phoneNumber"
@@ -222,25 +202,8 @@ const AddUserModel = ({ initialValue = {}, setIsOpen, onUserCreated }) => {
                                         placeholder="Enter phone number"
                                     />
                                 </div>
-
-                                <ErrorMessage name="countryCode" component="div" className="text-red-500 text-sm mt-1" />
                                 <ErrorMessage name="phoneNumber" component="div" className="text-red-500 text-sm mt-1" />
                             </div>
-
-                            {/* <div className="w-full sm:w-[calc((100%-20px)/2)]">
-                                <FormLabel htmlFor="password">
-                                    Password {isEditMode && <span className="text-gray-500 text-sm">(Leave empty to keep current password)</span>}
-                                </FormLabel>
-                                <div className="sm:h-16 h-14">
-                                    <Password
-                                        name="password"
-                                        className="sm:px-5 px-4 sm:py-[21px] py-4 !select-none border border-[#8D8D8D] rounded-lg w-full h-14 sm:h-16 shadow-[-4px_4px_6px_0px_#0000001F] placeholder:text-[#6C6C6C] sm:text-base text-sm leading-[22px] font-semibold"
-                                        placeholder={isEditMode ? "Enter new password (optional)" : "Enter password"}
-                                        autoComplete="off"
-                                    />
-                                </div>
-                                <ErrorMessage name="password" component="div" className="text-red-500 text-sm mt-1" />
-                            </div> */}
 
                             <div className="w-[calc((100%-20px)/2)]">
                                 <FormLabel htmlFor="address">Address</FormLabel>
@@ -288,7 +251,11 @@ const AddUserModel = ({ initialValue = {}, setIsOpen, onUserCreated }) => {
                                 className="!px-10 pt-4 pb-[15px] leading-[25px] w-full sm:w-auto"
                                 disabled={isLoading}
                             >
-                                <span>{isLoading ? (isEditMode ? "Updating..." : "Creating...") : (isEditMode ? "Update" : "Submit")}</span>
+                                <span>
+                                    {isLoading
+                                        ? (isEditMode ? "Updating..." : "Creating...")
+                                        : (isEditMode ? "Update" : "Submit")}
+                                </span>
                             </Button>
                         </div>
                     </Form>
