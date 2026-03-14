@@ -10,9 +10,9 @@ import { OVERVIEW_STATUS_OPTIONS } from "../../../../../../constants/selectOptio
 import { useNavigate } from "react-router-dom";
 import StatusMenu from "./StatusMenu";
 import AllocateDriverModal from "./AllocateDriverModal";
-import FollowOnJobModal from "./FollowOnJobModal";   // ← NEW IMPORT
 import AppLogoLoader from "../../../../../../components/shared/AppLogoLoader";
 import DriverAssignmentModal from "./DriverAssignmentModal";
+import FollowOnJobModal from "./Followonjobmodal";
 
 const statusColor = {
     pending: "text-orange-500",
