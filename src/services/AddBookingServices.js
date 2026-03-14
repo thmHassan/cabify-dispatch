@@ -111,3 +111,13 @@ export const assignDriverToBooking = (bookingId, driverId, assignmentType = "all
 export const startAutoDispatch = (bookingId) => {
     return socketApi.post(`/bookings/${bookingId}/start-auto-dispatch`);
 };
+
+export const setFollowOnJob = (job1Id, followOnBookingId) => {
+    return socketApi.post(`/bookings/${job1Id}/set-follow-on-job`, {
+        follow_on_booking_id: followOnBookingId,
+    });
+};
+
+export const removeFollowOnJob = (job1Id) => {
+    return socketApi.delete(`/bookings/${job1Id}/remove-follow-on-job`);
+};
