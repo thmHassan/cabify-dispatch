@@ -75,6 +75,33 @@ const AlertModal = ({ isOpen, message, onClose }) => {
     );
 };
 
+const playSuccessSound = () => {
+    try {
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const oscillator1 = audioContext.createOscillator();
+        const oscillator2 = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+        oscillator1.connect(gainNode);
+        oscillator2.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+        oscillator1.frequency.setValueAtTime(523.25, audioContext.currentTime); 
+        oscillator2.frequency.setValueAtTime(659.25, audioContext.currentTime); 
+        gainNode.gain.setValueAtTime(0, audioContext.currentTime);
+        gainNode.gain.linearRampToValueAtTime(0.3, audioContext.currentTime + 0.01);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
+        oscillator1.start(audioContext.currentTime);
+        oscillator2.start(audioContext.currentTime);
+        oscillator1.stop(audioContext.currentTime + 0.5);
+        oscillator2.stop(audioContext.currentTime + 0.5);
+        
+        setTimeout(() => {
+            audioContext.close();
+        }, 600);
+    } catch (error) {
+        console.log('Audio not supported:', error);
+    }
+};
+
 const AddBooking = ({ setIsOpen }) => {
     const [subCompanyList, setSubCompanyList] = useState([]);
     const [vehicleList, setVehicleList] = useState([]);
@@ -654,6 +681,7 @@ const AddBooking = ({ setIsOpen }) => {
             const response = await apiCreateBooking(formData);
             if (response?.data?.success === 1) {
                 toast.success(response?.data?.message || "Booking created successfully");
+                playSuccessSound();
                 if (response?.data?.alertMessage) {
                     setAlertModal({ isOpen: true, message: response.data.alertMessage });
                     return;
