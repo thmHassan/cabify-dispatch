@@ -910,8 +910,8 @@ const Overview = () => {
                   : ""
             }
             className={`w-full sm:w-auto -mb-2 sm:-mb-3 lg:-mb-3 !py-3.5 sm:!py-3 lg:!py-3 ${isAddBookingDisabled || isLoadingDispatchSystem
-                ? "!bg-gray-400 !cursor-not-allowed opacity-60 hover:!bg-gray-400"
-                : ""
+              ? "!bg-gray-400 !cursor-not-allowed opacity-60 hover:!bg-gray-400"
+              : ""
               }`}
             style={isAddBookingDisabled || isLoadingDispatchSystem ? { pointerEvents: "none" } : {}}
           >
@@ -950,14 +950,16 @@ const Overview = () => {
 
           <div className="w-full lg:w-[20.5%] bg-orange-50 rounded-2xl shadow p-3 overflow-y-auto">
             <div className="flex items-center justify-between mb-2">
-              <h3 className="font-semibold">Drivers Waiting</h3>
+              <h3 className="font-semibold">Drivers Waiting11111</h3>
               <span className="font-semibold">{waitingDrivers.length}</span>
             </div>
             <table className="w-full text-xs rounded-xl">
               <thead className="text-gray-500">
                 <tr>
                   <th className="text-left py-1 text-[11px]">Sr No</th>
-                  <th className="text-left text-[11px]">PLOT BAHRIA PHASE</th>
+                  <th className="text-left text-[11px]">Driver</th>
+                  <th className="text-left text-[11px]">Plot</th>
+                  <th className="text-center text-[11px]">Drivers</th>
                   <th className="text-right text-[11px]">Rank</th>
                 </tr>
               </thead>
@@ -966,12 +968,27 @@ const Overview = () => {
                   waitingDrivers.map((driver, i) => (
                     <tr key={driver.id || driver.driver_id || i} className="border-t">
                       <td className="py-1">{i + 1}</td>
-                      <td>{driver.plot || driver.location || driver.plot_name || "N/A"}</td>
-                      <td className="text-right">{driver.rank || driver.ranking || i + 1}</td>
+                      <td>
+                        {driver.name || driver.driver_name || "Unknown"}{" "}
+                        ({driver.vehicle_no || driver.vehicle_number || "N/A"})
+                      </td>
+                      <td>
+                        {driver.plot || driver.location || driver.plot_name || "N/A"}
+                      </td>
+                      <td className="text-center">
+                        {driver.total_drivers || driver.drivers_count || "0"}
+                      </td>
+                      <td className="text-right">
+                        {driver.rank || driver.ranking || i + 1}
+                      </td>
                     </tr>
                   ))
                 ) : (
-                  <tr><td colSpan="3" className="text-center py-4 text-gray-500">No waiting drivers</td></tr>
+                  <tr>
+                    <td colSpan="5" className="text-center py-4 text-gray-500">
+                      No waiting drivers
+                    </td>
+                  </tr>
                 )}
               </tbody>
             </table>
