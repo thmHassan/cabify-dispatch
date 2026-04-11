@@ -950,7 +950,7 @@ const Overview = () => {
 
           <div className="w-full lg:w-[20.5%] bg-orange-50 rounded-2xl shadow p-3 overflow-y-auto">
             <div className="flex items-center justify-between mb-2">
-              <h3 className="font-semibold">Drivers Waiting11111</h3>
+              <h3 className="font-semibold">Drivers Waiting</h3>
               <span className="font-semibold">{waitingDrivers.length}</span>
             </div>
             <table className="w-full text-xs rounded-xl">
