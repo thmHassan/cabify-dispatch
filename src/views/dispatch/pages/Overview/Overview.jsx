@@ -1080,7 +1080,7 @@ const Overview = () => {
                   <th className="text-left py-1 text-[11px]">Sr No</th>
                   <th className="text-left text-[11px]">Driver</th>
                   <th className="text-left text-[11px]">Plot</th>
-                  <th className="text-center text-[11px]">Drivers</th>
+                  {/* <th className="text-center text-[11px]">Drivers</th> */}
                   <th className="text-right text-[11px]">Rank</th>
                 </tr>
               </thead>
@@ -1092,17 +1092,14 @@ const Overview = () => {
                       <td>
                         {driver.name || driver.driver_name || "Unknown"}
                       </td>
-                      {/* <td>
-                        {driver.plot_name || driver.plot || driver.location || "N/A"}
-                      </td> */}
                       <td>
                         {driver.plot_name && driver.plot && driver.plot_name !== driver.plot.toString()
                           ? `${driver.plot_name} (${driver.plot})`
                           : (driver.plot_name || driver.plot || "N/A")}
                       </td>
-                      <td className="text-center">
+                      {/* <td className="text-center">
                         {driver.total_drivers || driver.drivers_count || "0"}
-                      </td>
+                      </td> */}
                       <td className="text-right">
                         {driver.rank || driver.ranking || i + 1}
                       </td>
