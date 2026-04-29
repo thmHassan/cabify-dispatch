@@ -50,6 +50,11 @@ const initSocket = () => {
         console.error("⚠️ Socket connection error:", error.message);
     });
 
+    // Global listener for all socket events
+    socket.onAny((event, ...args) => {
+        console.log(`🌐 [Socket Global Logger] Event: ${event}`, args);
+    });
+
     return socket;
 };
 

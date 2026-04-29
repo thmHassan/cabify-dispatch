@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import PageTitle from "../../../../components/ui/PageTitle/PageTitle";
 import PageSubTitle from "../../../../components/ui/PageSubTitle/PageSubTitle";
 import Button from "../../../../components/ui/Button/Button";
@@ -598,7 +598,7 @@ const BarikoiMapSection = ({ mapRef, mapInstance, markers, driverData, setDriver
       source: "plots",
       paint: { "line-color": "#1F41BB", "line-width": 2, "line-opacity": 0.8 }
     });
-    
+
     map.addLayer({
       id: "plots-labels",
       type: "symbol",
@@ -776,114 +776,41 @@ const Overview = () => {
     ? user.name.charAt(0).toUpperCase() + user.name.slice(1)
     : "Admin";
 
+  const fetchDashboardCards = useCallback(async () => {
+    try {
+      const res = await getDashboardCards();
+      if (res.data?.success) setDashboardCounts(res.data.data);
+    } catch (err) {
+      console.error("Dashboard cards error:", err);
+    }
+  }, []);
+
   useEffect(() => {
-    const fetchDashboardCards = async () => {
-      try {
-        const res = await getDashboardCards();
-        if (res.data?.success) setDashboardCounts(res.data.data);
-      } catch (err) {
-        console.error("Dashboard cards error:", err);
-      }
-    };
     fetchDashboardCards();
-  }, []);
+  }, [fetchDashboardCards]);
 
-  useEffect(() => {
-    const handleDashboardUpdate = (data) => setDashboardCounts(data);
-
-    const handleWaitingDriver = (rawData) => {
-      let data;
-      try { data = typeof rawData === "string" ? JSON.parse(rawData) : rawData; }
-      catch { data = rawData; }
-
-      if (Array.isArray(data)) setWaitingDrivers(data);
-      else if (data?.drivers && Array.isArray(data.drivers)) setWaitingDrivers(data.drivers);
-      else if (data?.data && Array.isArray(data.data)) setWaitingDrivers(data.data);
-      else if (data?.driverName || data?.driver_name) {
-        const obj = {
-          id: Date.now(),
-          name: data.driverName || data.driver_name,
-          plot: data.plot_name || data.plot || "N/A",
-          rank: data.rank || 1,
-          ...data
-        };
-        setWaitingDrivers((prev) => {
-          const exists = prev.some((d) => d.name === obj.name && d.plot === obj.plot);
-          return exists
-            ? prev.map((d) => d.name === obj.name && d.plot === obj.plot ? obj : d)
-            : [...prev, obj];
-        });
-      }
-      else if (typeof data === "object" && data !== null) {
-        setWaitingDrivers([{ ...data, id: data.id || Date.now() }]);
-      }
-      else setWaitingDrivers([]);
-    };
-
-    const handleOnJobDriver = (rawData) => {
-      let data;
-      try { data = typeof rawData === "string" ? JSON.parse(rawData) : rawData; }
-      catch { data = rawData; }
-
-      if (Array.isArray(data)) setOnJobDrivers(data);
-      else if (data?.drivers && Array.isArray(data.drivers)) setOnJobDrivers(data.drivers);
-      else if (data?.data && Array.isArray(data.data)) setOnJobDrivers(data.data);
-      else if (data?.driverName || data?.driver_name) {
-        const obj = { id: Date.now(), name: data.driverName || data.driver_name, ...data };
-        setOnJobDrivers((prev) => {
-          const exists = prev.some((d) => d.name === obj.name);
-          return exists ? prev.map((d) => d.name === obj.name ? obj : d) : [...prev, obj];
-        });
-      }
-      else if (typeof data === "object" && data !== null) {
-        setOnJobDrivers([{ ...data, id: data.id || Date.now() }]);
-      }
-      else setOnJobDrivers([]);
-    };
-
-    const handleNotificationRide = (rawData) => {
-      let data;
-      try { data = typeof rawData === "string" ? JSON.parse(rawData) : rawData; }
-      catch { data = rawData; }
-      showRideNotification(data);
-    };
-
-    const attachAll = () => {
-      const s = socketRef.current;
-      if (!s) return;
-      s.on("dashboard-cards-update", handleDashboardUpdate);
-      s.on("waiting-driver-event", handleWaitingDriver);
-      s.on("on-job-driver-event", handleOnJobDriver);
-      s.on("notification-ride", handleNotificationRide);
-    };
-
-    const detachAll = () => {
-      const s = socketRef.current;
-      if (!s) return;
-      s.off("dashboard-cards-update", handleDashboardUpdate);
-      s.off("waiting-driver-event", handleWaitingDriver);
-      s.off("on-job-driver-event", handleOnJobDriver);
-      s.off("notification-ride", handleNotificationRide);
-    };
-
-    attachAll();
-    return () => detachAll();
-  }, []);
 
   useEffect(() => {
     if (!socket) return;
 
-    const handleDashboardUpdate = (data) => setDashboardCounts(data);
+    const handleDashboardUpdate = (data) => {
+      console.log("📊 [Socket] dashboard-cards-update:", data);
+      setDashboardCounts(data);
+    };
+
     const handleNotificationRide = (rawData) => {
       let data;
       try { data = typeof rawData === "string" ? JSON.parse(rawData) : rawData; }
       catch { data = rawData; }
+      console.log("🔔 [Socket] notification-ride:", data);
       showRideNotification(data);
     };
+
     const handleWaitingDriver = (rawData) => {
       let data;
       try { data = typeof rawData === "string" ? JSON.parse(rawData) : rawData; }
       catch { data = rawData; }
+      console.log("🕒 [Socket] waiting-driver-event:", data);
       if (Array.isArray(data)) { setWaitingDrivers(data); return; }
       if (data?.driverName || data?.driver_name) {
         const obj = { id: Date.now(), name: data.driverName || data.driver_name, plot: data.plot_name || data.plot || "N/A", rank: data.rank || 1, ...data };
@@ -893,10 +820,12 @@ const Overview = () => {
         });
       }
     };
+
     const handleOnJobDriver = (rawData) => {
       let data;
       try { data = typeof rawData === "string" ? JSON.parse(rawData) : rawData; }
       catch { data = rawData; }
+      console.log("🚕 [Socket] on-job-driver-event:", data);
       if (Array.isArray(data)) { setOnJobDrivers(data); return; }
       if (data?.driverName || data?.driver_name) {
         const obj = { id: Date.now(), name: data.driverName || data.driver_name, ...data };
@@ -907,18 +836,35 @@ const Overview = () => {
       }
     };
 
+    const handleBookingCancelled = (event, data) => {
+      console.log(`❌ [Socket] ${event}:`, data);
+      fetchDashboardCards();
+    };
+
+    // Global listener for all events
+    socket.onAny((event, ...args) => {
+      console.log(`🌐 [Socket Event] ${event}:`, args);
+    });
+
     socket.on("dashboard-cards-update", handleDashboardUpdate);
     socket.on("waiting-driver-event", handleWaitingDriver);
     socket.on("on-job-driver-event", handleOnJobDriver);
     socket.on("notification-ride", handleNotificationRide);
+    socket.on("booking-cancelled-event", (data) => handleBookingCancelled("booking-cancelled-event", data));
+    socket.on("booking-cancelled", (data) => handleBookingCancelled("booking-cancelled", data));
+    socket.on("cancel-booking-event", (data) => handleBookingCancelled("cancel-booking-event", data));
 
     return () => {
+      socket.offAny();
       socket.off("dashboard-cards-update", handleDashboardUpdate);
       socket.off("waiting-driver-event", handleWaitingDriver);
       socket.off("on-job-driver-event", handleOnJobDriver);
       socket.off("notification-ride", handleNotificationRide);
+      socket.off("booking-cancelled-event");
+      socket.off("booking-cancelled");
+      socket.off("cancel-booking-event");
     };
-  }, [socket]);
+  }, [socket, fetchDashboardCards]);
 
   useEffect(() => {
     const handleOpenModal = () => {

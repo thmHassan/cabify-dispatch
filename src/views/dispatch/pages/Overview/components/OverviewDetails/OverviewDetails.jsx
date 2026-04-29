@@ -55,6 +55,7 @@ const OverViewDetails = ({ filter }) => {
 
     const [assignmentNotification, setAssignmentNotification] = useState(null);
     const assignmentNotificationRef = useRef(null);
+    const [refreshTrigger, setRefreshTrigger] = useState(0);
 
     const showNotification = useCallback((data) => {
         assignmentNotificationRef.current = data;
@@ -111,7 +112,7 @@ const OverViewDetails = ({ filter }) => {
             }
         };
         fetchBookings();
-    }, [page, limit, search, selectedStatus, selectedSubCompany, filter]);
+    }, [page, search, selectedStatus, selectedSubCompany, filter, refreshTrigger]);
 
     useEffect(() => {
         if (!socket) return;
@@ -122,6 +123,7 @@ const OverViewDetails = ({ filter }) => {
         // ── Existing socket handlers ──────────────────────────────────────────
 
         const handleNewBooking = (booking) => {
+            console.log("🆕 [Socket] new-booking-event:", booking);
             if (!booking || booking.id == null) return;
             setBookings((prev) => {
                 const safe = prev.filter(Boolean);
@@ -131,6 +133,7 @@ const OverViewDetails = ({ filter }) => {
         };
 
         const handleDriverAssignmentPending = (data) => {
+            console.log("⏳ [Socket] driver-assignment-pending:", data);
             const updatedBooking = data?.booking ?? null;
             if (updatedBooking?.id) {
                 setBookings((prev) =>
@@ -141,6 +144,7 @@ const OverViewDetails = ({ filter }) => {
         };
 
         const handleJobAccepted = (data) => {
+            console.log("✅ [Socket] job-accepted-by-driver:", data);
             if (!data?.booking_id) return;
             setBookings((prev) =>
                 safeMap(prev, (b) =>
@@ -158,6 +162,7 @@ const OverViewDetails = ({ filter }) => {
         };
 
         const handleJobRejected = (data) => {
+            console.log("❌ [Socket] job-rejected-by-driver:", data);
             if (!data?.booking_id) return;
             setBookings((prev) =>
                 safeMap(prev, (b) =>
@@ -173,6 +178,7 @@ const OverViewDetails = ({ filter }) => {
         };
 
         const handleAutoDispatchFailed = (data) => {
+            console.log("⚠️ [Socket] auto-dispatch-failed:", data);
             if (!data?.booking_id) return;
             showNotification({
                 booking_id: data.booking_id,
@@ -181,10 +187,27 @@ const OverViewDetails = ({ filter }) => {
             });
         };
 
+        const handleBookingCancelled = (data) => {
+            console.log("🛑 [Socket] booking-cancelled:", data);
+            if (!data?.booking_id) return;
+            setBookings((prev) =>
+                prev.filter(Boolean).map((b) =>
+                    b.id === data.booking_id ? { ...b, booking_status: "cancelled" } : b
+                )
+            );
+            showNotification({
+                booking_id: data.booking_id,
+                message: data.message || "Booking has been cancelled by customer",
+                type: "cancelled",
+            });
+            setRefreshTrigger(prev => prev + 1);
+        };
+
         // ── Follow-on job socket handlers ─────────────────────────────────────
 
         // Dispatcher linked Job 2 to Job 1 → mark Job 1 as having a follow-on
         const handleFollowOnLinked = (data) => {
+            console.log("🔗 [Socket] follow-on-job-linked:", data);
             if (!data?.job1_id) return;
             setBookings((prev) =>
                 prev.filter(Boolean).map((b) =>
@@ -201,6 +224,7 @@ const OverViewDetails = ({ filter }) => {
 
         // Job 1 completed → Job 2 sent to driver as pending_acceptance
         const handleFollowOnSentToDriver = (data) => {
+            console.log("📤 [Socket] follow-on-job-sent-to-driver:", data);
             if (!data?.booking_id) return;
             setBookings((prev) =>
                 safeMap(prev, (b) =>
@@ -219,6 +243,7 @@ const OverViewDetails = ({ filter }) => {
 
         // Driver timed out — Job 2 reset to pending
         const handleFollowOnTimeout = (data) => {
+            console.log("⏰ [Socket] follow-on-job-timeout:", data);
             if (!data?.booking_id) return;
             setBookings((prev) =>
                 prev.filter(Boolean).map((b) =>
@@ -237,6 +262,7 @@ const OverViewDetails = ({ filter }) => {
 
         // Follow-on link was removed
         const handleFollowOnRemoved = (data) => {
+            console.log("🗑️ [Socket] follow-on-job-removed:", data);
             if (!data?.booking_id) return;
             setBookings((prev) =>
                 prev.filter(Boolean).map((b) =>
@@ -247,22 +273,39 @@ const OverViewDetails = ({ filter }) => {
 
         // ── Register all listeners ────────────────────────────────────────────
 
+        // Global listener for all events
+        socket.onAny((event, ...args) => {
+            console.log(`🌐 [Socket Detail Event] ${event}:`, args);
+        });
+
         socket.on("new-booking-event", handleNewBooking);
         socket.on("driver-assignment-pending", handleDriverAssignmentPending);
         socket.on("job-accepted-by-driver", handleJobAccepted);
         socket.on("job-rejected-by-driver", handleJobRejected);
         socket.on("auto-dispatch-failed", handleAutoDispatchFailed);
+        socket.on("booking-cancelled-event", handleBookingCancelled);
+        socket.on("booking-cancelled", handleBookingCancelled);
+        socket.on("cancel-booking-event", handleBookingCancelled);
+        socket.on("dashboard-cards-update", (data) => {
+            console.log("📊 [Socket Detail] dashboard-cards-update (triggering refresh)");
+            setRefreshTrigger(prev => prev + 1);
+        });
         socket.on("follow-on-job-linked", handleFollowOnLinked);
         socket.on("follow-on-job-sent-to-driver", handleFollowOnSentToDriver);
         socket.on("follow-on-job-timeout", handleFollowOnTimeout);
         socket.on("follow-on-job-removed", handleFollowOnRemoved);
 
         return () => {
+            socket.offAny();
             socket.off("new-booking-event", handleNewBooking);
             socket.off("driver-assignment-pending", handleDriverAssignmentPending);
             socket.off("job-accepted-by-driver", handleJobAccepted);
             socket.off("job-rejected-by-driver", handleJobRejected);
             socket.off("auto-dispatch-failed", handleAutoDispatchFailed);
+            socket.off("booking-cancelled-event", handleBookingCancelled);
+            socket.off("booking-cancelled", handleBookingCancelled);
+            socket.off("cancel-booking-event", handleBookingCancelled);
+            socket.off("dashboard-cards-update");
             socket.off("follow-on-job-linked", handleFollowOnLinked);
             socket.off("follow-on-job-sent-to-driver", handleFollowOnSentToDriver);
             socket.off("follow-on-job-timeout", handleFollowOnTimeout);
