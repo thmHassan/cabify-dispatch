@@ -874,6 +874,26 @@ const Overview = () => {
       }
     };
 
+    const handleJobCancelled = (rawData) => {
+      let data;
+      try { data = typeof rawData === "string" ? JSON.parse(rawData) : rawData; }
+      catch { data = rawData; }
+      console.log("❌ [Socket] job-cancelled-by-driver:", data);
+
+      const driverName = data?.driver_name || data?.driverName;
+      if (driverName) {
+        // Remove from on-job list
+        setOnJobDrivers((prev) => prev.filter((d) => d.name !== driverName));
+        // Note: they will be added back to waiting list via the waiting-driver-event
+      }
+      fetchDashboardCards();
+    };
+
+    const handleBookingCancelled = (event, data) => {
+      console.log(`❌ [Socket] ${event}:`, data);
+      fetchDashboardCards();
+    };
+
     // Global listener for all events
     socket.onAny((event, ...args) => {
       console.log(`🌐 [Socket Event] ${event}:`, args);
@@ -884,6 +904,7 @@ const Overview = () => {
     socket.on("on-job-driver-event", handleOnJobDriver);
     socket.on("notification-ride", handleNotificationRide);
     socket.on("job-accepted-by-driver", handleJobAccepted);
+    socket.on("job-cancelled-by-driver", handleJobCancelled);
     socket.on("booking-cancelled-event", (data) => handleBookingCancelled("booking-cancelled-event", data));
     socket.on("booking-cancelled", (data) => handleBookingCancelled("booking-cancelled", data));
     socket.on("cancel-booking-event", (data) => handleBookingCancelled("cancel-booking-event", data));
@@ -895,6 +916,7 @@ const Overview = () => {
       socket.off("on-job-driver-event", handleOnJobDriver);
       socket.off("notification-ride", handleNotificationRide);
       socket.off("job-accepted-by-driver", handleJobAccepted);
+      socket.off("job-cancelled-by-driver", handleJobCancelled);
       socket.off("booking-cancelled-event");
       socket.off("booking-cancelled");
       socket.off("cancel-booking-event");
