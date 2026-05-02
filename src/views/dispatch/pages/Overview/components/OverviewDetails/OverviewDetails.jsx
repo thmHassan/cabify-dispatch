@@ -465,7 +465,7 @@ const OverViewDetails = ({ filter }) => {
 
                                             <Col w="w-[130px]">
                                                 <div className="flex flex-col">
-                                                    <span>{b.offered_amount ?? b.booking_amount ?? "0.00"}</span>
+                                                    <span>{b.booking_amount ?? b.offered_amount ?? "0.00"}</span>
                                                     <span className="text-xs text-gray-500">{formatStatus(b.payment_method)}</span>
                                                 </div>
                                             </Col>
