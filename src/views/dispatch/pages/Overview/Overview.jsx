@@ -482,8 +482,9 @@ const buildPopupHTML = (data) => {
   `;
 };
 
-const GoogleMapSection = ({ mapRef, mapInstance, markers, driverData, setDriverData, socket, countryCenter, plotsData, apiKeys }) => {
+const GoogleMapSection = ({ mapRef, mapInstance, markers, driverData, setDriverData, socket, countryCenter, plotsData, apiKeys, waitingDrivers, onJobDrivers }) => {
   const { googleKey } = getApiKeys(apiKeys);
+  const [isMapReady, setIsMapReady] = useState(false);
   const plotPolygons = useRef([]);
 
   const renderPlots = () => {
@@ -535,6 +536,7 @@ const GoogleMapSection = ({ mapRef, mapInstance, markers, driverData, setDriverD
           zoom: 5,
           styles: [{ featureType: "poi", elementType: "labels", stylers: [{ visibility: "off" }] }],
         });
+        setIsMapReady(true);
       })
       .catch((err) => console.error("Google Map load failed:", err));
     return () => { mounted = false; };
@@ -544,34 +546,33 @@ const GoogleMapSection = ({ mapRef, mapInstance, markers, driverData, setDriverD
   const socketRef = useRef(socket);
   useEffect(() => { socketRef.current = socket; }, [socket]);
 
+  const driverDataRef = useRef(driverData);
+  useEffect(() => { driverDataRef.current = driverData; }, [driverData]);
+
   useEffect(() => {
-    const updateOrAddMarker = (data) => {
-      if (!mapInstance.current) return;
-      const driverId = data.id || data.driver_id || data.dispatcher_id || data.client_id;
+    const getDriverId = (d) => String(d.id || d.driver_id || d.dispatcher_id || d.client_id || "");
+
+    const activeIds = new Set([
+      ...waitingDrivers.map(getDriverId),
+      ...onJobDrivers.map(getDriverId)
+    ].filter(id => id !== ""));
+
+    // Function to render/update a single marker
+    const renderMarker = (id, data) => {
+      if (!mapInstance.current || !id) return;
+      
       const latitude = data?.latitude !== undefined ? data?.latitude : data?.lat;
       const longitude = data?.longitude !== undefined ? data?.longitude : data?.lng;
-      const status = data?.driving_status || data?.status || "idle";
-      const validStatus = status === "busy" ? "busy" : "idle";
-      const name = data?.name || data?.driverName || data?.driver_name || `Driver ${driverId}`;
-
-      if (!driverId && driverId !== 0) return;
       if (latitude == null || longitude == null || isNaN(latitude) || isNaN(longitude)) return;
       const position = { lat: Number(latitude), lng: Number(longitude) };
-
-      setDriverData((prev) => {
-        // If we already have this driver, only update if something changed
-        if (prev[driverId]) {
-          const old = prev[driverId];
-          if (old.position?.lat === position.lat && old.position?.lng === position.lng && old.driving_status === validStatus && old.name === name) {
-            return prev;
-          }
-        }
-        return { ...prev, [driverId]: { ...data, position, name, status: validStatus, driving_status: validStatus } };
-      });
+      
+      const status = data?.driving_status || data?.status || "idle";
+      const validStatus = status === "busy" ? "busy" : "idle";
+      const name = data?.name || data?.driverName || data?.driver_name || `Driver ${id}`;
       const infoContent = buildPopupHTML(data);
 
-      if (markers.current[driverId]) {
-        const marker = markers.current[driverId];
+      if (markers.current[id]) {
+        const marker = markers.current[id];
         const oldPos = marker.getPosition();
         const dist = Math.sqrt((oldPos.lat() - position.lat) ** 2 + (oldPos.lng() - position.lng) ** 2);
         dist < 0.01 ? animateMarker(marker, position, 1000) : marker.setPosition(position);
@@ -591,30 +592,44 @@ const GoogleMapSection = ({ mapRef, mapInstance, markers, driverData, setDriverD
           infoWindow.open(mapInstance.current, marker);
         });
         marker.infoWindow = infoWindow;
-        markers.current[driverId] = marker;
+        markers.current[id] = marker;
       }
     };
 
-    // Initialize from cache
-    if (mapInstance.current && driverData) {
-      Object.values(driverData).forEach(data => updateOrAddMarker(data));
+    // Synchronize markers with active lists
+    if (isMapReady && mapInstance.current) {
+      // 1. Remove markers not in active lists
+      Object.keys(markers.current).forEach(id => {
+        if (!activeIds.has(id)) {
+          markers.current[id].setMap(null);
+          delete markers.current[id];
+        }
+      });
+
+      // 2. Add/Update markers for active drivers
+      Object.entries(driverDataRef.current).forEach(([id, data]) => {
+        if (activeIds.has(id)) renderMarker(id, data);
+      });
     }
 
     const handle = (rawData) => {
       const data = parseDriverData(rawData);
-      if (data) updateOrAddMarker(data);
+      if (!data) return;
+      const id = getDriverId(data);
+      if (!id) return;
+
+      // Update global driverData so it's preserved
+      setDriverData(prev => ({ ...prev, [id]: { ...prev[id], ...data } }));
+      
+      // If active, update map immediately
+      if (activeIds.has(id)) renderMarker(id, data);
     };
 
-    if (socketRef.current) {
-      socketRef.current.on("driver-location-update", handle);
-    }
-
+    if (socketRef.current) socketRef.current.on("driver-location-update", handle);
     return () => {
-      if (socketRef.current) {
-        socketRef.current.off("driver-location-update", handle);
-      }
+      if (socketRef.current) socketRef.current.off("driver-location-update", handle);
     };
-  }, []); // ← EMPTY DEPS: registers once, never torn down by re-renders
+  }, [isMapReady, waitingDrivers, onJobDrivers]); // ← EMPTY DEPS: registers once, never torn down by re-renders
 
   useEffect(() => {
     Object.values(markers.current).forEach((m) => m.setVisible(true));
@@ -628,7 +643,7 @@ const GoogleMapSection = ({ mapRef, mapInstance, markers, driverData, setDriverD
   return <div ref={mapRef} style={{ width: "100%", height: "100%", minHeight: "400px" }} />;
 };
 
-const BarikoiMapSection = ({ mapRef, mapInstance, markers, driverData, setDriverData, socket, countryCenter, plotsData, apiKeys }) => {
+const BarikoiMapSection = ({ mapRef, mapInstance, markers, driverData, setDriverData, socket, countryCenter, plotsData, apiKeys, waitingDrivers, onJobDrivers }) => {
   const [mapReady, setMapReady] = useState(false);
   const { barikoiKey } = getApiKeys(apiKeys);
 
@@ -729,9 +744,17 @@ const BarikoiMapSection = ({ mapRef, mapInstance, markers, driverData, setDriver
   }, [barikoiKey]);
 
   useEffect(() => {
-    const handleResize = () => { if (mapInstance.current) mapInstance.current.resize(); };
+    const handleResize = () => {
+      if (mapInstance.current && typeof mapInstance.current.resize === "function") {
+        mapInstance.current.resize();
+      }
+    };
     window.addEventListener("resize", handleResize);
-    const raf = requestAnimationFrame(() => { if (mapInstance.current) mapInstance.current.resize(); });
+    const raf = requestAnimationFrame(() => {
+      if (mapInstance.current && typeof mapInstance.current.resize === "function") {
+        mapInstance.current.resize();
+      }
+    });
     return () => { window.removeEventListener("resize", handleResize); cancelAnimationFrame(raf); };
   }, [mapReady]);
 
@@ -787,12 +810,28 @@ const BarikoiMapSection = ({ mapRef, mapInstance, markers, driverData, setDriver
       }
     };
 
-    // Initialize from cache
+    // Initialize from cache/lists - only show drivers who are in the active lists
     if (mapInstance.current && driverData) {
+      const activeIds = new Set([
+        ...waitingDrivers.map(d => d.id || d.driver_id || d.dispatcher_id),
+        ...onJobDrivers.map(d => d.id || d.driver_id || d.dispatcher_id)
+      ]);
+
+      // Remove markers for drivers no longer in active lists
+      Object.keys(markers.current).forEach(id => {
+        if (!activeIds.has(id)) {
+          markers.current[id].remove();
+          delete markers.current[id];
+        }
+      });
+
       Object.values(driverData).forEach(data => {
-        const lat = data.latitude !== undefined ? data.latitude : data.lat;
-        const lng = data.longitude !== undefined ? data.longitude : data.lng;
-        if (lat != null && lng != null) updateOrAddMarker(data);
+        const id = data.id || data.driver_id || data.dispatcher_id || data.client_id;
+        if (activeIds.has(id)) {
+          const lat = data.latitude !== undefined ? data.latitude : data.lat;
+          const lng = data.longitude !== undefined ? data.longitude : data.lng;
+          if (lat != null && lng != null) updateOrAddMarker(data);
+        }
       });
     }
 
@@ -805,7 +844,7 @@ const BarikoiMapSection = ({ mapRef, mapInstance, markers, driverData, setDriver
     return () => {
       if (socketRef.current) socketRef.current.off("driver-location-update", handle);
     };
-  }, [mapReady]);
+  }, [mapReady, waitingDrivers, onJobDrivers]);
 
   useEffect(() => {
     // ONLY fit bounds once on initial load to avoid constant map jumping/lag
@@ -845,6 +884,8 @@ const Overview = () => {
   const markers = useRef({});
   const socket = useSocket();
   const socketRef = useRef(socket);
+  const plotsDataRef = useRef(plotsData);
+  useEffect(() => { plotsDataRef.current = plotsData; }, [plotsData]);
 
   const [apiKeys, setApiKeys] = useState({
     googleKey: GOOGLE_KEY,
@@ -860,7 +901,13 @@ const Overview = () => {
   const [driverData, setDriverData] = useState(() => {
     try {
       const saved = localStorage.getItem("driverDataCache");
-      return saved ? JSON.parse(saved) : {};
+      if (!saved) return {};
+      const parsed = JSON.parse(saved);
+      const normalized = {};
+      Object.entries(parsed).forEach(([id, data]) => {
+        normalized[String(id)] = data;
+      });
+      return normalized;
     } catch {
       return {};
     }
@@ -944,15 +991,14 @@ const Overview = () => {
   }, [socket]);
 
   const driverCounts = React.useMemo(() => {
-    const counts = { busy: 0, idle: 0, total: 0 };
-    Object.values(driverData).forEach((driver) => {
-      counts.total++;
-      const s = (driver.driving_status || driver.status || "").toLowerCase();
-      if (s === "busy") counts.busy++;
-      else if (s === "idle") counts.idle++;
-    });
-    return counts;
-  }, [driverData]);
+    return {
+      busy: onJobDrivers.length,
+      idle: waitingDrivers.length,
+      total: onJobDrivers.length + waitingDrivers.length
+    };
+  }, [onJobDrivers, waitingDrivers]);
+  
+
 
   const user = useAppSelector((state) => state.auth.user);
   const displayName = user?.name
@@ -994,36 +1040,44 @@ const Overview = () => {
       catch { data = rawData; }
       console.log("🕒 [Socket] waiting-driver-event:", data);
 
-      if (Array.isArray(data)) { setWaitingDrivers(data); return; }
+      if (Array.isArray(data)) {
+        setWaitingDrivers(data);
+        return;
+      }
 
       if (data?.driverName || data?.driver_name) {
         const name = data.driverName || data.driver_name;
         const driverId = data.id || data.driver_id || data.dispatcher_id;
 
+        const sId = String(driverId);
         // Update marker status on map if we have driverId
-        if (driverId) {
+        if (sId) {
           setDriverData(prev => {
-            const lat = data.latitude || data.lat;
-            const lng = data.longitude || data.lng;
+            let lat = data.latitude || data.lat;
+            let lng = data.longitude || data.lng;
             const status = "idle";
             
-            if (prev[driverId]) {
-              return { ...prev, [driverId]: { ...prev[driverId], ...data, status, driving_status: status } };
+            // Fallback to plot coordinates if GPS is missing
+            if ((lat == null || lng == null) && (data.plot_id || data.plot)) {
+              const plotId = data.plot_id || data.plot;
+              const plot = plotsDataRef.current.find(p => p.id == plotId || p.plot_id == plotId);
+              if (plot) {
+                const coords = parseCoordinates(plot);
+                if (coords.length > 0) {
+                  lat = coords.reduce((s, c) => s + c.lat, 0) / coords.length;
+                  lng = coords.reduce((s, c) => s + c.lng, 0) / coords.length;
+                }
+              }
+            }
+
+            if (prev[sId]) {
+              return { ...prev, [sId]: { ...prev[sId], ...data, position: (lat && lng) ? { lat: Number(lat), lng: Number(lng) } : prev[sId].position, status, driving_status: status } };
             } else if (lat && lng) {
-              // Add new driver to map if coordinates are present
-              return { ...prev, [driverId]: { ...data, position: { lat: Number(lat), lng: Number(lng) }, status, driving_status: status } };
+              // Add new driver to map if coordinates are present (or fallback found)
+              return { ...prev, [sId]: { ...data, position: { lat: Number(lat), lng: Number(lng) }, status, driving_status: status } };
             }
             return prev;
           });
-          // Also update existing marker icon if present
-          const m = markers.current[driverId];
-          if (m) {
-            if (m.setIcon) m.setIcon(makeGoogleIcon("idle")); // Google
-            else { // Barikoi/MapLibre
-              const img = m.getElement?.()?.querySelector("img");
-              if (img) img.src = (MARKER_ICONS.idle).url;
-            }
-          }
         }
 
         // Remove from on-job list if they were there
@@ -1050,36 +1104,44 @@ const Overview = () => {
       catch { data = rawData; }
       console.log("🚕 [Socket] on-job-driver-event:", data);
 
-      if (Array.isArray(data)) { setOnJobDrivers(data); return; }
+      if (Array.isArray(data)) {
+        setOnJobDrivers(data);
+        return;
+      }
 
       if (data?.driverName || data?.driver_name) {
         const name = data.driverName || data.driver_name;
         const driverId = data.id || data.driver_id || data.dispatcher_id;
 
+        const sId = String(driverId);
         // Update marker status on map if we have driverId
-        if (driverId) {
+        if (sId) {
           setDriverData(prev => {
-            const lat = data.latitude || data.lat;
-            const lng = data.longitude || data.lng;
+            let lat = data.latitude || data.lat;
+            let lng = data.longitude || data.lng;
             const status = "busy";
 
-            if (prev[driverId]) {
-              return { ...prev, [driverId]: { ...prev[driverId], ...data, status, driving_status: status } };
+            // Fallback to plot coordinates if GPS is missing
+            if ((lat == null || lng == null) && (data.plot_id || data.plot)) {
+              const plotId = data.plot_id || data.plot;
+              const plot = plotsDataRef.current.find(p => p.id == plotId || p.plot_id == plotId);
+              if (plot) {
+                const coords = parseCoordinates(plot);
+                if (coords.length > 0) {
+                  lat = coords.reduce((s, c) => s + c.lat, 0) / coords.length;
+                  lng = coords.reduce((s, c) => s + c.lng, 0) / coords.length;
+                }
+              }
+            }
+
+            if (prev[sId]) {
+              return { ...prev, [sId]: { ...prev[sId], ...data, position: (lat && lng) ? { lat: Number(lat), lng: Number(lng) } : prev[sId].position, status, driving_status: status } };
             } else if (lat && lng) {
-              // Add new driver to map if coordinates are present
-              return { ...prev, [driverId]: { ...data, position: { lat: Number(lat), lng: Number(lng) }, status, driving_status: status } };
+              // Add new driver to map if coordinates are present (or fallback found)
+              return { ...prev, [sId]: { ...data, position: { lat: Number(lat), lng: Number(lng) }, status, driving_status: status } };
             }
             return prev;
           });
-          // Also update existing marker icon if present
-          const m = markers.current[driverId];
-          if (m) {
-            if (m.setIcon) m.setIcon(makeGoogleIcon("busy")); // Google
-            else { // Barikoi/MapLibre
-              const img = m.getElement?.()?.querySelector("img");
-              if (img) img.src = (MARKER_ICONS.busy).url;
-            }
-          }
         }
 
         // Remove from waiting list if they were there
@@ -1209,7 +1271,7 @@ const Overview = () => {
 
   // useEffect(() => { checkDispatchSystem(); }, []);
 
-  const mapProps = { mapRef, mapInstance, markers, driverData, setDriverData, socket, countryCenter, plotsData, apiKeys };
+  const mapProps = { mapRef, mapInstance, markers, driverData, setDriverData, socket, countryCenter, plotsData, apiKeys, waitingDrivers, onJobDrivers };
 
   return (
     <div className="h-full">

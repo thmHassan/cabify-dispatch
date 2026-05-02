@@ -91,7 +91,7 @@ const AddBooking = ({ setIsOpen }) => {
     const rawTenant = getTenantData();
     const tenant = rawTenant?.data || {};
     const SEARCH_API = tenant?.search_api;
-    
+
     const getInitialMapType = () => {
         const mapsApi = tenant?.maps_api?.trim().toLowerCase();
         const countryOfUse = tenant?.country_of_use?.trim().toUpperCase();
@@ -216,13 +216,13 @@ const AddBooking = ({ setIsOpen }) => {
                 const res = await apiGetCompanyApiKeys();
                 if (res.data?.success) {
                     const data = res.data.data;
-                    
+
                     // Validate keys - fall back to defaults if they look like placeholders (e.g. "divonyx")
-                    const googleKey = (data.google_api_key && data.google_api_key.startsWith("AIza")) 
-                        ? data.google_api_key 
+                    const googleKey = (data.google_api_key && data.google_api_key.startsWith("AIza"))
+                        ? data.google_api_key
                         : GOOGLE_KEY;
-                    const barikoiKey = (data.barikoi_api_key && data.barikoi_api_key.startsWith("bkoi_")) 
-                        ? data.barikoi_api_key 
+                    const barikoiKey = (data.barikoi_api_key && data.barikoi_api_key.startsWith("bkoi_"))
+                        ? data.barikoi_api_key
                         : BARIKOI_KEY;
 
                     setApiKeys({
