@@ -14,9 +14,9 @@ const DrawerIcon = ({ width = 24, height = 24, fill = "#000000" }) => {
           id="Vector"
           d="M5 17H13M5 12H19M5 7H13"
           stroke={fill}
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
         />
       </g>
     </svg>

@@ -8,13 +8,12 @@ const NotificationIcon = ({ width = 22, height = 24, className }) => {
       height={height}
       viewBox="0 0 22 24"
       fill="none"
-      className={className}
       style={className ? { width: '100%', height: '100%' } : undefined}
       stroke="currentColor"
-      stroke-width="2"
-      stroke-linecap="round"
-      stroke-linejoin="round"
-      class="lucide lucide-bell-icon lucide-bell">
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={`lucide lucide-bell-icon lucide-bell ${className || ''}`}>
       <path
         d="M10.268 21a2 2 0 0 0 3.464 0" />
       <path

@@ -9,7 +9,6 @@ const AllocateDriverModal = ({ bookingData, onClose, onSuccess }) => {
     const [selectedDriverId, setSelectedDriverId] = useState("");
     const [loading, setLoading] = useState(false);
     const [saving, setSaving] = useState(false);
-
     const assignmentType = bookingData?._assignmentType || "allocate_driver";
     const isPreJob = assignmentType === "pre_job";
 
@@ -94,7 +93,6 @@ const AllocateDriverModal = ({ bookingData, onClose, onSuccess }) => {
 
     return (
         <div className="w-full">
-            {/* Header — dynamic title */}
             <div className="px-6 py-4 flex items-center justify-between">
                 <h2 className="text-xl font-semibold text-gray-800">
                     {isPreJob ? "Send Pre-Job" : "Allocate Driver"}
@@ -107,7 +105,6 @@ const AllocateDriverModal = ({ bookingData, onClose, onSuccess }) => {
                 </button>
             </div>
 
-            {/* Booking Info */}
             <div className="py-3 px-4 bg-gray-100 mx-6 rounded">
                 <div className="flex items-center gap-4 text-sm">
                     <span className="font-medium">Booking ID:</span>
@@ -149,7 +146,6 @@ const AllocateDriverModal = ({ bookingData, onClose, onSuccess }) => {
                 )}
             </div>
 
-            {/* Footer */}
             <div className="flex flex-col sm:flex-row gap-3 sm:gap-5 justify-end mx-6 my-3">
                 <Button
                     btnSize="md"

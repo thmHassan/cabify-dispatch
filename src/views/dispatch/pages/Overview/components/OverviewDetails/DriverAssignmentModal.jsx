@@ -71,8 +71,8 @@ const DriverAssignmentModal = ({
         pending_acceptance: { bg: "bg-amber-100", text: "text-amber-700", label: "Pending Acceptance" },
         ongoing: { bg: "bg-blue-100", text: "text-blue-700", label: "Ongoing" },
         pending: { bg: "bg-gray-100", text: "text-gray-600", label: "Pending" },
-        cancelled: { bg: "bg-red-100", text: "text-red-700", label: "Cancelled" },   
-        accepted: { bg: "bg-green-100", text: "text-green-700", label: "Accepted" }, 
+        cancelled: { bg: "bg-red-100", text: "text-red-700", label: "Cancelled" },
+        accepted: { bg: "bg-green-100", text: "text-green-700", label: "Accepted" },
     };
 
     return (

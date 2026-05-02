@@ -176,8 +176,8 @@ const FollowOnJobModal = ({ bookingData, onClose, onSuccess }) => {
                     onClick={handleLink}
                     disabled={!selectedBookingId || submitting}
                     className={`px-5 py-2 rounded-lg text-sm font-semibold text-white transition-colors ${!selectedBookingId || submitting
-                            ? "bg-gray-300 cursor-not-allowed"
-                            : "bg-[#1F41BB] hover:bg-blue-700"
+                        ? "bg-gray-300 cursor-not-allowed"
+                        : "bg-[#1F41BB] hover:bg-blue-700"
                         }`}
                 >
                     {submitting ? "Linking…" : "Confirm Follow-On Job"}

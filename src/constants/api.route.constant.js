@@ -55,3 +55,4 @@ export const CHANGE_STATUS_LOST_FOUND = "/company/change-status-lost-found"
 export const SEND_NOTIFICATION = "/company/send-notification"
 
 export const GATE_DISPATCH_SYSTEM = "/company/get-dispatch-system"
+export const GET_COMPANY_API_KEYS = "/company/get-api-keys"
