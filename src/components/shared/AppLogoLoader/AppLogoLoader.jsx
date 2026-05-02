@@ -18,7 +18,7 @@ const AppLogoLoader = () => {
             <AppLogoIcon height={100} width={100} />
           </div>
         </div>
-        <style jsx>{`
+        <style>{`
           @keyframes logoBlink {
             0% {
               transform: scale(0.8);

@@ -619,7 +619,7 @@ const GoogleMapSection = ({ mapRef, mapInstance, markers, driverData, setDriverD
   useEffect(() => {
     Object.values(markers.current).forEach((m) => m.setVisible(true));
     // ONLY fit bounds once on initial load to avoid constant map jumping/lag
-    if (!mapInstance.current._hasFittedOnce && Object.keys(markers.current).length > 0) {
+    if (mapInstance.current && !mapInstance.current._hasFittedOnce && Object.keys(markers.current).length > 0) {
       setTimeout(fitMapToMarkers, 500);
       mapInstance.current._hasFittedOnce = true;
     }
@@ -720,7 +720,9 @@ const BarikoiMapSection = ({ mapRef, mapInstance, markers, driverData, setDriver
       if (mapInstance.current) {
         Object.values(markers.current).forEach((m) => m.remove());
         markers.current = {};
-        mapInstance.current.remove();
+        if (typeof mapInstance.current.remove === "function") {
+          mapInstance.current.remove();
+        }
         mapInstance.current = null;
       }
     };

@@ -24,7 +24,7 @@ const loadGoogleScript = (apiKey) =>
     new Promise((resolve) => {
         if (window.google?.maps?.places) return resolve();
         const script = document.createElement("script");
-        script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_KEY}&libraries=places`;
+        script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey || GOOGLE_KEY}&libraries=places`;
         script.async = true;
         script.onload = resolve;
         document.head.appendChild(script);
@@ -216,8 +216,15 @@ const AddBooking = ({ setIsOpen }) => {
                 const res = await apiGetCompanyApiKeys();
                 if (res.data?.success) {
                     const data = res.data.data;
-                    const googleKey = data.google_api_key && data.google_api_key.startsWith("AIza") ? data.google_api_key : GOOGLE_KEY;
-                    const barikoiKey = data.barikoi_api_key && data.barikoi_api_key.startsWith("bkoi_") ? data.barikoi_api_key : BARIKOI_KEY;
+                    
+                    // Validate keys - fall back to defaults if they look like placeholders (e.g. "divonyx")
+                    const googleKey = (data.google_api_key && data.google_api_key.startsWith("AIza")) 
+                        ? data.google_api_key 
+                        : GOOGLE_KEY;
+                    const barikoiKey = (data.barikoi_api_key && data.barikoi_api_key.startsWith("bkoi_")) 
+                        ? data.barikoi_api_key 
+                        : BARIKOI_KEY;
+
                     setApiKeys({
                         googleKey,
                         barikoiKey,

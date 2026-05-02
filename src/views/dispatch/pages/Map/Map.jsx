@@ -86,10 +86,20 @@ const getMapType = () => {
 const getApiKeys = (stateApiKeys) => {
   const tenant = getTenantData();
   const data = tenant?.data || {};
-  return {
-    googleKey: stateApiKeys?.googleKey || data?.google_api_key || GOOGLE_KEY,
-    barikoiKey: stateApiKeys?.barikoiKey || data?.barikoi_api_key || BARIKOI_KEY,
-  };
+  
+  const googleKey = (stateApiKeys?.googleKey && stateApiKeys.googleKey.startsWith("AIza")) 
+    ? stateApiKeys.googleKey 
+    : (data?.google_api_key && data.google_api_key.startsWith("AIza"))
+    ? data.google_api_key
+    : GOOGLE_KEY;
+
+  const barikoiKey = (stateApiKeys?.barikoiKey && stateApiKeys.barikoiKey.startsWith("bkoi_"))
+    ? stateApiKeys.barikoiKey
+    : (data?.barikoi_api_key && data.barikoi_api_key.startsWith("bkoi_"))
+    ? data.barikoi_api_key
+    : BARIKOI_KEY;
+
+  return { googleKey, barikoiKey };
 };
 
 const COUNTRY_CENTERS = {
@@ -292,7 +302,7 @@ const GoogleMapView = ({ mapRef, mapInstance, markers, driverData, setDriverData
       marker.setVisible(visible);
     });
     // ONLY fit bounds once on initial load to avoid constant map jumping/lag
-    if (!mapInstance.current._hasFittedOnce && Object.keys(markers.current).length > 0) {
+    if (mapInstance.current && !mapInstance.current._hasFittedOnce && Object.keys(markers.current).length > 0) {
       setTimeout(fitMapToMarkers, 500);
       mapInstance.current._hasFittedOnce = true;
     }
@@ -332,7 +342,14 @@ const BarikoiMapView = ({ mapRef, mapInstance, markers, driverData, setDriverDat
     }).catch(err => console.error("Barikoi Maps load failed:", err));
     return () => {
       mounted = false;
-      if (mapInstance.current) { Object.values(markers.current).forEach(m => m.remove()); markers.current = {}; mapInstance.current.remove(); mapInstance.current = null; }
+      if (mapInstance.current) {
+        Object.values(markers.current).forEach(m => m.remove());
+        markers.current = {};
+        if (typeof mapInstance.current.remove === "function") {
+          mapInstance.current.remove();
+        }
+        mapInstance.current = null;
+      }
     };
   }, [barikoiKey]);
 
