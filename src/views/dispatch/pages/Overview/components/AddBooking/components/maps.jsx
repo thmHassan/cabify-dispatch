@@ -55,7 +55,7 @@ const loadGoogleMaps = (apiKey) => {
     }
     googleMapsPromise = new Promise((resolve, reject) => {
         const s = document.createElement("script");
-        s.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`;
+        s.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places&loading=async`;
         s.async = true;
         s.onload = resolve;
         s.onerror = () => { googleMapsPromise = null; reject(); };
@@ -73,12 +73,12 @@ const loadMaplibre = () => {
             const link = document.createElement("link");
             link.id = "maplibre-css";
             link.rel = "stylesheet";
-            link.href = "https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.css";
+            link.href = "https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css";
             document.head.appendChild(link);
         }
         const s = document.createElement("script");
         s.id = "maplibre-script";
-        s.src = "https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.js";
+        s.src = "https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js";
         s.async = true;
         s.onload = () => {
             if (window.maplibregl) resolve();
@@ -88,6 +88,64 @@ const loadMaplibre = () => {
         document.head.appendChild(s);
     });
     return maplibrePromise;
+};
+
+const buildBarikoiStyle = (barikoiKey) => ({
+    version: 8,
+    name: "Barikoi",
+    glyphs: "https://fonts.openmaptiles.org/{fontstack}/{range}.pbf",
+    sources: {
+        "osm-tiles": {
+            type: "raster",
+            tiles: [
+                `https://tile.barikoi.com/styles/barikoi/tiles/{z}/{x}/{y}.png?key=${barikoiKey}`,
+            ],
+            tileSize: 256,
+            attribution: "© Barikoi | © OpenStreetMap contributors",
+            maxzoom: 19,
+        },
+    },
+    layers: [
+        {
+            id: "osm-tiles",
+            type: "raster",
+            source: "osm-tiles",
+            minzoom: 0,
+            maxzoom: 22,
+        },
+    ],
+});
+
+const buildOsmFallbackStyle = () => ({
+    version: 8,
+    name: "OSM",
+    glyphs: "https://fonts.openmaptiles.org/{fontstack}/{range}.pbf",
+    sources: {
+        "osm-tiles": {
+            type: "raster",
+            tiles: [
+                "https://a.tile.openstreetmap.org/{z}/{x}/{y}.png",
+                "https://b.tile.openstreetmap.org/{z}/{x}/{y}.png",
+                "https://c.tile.openstreetmap.org/{z}/{x}/{y}.png",
+            ],
+            tileSize: 256,
+            attribution: "© OpenStreetMap contributors",
+            maxzoom: 19,
+        },
+    },
+    layers: [
+        { id: "osm-tiles", type: "raster", source: "osm-tiles", minzoom: 0, maxzoom: 22 },
+    ],
+});
+
+const parseCoordinates = (plot) => {
+    if (!plot) return [];
+    try {
+        let coords = plot.coordinates;
+        if (typeof coords === "string") coords = JSON.parse(coords);
+        if (!Array.isArray(coords)) return [];
+        return coords.map((c) => ({ lat: Number(c.lat), lng: Number(c.lng) }));
+    } catch { return []; }
 };
 
 const LoadingPlaceholder = () => (
@@ -112,11 +170,13 @@ const GoogleMap = ({
     onDestinationConfirmed,
     SEARCH_API,
     apiKeys,
+    plotsData,
 }) => {
     const { googleKey } = getApiKeys(apiKeys);
     const mapRef = useRef(null);
     const mapInstanceRef = useRef(null);
     const markersRef = useRef([]);
+    const plotPolygons = useRef([]);
     const directionsRendererRef = useRef(null);
     const [isLoaded, setIsLoaded] = useState(false);
     const clickCountRef = useRef(0);
@@ -145,6 +205,26 @@ const GoogleMap = ({
         return `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
     };
 
+    const renderPlots = () => {
+        if (!mapInstanceRef.current || !plotsData) return;
+        plotPolygons.current.forEach(p => p.setMap(null));
+        plotPolygons.current = [];
+        plotsData.forEach(plot => {
+            const coords = parseCoordinates(plot);
+            if (coords.length === 0) return;
+            const polygon = new window.google.maps.Polygon({
+                paths: coords, strokeColor: "#1F41BB", strokeOpacity: 0.8, strokeWeight: 2,
+                fillColor: "#1F41BB", fillOpacity: 0.1, map: mapInstanceRef.current,
+                clickable: false
+            });
+            plotPolygons.current.push(polygon);
+        });
+    };
+
+    useEffect(() => {
+        if (mapInstanceRef.current && plotsData) renderPlots();
+    }, [isLoaded, plotsData]);
+
     useEffect(() => {
         if (!isLoaded || !mapRef.current || mapInstanceRef.current) return;
         try {
@@ -155,6 +235,7 @@ const GoogleMap = ({
                 mapTypeControl: true,
                 streetViewControl: false,
                 fullscreenControl: true,
+                styles: [{ featureType: "poi", elementType: "labels", stylers: [{ visibility: "off" }] }],
             });
             directionsRendererRef.current = new window.google.maps.DirectionsRenderer({
                 map: mapInstanceRef.current,
@@ -190,12 +271,12 @@ const GoogleMap = ({
         return () => {
             markersRef.current.forEach((m) => { try { m?.setMap(null); } catch (e) { } });
             markersRef.current = [];
+            plotPolygons.current.forEach(p => p.setMap(null));
             mapInstanceRef.current = null;
             directionsRendererRef.current = null;
         };
     }, [isLoaded]);
 
-    // ✅ Only runs when CONFIRMED coords change — never on keystroke
     useEffect(() => {
         if (!mapInstanceRef.current || !isLoaded) return;
         const id = setTimeout(() => {
@@ -279,6 +360,7 @@ const BarikoiMap = ({
     onPickupConfirmed,
     onDestinationConfirmed,
     apiKeys,
+    plotsData,
 }) => {
     const { barikoiKey } = getApiKeys(apiKeys);
     const containerRef = useRef(null);
@@ -303,10 +385,11 @@ const BarikoiMap = ({
 
     useEffect(() => {
         if (!mapRef.current || !isLoaded || !barikoiKey) return;
-        const style = mapType === "satellite"
-            ? `https://map.barikoi.com/styles/satellite/style.json?key=${barikoiKey}`
-            : `https://map.barikoi.com/styles/osm-liberty/style.json?key=${barikoiKey}`;
-        try { mapRef.current.setStyle(style); } catch (e) { }
+        if (mapType === "satellite") {
+            mapRef.current.setStyle(`https://map.barikoi.com/styles/satellite/style.json?key=${barikoiKey}`);
+        } else {
+            mapRef.current.setStyle(buildBarikoiStyle(barikoiKey));
+        }
     }, [mapType, isLoaded, barikoiKey]);
 
     const toggleFullscreen = () => {
@@ -320,27 +403,70 @@ const BarikoiMap = ({
         }
     };
 
+    const renderPlots = (map) => {
+        if (!map || !plotsData || plotsData.length === 0) return;
+        const doRender = () => {
+            try {
+                ["plots-labels", "plots-outline", "plots-fill"].forEach(id => {
+                    if (map.getLayer(id)) map.removeLayer(id);
+                });
+                if (map.getSource("plots")) map.removeSource("plots");
+
+                const features = plotsData.map(plot => {
+                    const coords = parseCoordinates(plot);
+                    if (coords.length === 0) return null;
+                    return {
+                        type: "Feature",
+                        properties: { name: plot.plot_name || "Plot" },
+                        geometry: { type: "Polygon", coordinates: [coords.map(c => [c.lng, c.lat])] },
+                    };
+                }).filter(Boolean);
+
+                if (features.length === 0) return;
+
+                map.addSource("plots", { type: "geojson", data: { type: "FeatureCollection", features } });
+                map.addLayer({ id: "plots-fill", type: "fill", source: "plots", paint: { "fill-color": "#1F41BB", "fill-opacity": 0.15 } });
+                map.addLayer({ id: "plots-outline", type: "line", source: "plots", paint: { "line-color": "#1F41BB", "line-width": 2.5, "line-opacity": 0.9 } });
+            } catch (err) {
+                console.warn("Plot render error:", err);
+            }
+        };
+
+        if (map.isStyleLoaded()) doRender();
+        else map.once("idle", doRender);
+    };
+
+    useEffect(() => {
+        if (isLoaded && mapRef.current && plotsData?.length > 0) {
+            renderPlots(mapRef.current);
+        }
+    }, [isLoaded, plotsData, mapType]);
+
     useEffect(() => {
         if (!isLoaded || !containerRef.current || mapRef.current || !barikoiKey) return;
         try {
             const center = getCountryCenter();
             mapRef.current = new window.maplibregl.Map({
                 container: containerRef.current,
-                style: `https://map.barikoi.com/styles/osm-liberty/style.json?key=${barikoiKey}`,
+                style: buildBarikoiStyle(barikoiKey),
                 center: [center.lng, center.lat],
-                zoom: 12, // Closer zoom for city/plot selection
+                zoom: 12,
                 attributionControl: false,
             });
             mapRef.current.on('load', () => {
-                if (mapRef.current) mapRef.current.resize();
+                if (mapRef.current) {
+                    mapRef.current.resize();
+                    renderPlots(mapRef.current);
+                }
             });
-            mapRef.current.addControl(
-                new window.maplibregl.NavigationControl({ showCompass: true }),
-                "bottom-right"
-            );
+            mapRef.current.addControl(new window.maplibregl.NavigationControl({ showCompass: true }), "bottom-right");
             mapRef.current.on("error", (e) => {
-                // Only log — don't block the map for tile/style errors
-                console.warn("Barikoi map error:", e?.error?.message || e);
+                const msg = e?.error?.message || String(e);
+                if (msg.includes("403") || msg.includes("401") || (msg.includes("Failed to fetch") && !mapRef.current._usedFallback)) {
+                    console.warn("Barikoi tiles unavailable, switching to OSM fallback");
+                    mapRef.current._usedFallback = true;
+                    try { mapRef.current.setStyle(buildOsmFallbackStyle()); } catch { }
+                }
             });
             mapRef.current.on("click", async (e) => {
                 const lat = e.lngLat.lat;
@@ -377,7 +503,6 @@ const BarikoiMap = ({
         };
     }, [isLoaded, barikoiKey]);
 
-    // Google-style circle marker element
     const mkEl = (color, text) => {
         const el = document.createElement("div");
         el.style.cssText = [
@@ -392,7 +517,6 @@ const BarikoiMap = ({
         return el;
     };
 
-    // Draw road route via OSRM, fallback to straight line
     const drawRoute = (map) => {
         const removeLayers = () => {
             ["route-outline", "route"].forEach((id) => {
@@ -436,7 +560,6 @@ const BarikoiMap = ({
             });
     };
 
-    // ✅ Only runs when CONFIRMED coords change — never on keystroke
     useEffect(() => {
         if (!mapRef.current || !isLoaded) return;
         const id = setTimeout(() => {
@@ -490,7 +613,6 @@ const BarikoiMap = ({
             <div ref={containerRef} style={{ width: "100%", height: "100%" }} />
             {!isLoaded && <LoadingPlaceholder />}
 
-            {/* Map / Satellite toggle — top left, identical to Google */}
             {isLoaded && (
                 <div style={{
                     position: "absolute", top: "10px", left: "10px", zIndex: 10,
@@ -503,7 +625,6 @@ const BarikoiMap = ({
                 </div>
             )}
 
-            {/* Fullscreen button — top right, identical to Google */}
             {isLoaded && (
                 <button onClick={toggleFullscreen} title={isFullscreen ? "Exit fullscreen" : "View fullscreen"}
                     style={{
@@ -541,13 +662,14 @@ export default function Maps({
     onDestinationConfirmed,
     SEARCH_API,
     apiKeys,
+    plotsData,
 }) {
     const sharedProps = {
         pickupCoords, destinationCoords, viaCoords,
         setFieldValue, fetchPlotName,
         setPickupPlotData, setDestinationPlotData,
         onPickupConfirmed, onDestinationConfirmed,
-        apiKeys,
+        apiKeys, plotsData,
     };
     if (mapsApi === "barikoi") return <BarikoiMap {...sharedProps} />;
     return <GoogleMap {...sharedProps} SEARCH_API={SEARCH_API} />;

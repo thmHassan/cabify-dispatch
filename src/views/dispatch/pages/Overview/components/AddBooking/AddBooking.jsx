@@ -17,16 +17,26 @@ import { debounce } from "lodash";
 import History from "./components/History";
 import successSound from "../../../../../../assets/audio/meldix-success-340660.mp3";
 
-const GOOGLE_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
-const BARIKOI_KEY = import.meta.env.VITE_BARIKOI_API_KEY;
+const GOOGLE_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "AIzaSyDTlV1tPVuaRbtvBQu4-kjDhTV54tR4cDU";
+const BARIKOI_KEY = import.meta.env.VITE_BARIKOI_API_KEY || "bkoi_a468389d0211910bd6723de348e0de79559c435f07a17a5419cbe55ab55a890a";
 
 const loadGoogleScript = (apiKey) =>
-    new Promise((resolve) => {
+    new Promise((resolve, reject) => {
         if (window.google?.maps?.places) return resolve();
+        const existing = document.getElementById("google-maps-script");
+        if (existing) {
+            if (window.google?.maps?.places) return resolve();
+            existing.addEventListener("load", resolve);
+            existing.addEventListener("error", () => reject(new Error("Google Maps load failed")));
+            return;
+        }
         const script = document.createElement("script");
-        script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey || GOOGLE_KEY}&libraries=places`;
+        script.id = "google-maps-script";
+        script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey || GOOGLE_KEY}&libraries=places&loading=async`;
         script.async = true;
+        script.defer = true;
         script.onload = resolve;
+        script.onerror = () => reject(new Error("Google Maps load failed"));
         document.head.appendChild(script);
     });
 
@@ -146,6 +156,7 @@ const AddBooking = ({ setIsOpen }) => {
     const [bookingErrors, setBookingErrors] = useState({});
     const [driverRawList, setDriverRawList] = useState([]);
     const [filteredVehicleList, setFilteredVehicleList] = useState([]);
+    const [plotsData, setPlotsData] = useState([]);
 
     const clearCalcError = (key) => setCalculateErrors(prev => ({ ...prev, [key]: undefined }));
     const clearBookingError = (key) => setBookingErrors(prev => ({ ...prev, [key]: undefined }));
@@ -238,6 +249,14 @@ const AddBooking = ({ setIsOpen }) => {
             }
         };
         fetchApiKeys();
+
+        const fetchPlots = async () => {
+            try {
+                const res = await apiGetAllPlot({ page: 1, limit: 100 });
+                if (res.data?.success) setPlotsData(res.data.data?.data || res.data.data || []);
+            } catch (err) { console.error("Fetch plots error:", err); }
+        };
+        fetchPlots();
     }, []);
 
     useEffect(() => {
@@ -739,6 +758,7 @@ const AddBooking = ({ setIsOpen }) => {
         <Maps
             mapsApi={mapsApi}
             apiKeys={apiKeys}
+            plotsData={plotsData}
             pickupCoords={stablePickupCoords}
             destinationCoords={stableDestinationCoords}
             viaCoords={stableViaCoords.filter(Boolean)}
@@ -750,7 +770,7 @@ const AddBooking = ({ setIsOpen }) => {
             onDestinationConfirmed={handleDestinationConfirmed}
             SEARCH_API={SEARCH_API}
         />
-    ), [mapsApi, apiKeys, stablePickupCoords, stableDestinationCoords, stableViaCoords, SEARCH_API]);
+    ), [mapsApi, apiKeys, stablePickupCoords, stableDestinationCoords, stableViaCoords, SEARCH_API, plotsData]);
 
     return (
         <>
