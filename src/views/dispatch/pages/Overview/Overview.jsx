@@ -882,7 +882,7 @@ const Overview = () => {
     const interval = setInterval(() => {
       const now = Date.now();
       setWaitingDrivers((prev) => {
-        const filtered = prev.filter((d) => !d.updatedAt || now - d.updatedAt < 5000);
+        const filtered = prev.filter((d) => !d.updatedAt || now - d.updatedAt < 15000);
         return filtered.length === prev.length ? prev : filtered;
       });
     }, 1000);
