@@ -1,6 +1,6 @@
 import { Form, Formik } from "formik";
 import { useEffect, useState, useMemo, useCallback } from "react";
-import Maps from "./components/maps";
+import Maps from "./components/Maps";
 import { getTenantData } from "../../../../../../utils/functions/tokenEncryption";
 import { apiGetSubCompany } from "../../../../../../services/SubCompanyServices";
 import { apiGetAccount } from "../../../../../../services/AccountServices";
@@ -17,8 +17,11 @@ import { debounce } from "lodash";
 import History from "./components/History";
 import successSound from "../../../../../../assets/audio/meldix-success-340660.mp3";
 
-const GOOGLE_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "AIzaSyDTlV1tPVuaRbtvBQu4-kjDhTV54tR4cDU";
-const BARIKOI_KEY = import.meta.env.VITE_BARIKOI_API_KEY || "bkoi_a468389d0211910bd6723de348e0de79559c435f07a17a5419cbe55ab55a890a";
+const DEFAULT_GOOGLE_KEY = "AIzaSyDTlV1tPVuaRbtvBQu4-kjDhTV54tR4cDU";
+const DEFAULT_BARIKOI_KEY = "bkoi_a468389d0211910bd6723de348e0de79559c435f07a17a5419cbe55ab55a890a";
+
+const GOOGLE_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || DEFAULT_GOOGLE_KEY;
+const BARIKOI_KEY = import.meta.env.VITE_BARIKOI_API_KEY || DEFAULT_BARIKOI_KEY;
 
 const loadGoogleScript = (apiKey) =>
     new Promise((resolve, reject) => {
@@ -232,10 +235,11 @@ const AddBooking = ({ setIsOpen }) => {
                     // Validate keys - fall back to defaults if they look like placeholders (e.g. "divonyx")
                     const googleKey = (data.google_api_key && data.google_api_key.startsWith("AIza"))
                         ? data.google_api_key
-                        : GOOGLE_KEY;
+                        : (GOOGLE_KEY.startsWith("AIza") ? GOOGLE_KEY : DEFAULT_GOOGLE_KEY);
+
                     const barikoiKey = (data.barikoi_api_key && data.barikoi_api_key.startsWith("bkoi_"))
                         ? data.barikoi_api_key
-                        : BARIKOI_KEY;
+                        : (BARIKOI_KEY.startsWith("bkoi_") ? BARIKOI_KEY : DEFAULT_BARIKOI_KEY);
 
                     setApiKeys({
                         googleKey,
@@ -420,12 +424,8 @@ const AddBooking = ({ setIsOpen }) => {
 
         if (searchApi === "barikoi" || searchApi === "both") {
             try {
-                const countryParam = COUNTRY_CODE
-                    ? `&country_code=${COUNTRY_CODE.toUpperCase()}`
-                    : "";
-
                 const res = await fetch(
-                    `https://barikoi.xyz/v1/api/search/autocomplete/${apiKeys.barikoiKey || BARIKOI_KEY}/place?q=${encodeURIComponent(query)}${countryParam}`
+                    `https://barikoi.xyz/v1/api/search/autocomplete/${apiKeys.barikoiKey || BARIKOI_KEY}/place?q=${encodeURIComponent(query)}`
                 );
                 const json = await res.json();
                 const barikoiList = (json.places || []).map(p => ({
