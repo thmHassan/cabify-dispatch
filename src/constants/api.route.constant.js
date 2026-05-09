@@ -10,7 +10,7 @@ export const GET_USER_LIST = "/company/list-user";
 export const GET_USER_BY_ID = "/company/edit-user";
 export const POST_EDIT_USER_STATUS = "/company/change-user-status";
 export const EDIT_USER = "/company/edit-user";
-export const DELETE_USER = "/company/delete-user";  
+export const DELETE_USER = "/company/delete-user";
 export const RIDE_HISTORY = "/company/ride-history"
 
 //api for drivers management
@@ -25,13 +25,14 @@ export const DRIVER_DOCUMENT_LIST = "/company/driver-document-list"
 export const GET_BY_ID_DRIVER_DOCUMENT = "/company/driver-document"
 export const CHANGE_DRIVER_DOCUMENT_STATUS = "/company/change-status-document"
 export const DELETE_DRIVER_DOCUMENT = "/company/delete-driver-document"
-export const APPROVE_VEHICLE  = "/company/approv-vehicle-details"
+export const APPROVE_VEHICLE = "/company/approv-vehicle-details"
 export const REJECT_VAHICLE = "/company/reject-vehicle-details"
 export const DRIVER_RIDE_HISTORY = "/company/driver-ride-history"
 export const SEND_DRIVER_NOTIFICATION = "/company/send-driver-notification"
 
 // api for Rides Management
 export const GET_RIDE_MANAGEMENT = "/company/booking-list"
+export const DELETE_BOOKING = "/company/delete-booking"
 
 // api for sub company
 export const GET_SUB_COMPANY_LIST = "/company/list-sub-company";
@@ -40,7 +41,7 @@ export const GET_SUB_COMPANY_LIST = "/company/list-sub-company";
 export const ALL_VEHICLE_TYPE = "/company/all-vehicle-type"
 
 //api for account
-export const GET_ACCOUNT= "/company/list-account";
+export const GET_ACCOUNT = "/company/list-account";
 
 // api for tickets
 export const GET_TICKETS = "/company/list-ticket";

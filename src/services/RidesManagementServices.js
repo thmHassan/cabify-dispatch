@@ -1,4 +1,4 @@
-import { GET_RIDE_MANAGEMENT } from "../constants/api.route.constant";
+import { DELETE_BOOKING, GET_RIDE_MANAGEMENT } from "../constants/api.route.constant";
 import { METHOD_GET } from "../constants/method.constant";
 import ApiService from "./ApiService";
 
@@ -13,4 +13,11 @@ export async function apiGetRidesManagement(params) {
         console.log("Error in API call:", error);
         throw error;
     }
+}
+
+export async function apiDeleteRide(id) {
+    return ApiService.fetchData({
+        url: `${DELETE_BOOKING}?id=${id}`,
+        method: METHOD_GET,
+    });
 }

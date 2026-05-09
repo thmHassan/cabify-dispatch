@@ -1,13 +1,15 @@
 import React, { useEffect, useState } from "react";
 import { getTenantData } from "../../../../../../utils/functions/tokenEncryption";
+import UserDropdown from "../../../../../../components/shared/UserDropdown/UserDropdown";
+import Button from "../../../../../../components/ui/Button/Button";
+import ThreeDotsIcon from "../../../../../../components/svg/ThreeDotsIcon";
 
-const RidesManagementCard = ({ ride, onView }) => {
+const RidesManagementCard = ({ ride, onDelete }) => {
 
     const statusColors = {
         pending: "bg-[#F5C60B] text-white",
         cancelled: "bg-red-500 text-white",
         completed: "bg-green-500 text-white",
-        // arrived: "bg-blue-500 text-white",
         ongoing: "bg-[#10B981] text-white",
         default: "bg-[#EFEFEF] text-gray-600"
     };
@@ -34,7 +36,6 @@ const RidesManagementCard = ({ ride, onView }) => {
         }
 
         const currency = tenant?.currency || tenant?.data?.currency;
-
         if (currency) {
             setCurrencySymbol(currencySymbols[currency] || currency);
         }
@@ -42,20 +43,11 @@ const RidesManagementCard = ({ ride, onView }) => {
 
     const formatDistance = (distanceInMeters) => {
         if (!distanceInMeters) return "-";
-
         if (distanceUnit === "Km") {
             return `${(distanceInMeters / 1000).toFixed(2)} Km`;
         }
-
         return `${(distanceInMeters / 1609.34).toFixed(2)} Miles`;
     };
-
-    const actionOptions = [
-        {
-            label: "View",
-            onClick: () => onView(ride),
-        },
-    ];
 
     const capitalizeFirst = (value) => {
         if (!value) return "-";
@@ -67,8 +59,16 @@ const RidesManagementCard = ({ ride, onView }) => {
         return Number(amount).toFixed(2);
     };
 
-    return (
+    const actionOptions = [];
 
+    if (ride.booking_status?.toLowerCase() === "pending" && onDelete) {
+        actionOptions.push({
+            label: "Delete",
+            onClick: () => onDelete(ride),
+        });
+    }
+
+    return (
         <div className="bg-white rounded-[15px] p-4 hover:shadow-md w-full overflow-x-auto">
             <div className="flex items-center gap-3">
 
@@ -77,7 +77,7 @@ const RidesManagementCard = ({ ride, onView }) => {
                         <p className="font-semibold text-xl">{ride.booking_id}</p>
                         <p
                             className={`text-[10px] px-4 py-1 font-bold rounded-full inline-block
-                        ${statusColors[ride.booking_status] || statusColors.default}`}
+                            ${statusColors[ride.booking_status] || statusColors.default}`}
                         >
                             {capitalizeFirst(ride.booking_status)}
                         </p>
@@ -89,7 +89,7 @@ const RidesManagementCard = ({ ride, onView }) => {
                     <p className="text-[#333333] text-center font-semibold text-sm">{capitalizeFirst(ride?.driver_detail?.name || "-")}</p>
                 </div>
 
-                <div className="inline-flex flex-col px-4 py-2 rounded-full bg-[#EFEFEF] flex-shrink-0 w-[165px]" >
+                <div className="inline-flex flex-col px-4 py-2 rounded-full bg-[#EFEFEF] flex-shrink-0 w-[165px]">
                     <p className="text-xs font-semibold text-[#6C6C6C] text-center">Customer Name</p>
                     <p className="text-[#333333] text-center font-semibold text-sm">{capitalizeFirst(ride.name)}</p>
                 </div>
@@ -120,9 +120,17 @@ const RidesManagementCard = ({ ride, onView }) => {
                         {formatDistance(ride.distance)}
                     </p>
                 </div>
+
+                {ride.booking_status?.toLowerCase() === "pending" && actionOptions.length > 0 && (
+                    <UserDropdown options={actionOptions} itemData={ride}>
+                        <Button className="w-10 h-10 bg-[#EFEFEF] rounded-full flex justify-center items-center mr-4">
+                            <ThreeDotsIcon />
+                        </Button>
+                    </UserDropdown>
+                )}
+
             </div>
         </div>
-
     );
 };
 
