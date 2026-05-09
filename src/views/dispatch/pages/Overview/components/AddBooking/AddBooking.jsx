@@ -120,6 +120,7 @@ const AddBooking = ({ setIsOpen }) => {
     const [accountList, setAccountList] = useState([]);
     const [loadingSubCompanies, setLoadingSubCompanies] = useState(false);
     const [mapsApi, setMapsApi] = useState(MAPS_API);
+    const [searchApi, setSearchApi] = useState(SEARCH_API);
     const [googleService, setGoogleService] = useState(null);
     const [pickupSuggestions, setPickupSuggestions] = useState([]);
     const [destinationSuggestions, setDestinationSuggestions] = useState([]);
@@ -243,6 +244,9 @@ const AddBooking = ({ setIsOpen }) => {
                     if (data.maps_api) {
                         setMapsApi(data.maps_api.toLowerCase());
                     }
+                    if (data.search_api) {
+                        setSearchApi(data.search_api.toLowerCase());
+                    }
                 }
             } catch (err) {
                 console.error("Fetch API keys error:", err);
@@ -343,11 +347,11 @@ const AddBooking = ({ setIsOpen }) => {
     }, []);
 
     useEffect(() => {
-        if (SEARCH_API === "google" || SEARCH_API === "both") {
+        if (searchApi === "google" || searchApi === "both") {
             const { googleKey } = apiKeys;
             loadGoogleScript(googleKey).then(() => setGoogleService(new window.google.maps.places.AutocompleteService()));
         }
-    }, [SEARCH_API, apiKeys]);
+    }, [searchApi, apiKeys]);
 
     useEffect(() => {
         const storedData = localStorage.getItem('copiedBookingData');
@@ -395,7 +399,7 @@ const AddBooking = ({ setIsOpen }) => {
         if (!query || query.trim().length < 2) return;
         let list = [];
 
-        if ((SEARCH_API === "google" || SEARCH_API === "both") && googleService) {
+        if ((searchApi === "google" || searchApi === "both") && googleService) {
             googleService.getPlacePredictions(
                 {
                     input: query,
@@ -414,14 +418,14 @@ const AddBooking = ({ setIsOpen }) => {
             );
         }
 
-        if (SEARCH_API === "barikoi" || SEARCH_API === "both") {
+        if (searchApi === "barikoi" || searchApi === "both") {
             try {
                 const countryParam = COUNTRY_CODE
                     ? `&country_code=${COUNTRY_CODE.toUpperCase()}`
                     : "";
 
                 const res = await fetch(
-                    `https://barikoi.xyz/v1/api/search/autocomplete/${BARIKOI_KEY}/place?q=${encodeURIComponent(query)}${countryParam}`
+                    `https://barikoi.xyz/v1/api/search/autocomplete/${apiKeys.barikoiKey || BARIKOI_KEY}/place?q=${encodeURIComponent(query)}${countryParam}`
                 );
                 const json = await res.json();
                 const barikoiList = (json.places || []).map(p => ({
@@ -430,7 +434,7 @@ const AddBooking = ({ setIsOpen }) => {
                     lng: p.longitude,
                     source: "barikoi",
                 }));
-                list = SEARCH_API === "both" ? [...list, ...barikoiList] : barikoiList;
+                list = searchApi === "both" ? [...list, ...barikoiList] : barikoiList;
                 updateSuggestions(list, type, index);
             } catch (err) {
                 console.error("Barikoi search error:", err);
@@ -507,18 +511,37 @@ const AddBooking = ({ setIsOpen }) => {
         invalidateFare();
     };
 
+    const getCoordinatesFromAddress = async (address) => {
+        if (!address) return null;
+        try {
+            if ((searchApi === "google" || searchApi === "both") && window.google?.maps) {
+                const geocoder = new window.google.maps.Geocoder();
+                return new Promise((resolve) => {
+                    geocoder.geocode({ address }, (results, status) => {
+                        if (status === "OK" && results[0]) {
+                            resolve({ latitude: results[0].geometry.location.lat(), longitude: results[0].geometry.location.lng() });
+                        } else resolve(null);
+                    });
+                });
+            }
+            if (searchApi === "barikoi" || searchApi === "both") {
+                const res = await fetch(`https://barikoi.xyz/v1/api/search/autocomplete/${apiKeys.barikoiKey || BARIKOI_KEY}/place?q=${encodeURIComponent(address)}`);
+                const json = await res.json();
+                if (json.places?.length > 0) {
+                    return { latitude: json.places[0].latitude, longitude: json.places[0].longitude };
+                }
+            }
+            return null;
+        } catch (error) {
+            console.error("Error getting coordinates:", error);
+            return null;
+        }
+    };
+
     const validateCalculateFares = (values) => {
         const errors = {};
         if (!values.pickup_point?.trim()) errors.pickup_point = "Pickup point is required";
-        else if (!values.pickup_latitude || !values.pickup_longitude) errors.pickup_point = "Please select pickup point from suggestions";
         if (!values.destination?.trim()) errors.destination = "Destination is required";
-        else if (!values.destination_latitude || !values.destination_longitude) errors.destination = "Please select destination from suggestions";
-        if (values.via_points?.length > 0) {
-            values.via_points.forEach((vp, i) => {
-                if (vp?.trim() && (!values.via_latitude?.[i] || !values.via_longitude?.[i]))
-                    errors[`via_points_${i}`] = `Via point ${i + 1}: Please select from suggestions`;
-            });
-        }
         if (!values.vehicle) errors.vehicle = "Vehicle type is required";
         if (!values.journey_type) errors.journey_type = "Journey type is required";
         return errors;
@@ -527,15 +550,7 @@ const AddBooking = ({ setIsOpen }) => {
     const validateCreateBooking = (values) => {
         const errors = {};
         if (!values.pickup_point?.trim()) errors.pickup_point = "Pickup point is required";
-        else if (!values.pickup_latitude || !values.pickup_longitude) errors.pickup_point = "Please select pickup point from suggestions";
         if (!values.destination?.trim()) errors.destination = "Destination is required";
-        else if (!values.destination_latitude || !values.destination_longitude) errors.destination = "Please select destination from suggestions";
-        if (values.via_points?.length > 0) {
-            values.via_points.forEach((vp, i) => {
-                if (vp?.trim() && (!values.via_latitude?.[i] || !values.via_longitude?.[i]))
-                    errors[`via_points_${i}`] = `Via point ${i + 1}: Please select from suggestions`;
-            });
-        }
         if (!values.vehicle) errors.vehicle = "Vehicle type is required";
         if (!values.journey_type) errors.journey_type = "Journey type is required";
         if (!values.booking_type || values.booking_type === "outstation") errors.booking_type = "Please select a booking type";
@@ -563,19 +578,29 @@ const AddBooking = ({ setIsOpen }) => {
         setFareLoading(true);
         setFareError(null);
         try {
+            const pickupCoords = await getCoordinatesFromAddress(values.pickup_point);
+            if (!pickupCoords) { toast.error("Could not get coordinates for pickup point"); setFareLoading(false); return; }
+
+            const destinationCoords = await getCoordinatesFromAddress(values.destination);
+            if (!destinationCoords) { toast.error("Could not get coordinates for destination"); setFareLoading(false); return; }
+
             const formData = new FormData();
-            formData.append('pickup_point[latitude]', values.pickup_latitude.toString());
-            formData.append('pickup_point[longitude]', values.pickup_longitude.toString());
-            formData.append('destination_point[latitude]', values.destination_latitude.toString());
-            formData.append('destination_point[longitude]', values.destination_longitude.toString());
+            formData.append('pickup_point[latitude]', pickupCoords.latitude.toString());
+            formData.append('pickup_point[longitude]', pickupCoords.longitude.toString());
+            formData.append('destination_point[latitude]', destinationCoords.latitude.toString());
+            formData.append('destination_point[longitude]', destinationCoords.longitude.toString());
+
             if (values.via_points?.length > 0) {
                 let vi = 0;
                 for (let i = 0; i < values.via_points.length; i++) {
-                    const vLat = values.via_latitude?.[i], vLng = values.via_longitude?.[i];
-                    if (values.via_points[i]?.trim() && vLat && vLng) {
-                        formData.append(`via_point[${vi}][latitude]`, vLat.toString());
-                        formData.append(`via_point[${vi}][longitude]`, vLng.toString());
-                        vi++;
+                    const viaPoint = values.via_points[i];
+                    if (viaPoint?.trim()) {
+                        const viaCoords = await getCoordinatesFromAddress(viaPoint);
+                        if (viaCoords) {
+                            formData.append(`via_point[${vi}][latitude]`, viaCoords.latitude.toString());
+                            formData.append(`via_point[${vi}][longitude]`, viaCoords.longitude.toString());
+                            vi++;
+                        }
                     }
                 }
             }
@@ -656,22 +681,34 @@ const AddBooking = ({ setIsOpen }) => {
             formData.append('booking_date', values.booking_date || '');
             formData.append('booking_type', values.booking_type || '');
             formData.append("dispatcher_id", dispatcherId);
-            formData.append('pickup_point', `${values.pickup_latitude}, ${values.pickup_longitude}`);
-            formData.append('pickup_location', values.pickup_point);
-            if (values.pickup_plot_id) formData.append('pickup_point_id', values.pickup_plot_id);
-            formData.append('destination_point', `${values.destination_latitude}, ${values.destination_longitude}`);
-            formData.append('destination_location', values.destination);
-            if (values.destination_plot_id) formData.append('destination_point_id', values.destination_plot_id);
+            const pickupCoords = await getCoordinatesFromAddress(values.pickup_point);
+            const destinationCoords = await getCoordinatesFromAddress(values.destination);
+
+            if (pickupCoords) {
+                formData.append('pickup_point', `${pickupCoords.latitude}, ${pickupCoords.longitude}`);
+                formData.append('pickup_location', values.pickup_point);
+                if (values.pickup_plot_id) formData.append('pickup_point_id', values.pickup_plot_id);
+            }
+
+            if (destinationCoords) {
+                formData.append('destination_point', `${destinationCoords.latitude}, ${destinationCoords.longitude}`);
+                formData.append('destination_location', values.destination);
+                if (values.destination_plot_id) formData.append('destination_point_id', values.destination_plot_id);
+            }
+
             if (values.via_points?.length > 0) {
                 let vi = 0;
                 for (let i = 0; i < values.via_points.length; i++) {
-                    const vLat = values.via_latitude?.[i], vLng = values.via_longitude?.[i];
-                    if (values.via_points[i]?.trim() && vLat && vLng) {
-                        formData.append(`via_point[${vi}][latitude]`, vLat.toString());
-                        formData.append(`via_point[${vi}][longitude]`, vLng.toString());
-                        formData.append(`via_location[${vi}]`, values.via_points[i]);
-                        if (values.via_plot_id?.[i]) formData.append(`via_point_id[${vi}]`, values.via_plot_id[i]);
-                        vi++;
+                    const viaPoint = values.via_points[i];
+                    if (viaPoint?.trim()) {
+                        const viaCoords = await getCoordinatesFromAddress(viaPoint);
+                        if (viaCoords) {
+                            formData.append(`via_point[${vi}][latitude]`, viaCoords.latitude.toString());
+                            formData.append(`via_point[${vi}][longitude]`, viaCoords.longitude.toString());
+                            formData.append(`via_location[${vi}]`, viaPoint);
+                            if (values.via_plot_id?.[i]) formData.append(`via_point_id[${vi}]`, values.via_plot_id[i]);
+                            vi++;
+                        }
                     }
                 }
             }
@@ -775,9 +812,9 @@ const AddBooking = ({ setIsOpen }) => {
             setDestinationPlotData={setDestinationPlotData}
             onPickupConfirmed={handlePickupConfirmed}
             onDestinationConfirmed={handleDestinationConfirmed}
-            SEARCH_API={SEARCH_API}
+            SEARCH_API={searchApi}
         />
-    ), [mapsApi, apiKeys, stablePickupCoords, stableDestinationCoords, stableViaCoords, SEARCH_API, plotsData]);
+    ), [mapsApi, apiKeys, stablePickupCoords, stableDestinationCoords, stableViaCoords, searchApi, plotsData]);
 
     return (
         <>
