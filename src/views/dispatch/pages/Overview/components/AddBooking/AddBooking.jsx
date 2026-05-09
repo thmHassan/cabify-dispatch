@@ -367,7 +367,9 @@ const AddBooking = ({ setIsOpen }) => {
                 }
                 if (parsedData.via_latitude?.length > 0) {
                     const viaC = [];
-                    parsedData.via_latitude.forEach((lat, i) => {
+                    // Limit to 2 via stops when loading copied data
+                    const limitedViaLat = parsedData.via_latitude.slice(0, 2);
+                    limitedViaLat.forEach((lat, i) => {
                         const lng = parsedData.via_longitude[i];
                         if (lat && lng) {
                             viaC[i] = { lat: parseFloat(lat), lng: parseFloat(lng) };
@@ -376,6 +378,11 @@ const AddBooking = ({ setIsOpen }) => {
                     });
                     setStableViaCoords(viaC);
                 }
+
+                // Also limit via_points if they exist
+                if (parsedData.via_points) parsedData.via_points = parsedData.via_points.slice(0, 2);
+                if (parsedData.via_plot_id) parsedData.via_plot_id = parsedData.via_plot_id.slice(0, 2);
+
                 localStorage.removeItem('copiedBookingData');
             } catch {
                 localStorage.removeItem('copiedBookingData');
@@ -976,13 +983,20 @@ const AddBooking = ({ setIsOpen }) => {
                                                             />
                                                             <FieldError message={calculateErrors.pickup_point || bookingErrors.pickup_point} />
                                                         </div>
-                                                        <div className="flex justify-end">
-                                                            <button type="button"
-                                                                onClick={() => { setFieldValue("via_points", [...values.via_points, ""]); invalidateFare(); }}
-                                                                className="px-2 py-2 w-24 border rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100">
-                                                                +Via
-                                                            </button>
-                                                        </div>
+                                                        {values.via_points.length < 2 && (
+                                                            <div className="flex justify-end">
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => {
+                                                                        setFieldValue("via_points", [...values.via_points, ""]);
+                                                                        invalidateFare();
+                                                                    }}
+                                                                    className="px-2 py-2 w-24 border rounded-lg transition-colors bg-blue-50 text-blue-600 hover:bg-blue-100 border-blue-200"
+                                                                >
+                                                                    +Via
+                                                                </button>
+                                                            </div>
+                                                        )}
                                                     </div>
 
                                                     {/* ── Via Points ── */}
