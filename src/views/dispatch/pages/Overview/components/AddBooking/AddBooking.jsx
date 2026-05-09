@@ -988,8 +988,12 @@ const AddBooking = ({ setIsOpen }) => {
                                                                 <button
                                                                     type="button"
                                                                     onClick={() => {
-                                                                        setFieldValue("via_points", [...values.via_points, ""]);
-                                                                        invalidateFare();
+                                                                        if (values.via_points.length < 2) {
+                                                                            setFieldValue("via_points", [...values.via_points, ""]);
+                                                                            invalidateFare();
+                                                                        } else {
+                                                                            toast.error("Maximum 2 via stops allowed");
+                                                                        }
                                                                     }}
                                                                     className="px-2 py-2 w-24 border rounded-lg transition-colors bg-blue-50 text-blue-600 hover:bg-blue-100 border-blue-200"
                                                                 >
