@@ -10,6 +10,7 @@ import SosIcon from "../../components/svg/SosIcon";
 import LostFoundIcon from "../../components/svg/LostFoundIcon";
 import * as KEY from "../routes.key.constant/client.route.key.constant";
 import * as PATH from "../routes.path.constant/client.route.path.constant";
+import PlotsIcon from "../../components/svg/PlotsIcon";
 
 const userNavRoutes = [
   {
@@ -94,6 +95,20 @@ const userNavRoutes = [
           size: 20,
         },
         route: PATH.DRIVERS_MANAGEMENT_PATH,
+        active: [],
+        isSubMenu: false,
+        subMenu: [],
+        isStatic: false,
+      },
+      {
+        key: KEY.PLOTS_KEY,
+        title: "Plots",
+        icon: {
+          active: PlotsIcon,
+          component: PlotsIcon,
+          size: 20,
+        },
+        route: PATH.PLOTS_PATH,
         active: [],
         isSubMenu: false,
         subMenu: [],

@@ -428,7 +428,7 @@ const OverViewDetails = ({ filter }) => {
                                     <Col w="w-[130px]">Fare</Col>
                                     <Col w="w-[170px]">Vehicle</Col>
                                     <Col w="w-[170px]">Sub Company</Col>
-                                    <Col w="w-[100px]">OTP</Col>
+                                    {/* <Col w="w-[100px]">OTP</Col> */}
                                     <Col w="w-[170px]">Status</Col>
                                 </div>
 
@@ -485,11 +485,11 @@ const OverViewDetails = ({ filter }) => {
                                                 </div>
                                             </Col>
 
-                                            <Col w="w-[100px]">
+                                            {/* <Col w="w-[100px]">
                                                 {b.booking_status && b.otp ? (
                                                     <span className="text-xs text-gray-500">{b.otp}</span>
                                                 ) : "-"}
-                                            </Col>
+                                            </Col> */}
 
                                             <Col w="w-[170px]">
                                                 <div className="flex flex-col gap-1">

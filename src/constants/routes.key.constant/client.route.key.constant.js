@@ -10,4 +10,5 @@ export const RIDES_MANAGEMENT_KEY = "rides-management";
 export const SOS_KEY = "sos";
 export const TICKETS_KEY = "tickets";
 export const USERS_KEY = "users";
+export const PLOTS_KEY = "plots";
 

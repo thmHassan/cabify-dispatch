@@ -57,3 +57,12 @@ export const SEND_NOTIFICATION = "/company/send-notification"
 
 export const GATE_DISPATCH_SYSTEM = "/company/get-dispatch-system"
 export const GET_COMPANY_API_KEYS = "/company/get-api-keys"
+
+export const GET_PLOTS = "/company/list-plot";
+export const CREATE_PLOT = "/company/create-plot";
+export const EDIT_PLOT = "/company/edit-plot";
+export const DELETE_PLOT = "/company/delete-plot";
+export const GET_PLOT_BY_ID = "/company/edit-plot";
+export const MANAGE_PLOT = "/company/all-plot"
+export const ASSIGN_BACKUP_PLOT = "/company/store-backup-plot"
+export const GET_BACKUP_PLOT = "/company/get-backup-plot"

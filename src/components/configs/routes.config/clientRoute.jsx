@@ -52,6 +52,12 @@ const clientRoute = [
     authority: [],
   },
   {
+    key: KEY.PLOTS_KEY,
+    path: PATH.PLOTS_PATH,
+    component: lazy(() => import("../../../views/dispatch/pages/Plots")),
+    authority: [],
+  },
+  {
     key: KEY.SOS_KEY,
     path: PATH.SOS_PATH,
     component: lazy(() => import("../../../views/dispatch/pages/SOS")),

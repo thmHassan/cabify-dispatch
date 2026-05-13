@@ -10,3 +10,4 @@ export const RIDES_MANAGEMENT_PATH = "/rides-management";
 export const SOS_PATH = "/sos";
 export const TICKETS_PATH = "/tickets";
 export const USERS_PATH = "/users";
+export const PLOTS_PATH = "/plots";
