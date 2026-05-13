@@ -128,7 +128,7 @@ const StatusMenu = ({
             if (action === "Copy Booking") {
                 try {
                     const dispatcherName = getDispatcherName();
-                    await recordDispatcherAction(bookingId, "copy booking", dispatcherName);
+                    await recordDispatcherAction(bookingId, "copied this booking", dispatcherName);
                     
                     let viaPoints = [];
                     let viaLatitudes = [];
