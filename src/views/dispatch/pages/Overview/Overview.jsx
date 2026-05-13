@@ -15,6 +15,7 @@ import CancelledIcon from "../../../../components/svg/CancelledIcon";
 import { useAppSelector } from "../../../../store";
 import { apiGetCompanyApiKeys } from "../../../../services/SettingsConfigurationServices";
 import { getDashboardCards, apiGetAllPlot } from "../../../../services/AddBookingServices";
+import { apiGetPlot } from "../../../../services/PlotService";
 import CallQueueModel from "./components/CallQueueModel/CallQueueModel";
 import RedCarIcon from "../../../../components/svg/RedCarIcon";
 import GreenCarIcon from "../../../../components/svg/GreenCarIcon";
@@ -398,11 +399,29 @@ const parseDriverData = (rawData) => {
 const parseCoordinates = (plot) => {
   if (!plot) return [];
   try {
+    // 1. Try GeoJSON features (new apiGetPlot format)
+    if (plot.features) {
+      const feature = typeof plot.features === "string" ? JSON.parse(plot.features) : plot.features;
+      let geometry = feature.geometry;
+      if (typeof geometry === "string") geometry = JSON.parse(geometry);
+      let coords = geometry?.coordinates;
+      if (typeof coords === "string") coords = JSON.parse(coords);
+      if (Array.isArray(coords) && Array.isArray(coords[0])) {
+        // GeoJSON is typically [lng, lat]
+        return coords[0].map((p) => ({ lat: Number(p[1]), lng: Number(p[0]) }));
+      }
+    }
+
+    // 2. Try coordinates property (old apiGetAllPlot format)
     let coords = plot.coordinates;
     if (typeof coords === "string") coords = JSON.parse(coords);
-    if (!Array.isArray(coords)) return [];
-    return coords.map((c) => ({ lat: Number(c.lat), lng: Number(c.lng) }));
-  } catch { return []; }
+    if (Array.isArray(coords)) {
+      return coords.map((c) => ({ lat: Number(c.lat), lng: Number(c.lng) }));
+    }
+  } catch (error) {
+    console.error("Parse coordinates error:", error);
+  }
+  return [];
 };
 
 const buildPopupHTML = (data) => {
@@ -827,14 +846,16 @@ const Overview = () => {
   const [apiKeys, setApiKeys] = useState({ googleKey: GOOGLE_KEY, barikoiKey: BARIKOI_KEY, searchApi: "google", countryOfUse: null });
   const countryCenter = React.useMemo(() => getCountryCenter(apiKeys.countryOfUse), [apiKeys.countryOfUse]);
   const [plotsData, setPlotsData] = useState([]);
+  const [listPlots, setListPlots] = useState([]);
+  const allPlots = React.useMemo(() => [...plotsData, ...listPlots], [plotsData, listPlots]);
 
   const mapRef = useRef(null);
   const mapInstance = useRef(null);
   const markers = useRef({});
   const socket = useSocket();
   const socketRef = useRef(socket);
-  const plotsDataRef = useRef(plotsData);
-  useEffect(() => { plotsDataRef.current = plotsData; }, [plotsData]);
+  const plotsDataRef = useRef(allPlots);
+  useEffect(() => { plotsDataRef.current = allPlots; }, [allPlots]);
 
   const [dashboardCounts, setDashboardCounts] = useState({ todaysBooking: 0, preBookings: 0, recentJobs: 0, completed: 0, noShow: 0, cancelled: 0 });
   const [driverData, setDriverData] = useState({});
@@ -866,9 +887,16 @@ const Overview = () => {
       try {
         const res = await apiGetAllPlot({ page: 1, limit: 100 });
         if (res.data?.success) setPlotsData(res.data.data?.data || res.data.data || []);
-      } catch (err) { console.error("Fetch plots error:", err); }
+      } catch (err) { console.error("Fetch plotsData error:", err); }
+    };
+    const fetchListPlots = async () => {
+      try {
+        const res = await apiGetPlot({ page: 1, perPage: 1000 });
+        if (res.data?.success) setListPlots(res.data.list?.data || []);
+      } catch (err) { console.error("Fetch listPlots error:", err); }
     };
     fetchPlots();
+    fetchListPlots();
   }, []);
 
   useEffect(() => { socketRef.current = socket; }, [socket]);
@@ -1058,7 +1086,7 @@ const Overview = () => {
     return () => window.removeEventListener("openAddBookingModal", handleOpenModal);
   }, []);
 
-  const mapProps = { mapRef, mapInstance, markers, driverData, setDriverData, socket, countryCenter, plotsData, apiKeys, waitingDrivers, onJobDrivers };
+  const mapProps = { mapRef, mapInstance, markers, driverData, setDriverData, socket, countryCenter, plotsData: allPlots, apiKeys, waitingDrivers, onJobDrivers };
 
   return (
     <div className="h-full">

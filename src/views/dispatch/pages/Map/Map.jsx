@@ -10,6 +10,7 @@ import RedCarIcon from "../../../../components/svg/RedCarIcon";
 import GreenCarIcon from "../../../../components/svg/GreenCarIcon";
 import { getTenantData } from "../../../../utils/functions/tokenEncryption";
 import { apiGetCompanyApiKeys } from "../../../../services/SettingsConfigurationServices";
+import { apiGetPlot } from "../../../../services/PlotService";
 
 const GOOGLE_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "AIzaSyDTlV1tPVuaRbtvBQu4-kjDhTV54tR4cDU";
 const BARIKOI_KEY = import.meta.env.VITE_BARIKOI_API_KEY || "bkoi_a468389d0211910bd6723de348e0de79559c435f07a17a5419cbe55ab55a890a";
@@ -212,6 +213,30 @@ const animateMarker = (marker, newPosition, duration = 1000) => {
   tick();
 };
 
+const parseCoordinates = (plot) => {
+  if (!plot) return [];
+  try {
+    if (plot.features) {
+      const feature = typeof plot.features === "string" ? JSON.parse(plot.features) : plot.features;
+      let geometry = feature.geometry;
+      if (typeof geometry === "string") geometry = JSON.parse(geometry);
+      let coords = geometry?.coordinates;
+      if (typeof coords === "string") coords = JSON.parse(coords);
+      if (Array.isArray(coords) && Array.isArray(coords[0])) {
+        return coords[0].map((p) => ({ lat: Number(p[1]), lng: Number(p[0]) }));
+      }
+    }
+    let coords = plot.coordinates;
+    if (typeof coords === "string") coords = JSON.parse(coords);
+    if (Array.isArray(coords)) {
+      return coords.map((c) => ({ lat: Number(c.lat), lng: Number(c.lng) }));
+    }
+  } catch (error) {
+    console.error("Parse coordinates error:", error);
+  }
+  return [];
+};
+
 const parseDriverData = (rawData) => {
   try {
     let data = rawData;
@@ -246,8 +271,29 @@ const makeGoogleIcon = (status) => {
   };
 };
 
-const GoogleMapView = ({ mapRef, mapInstance, markers, driverData, setDriverData, selectedStatus, searchQuery, socket, apiKeys }) => {
+const GoogleMapView = ({ mapRef, mapInstance, markers, driverData, setDriverData, selectedStatus, searchQuery, socket, apiKeys, plotsData }) => {
   const socketRef = useRef(socket);
+  const plotPolygons = useRef([]);
+
+  const renderPlots = () => {
+    if (!mapInstance.current || !plotsData) return;
+    plotPolygons.current.forEach(p => p.setMap(null));
+    plotPolygons.current = [];
+    plotsData.forEach(plot => {
+      const coords = parseCoordinates(plot);
+      if (coords.length === 0) return;
+      const polygon = new window.google.maps.Polygon({
+        paths: coords, strokeColor: "#1F41BB", strokeOpacity: 0.8, strokeWeight: 2,
+        fillColor: "#1F41BB", fillOpacity: 0.1, map: mapInstance.current,
+      });
+      plotPolygons.current.push(polygon);
+    });
+  };
+
+  useEffect(() => {
+    if (mapInstance.current && plotsData) renderPlots();
+  }, [plotsData, mapInstance.current]);
+
   useEffect(() => { socketRef.current = socket; }, [socket]);
 
   useEffect(() => {
@@ -338,7 +384,7 @@ const GoogleMapView = ({ mapRef, mapInstance, markers, driverData, setDriverData
   return <div ref={mapRef} className="w-full h-[550px] rounded-xl border border-gray-300 shadow-sm" />;
 };
 
-const BarikoiMapView = ({ mapRef, mapInstance, markers, driverData, setDriverData, selectedStatus, searchQuery, socket, apiKeys }) => {
+const BarikoiMapView = ({ mapRef, mapInstance, markers, driverData, setDriverData, selectedStatus, searchQuery, socket, apiKeys, plotsData }) => {
   const [isLoaded, setIsLoaded] = useState(false);
   const socketRef = useRef(socket);
   useEffect(() => { socketRef.current = socket; }, [socket]);
@@ -351,6 +397,42 @@ const BarikoiMapView = ({ mapRef, mapInstance, markers, driverData, setDriverDat
     ro.observe(mapRef.current);
     return () => ro.disconnect();
   }, []);
+
+  const plotsRendered = useRef(false);
+
+  const renderPlots = (map) => {
+    if (!map || !plotsData || plotsData.length === 0) return;
+    const doRender = () => {
+      try {
+        ["plots-outline", "plots-fill"].forEach(id => {
+          if (map.getLayer(id)) map.removeLayer(id);
+        });
+        if (map.getSource("plots")) map.removeSource("plots");
+        const features = plotsData.map(plot => {
+          const coords = parseCoordinates(plot);
+          if (coords.length === 0) return null;
+          return {
+            type: "Feature",
+            properties: { name: plot.name || plot.plot_name || "Plot" },
+            geometry: { type: "Polygon", coordinates: [coords.map(c => [c.lng, c.lat])] },
+          };
+        }).filter(Boolean);
+        if (features.length === 0) return;
+        map.addSource("plots", { type: "geojson", data: { type: "FeatureCollection", features } });
+        map.addLayer({ id: "plots-fill", type: "fill", source: "plots", paint: { "fill-color": "#1F41BB", "fill-opacity": 0.15 } });
+        map.addLayer({ id: "plots-outline", type: "line", source: "plots", paint: { "line-color": "#1F41BB", "line-width": 2.5, "line-opacity": 0.9 } });
+        plotsRendered.current = true;
+      } catch (err) { console.warn("Plot render error:", err); }
+    };
+    if (map.isStyleLoaded()) doRender();
+    else map.once("idle", doRender);
+  };
+
+  useEffect(() => {
+    if (isLoaded && mapInstance.current && plotsData?.length > 0) {
+      renderPlots(mapInstance.current);
+    }
+  }, [isLoaded, plotsData]);
 
   useEffect(() => {
     if (!apiKeys.barikoiKey) return;
@@ -559,6 +641,9 @@ const Map = () => {
     barikoiKey: BARIKOI_KEY,
     countryOfUse: getTenantData()?.data?.country_of_use || "IN",
   });
+  const [plotsData, setPlotsData] = useState([]);
+  const plotsDataRef = useRef(plotsData);
+  useEffect(() => { plotsDataRef.current = plotsData; }, [plotsData]);
 
   useEffect(() => {
     const fetchApiKeys = async () => {
@@ -578,6 +663,16 @@ const Map = () => {
   }, []);
 
   useEffect(() => {
+    const fetchPlots = async () => {
+      try {
+        const res = await apiGetPlot({ page: 1, perPage: 1000 });
+        if (res.data?.success) setPlotsData(res.data.list?.data || []);
+      } catch (err) { console.error("Fetch plots error:", err); }
+    };
+    fetchPlots();
+  }, []);
+
+  useEffect(() => {
     const timer = setTimeout(() => localStorage.setItem("driverDataCache", JSON.stringify(driverData)), 2000);
     return () => clearTimeout(timer);
   }, [driverData]);
@@ -594,9 +689,20 @@ const Map = () => {
       try { data = typeof rawData === "string" ? JSON.parse(rawData) : rawData; } catch { data = rawData; }
       const driverId = data?.id || data?.driver_id || data?.dispatcher_id;
       if (driverId) {
-        setDriverData(prev => {
-          const lat = data.latitude || data.lat, lng = data.longitude || data.lng;
-          if (prev[driverId]) return { ...prev, [driverId]: { ...prev[driverId], ...data, status, driving_status: status } };
+      setDriverData(prev => {
+          let lat = data.latitude || data.lat, lng = data.longitude || data.lng;
+          if ((lat == null || lng == null) && (data.plot_id || data.plot)) {
+            const pId = data.plot_id || data.plot;
+            const plot = plotsDataRef.current.find(p => p.id == pId || p.plot_id == pId);
+            if (plot) {
+              const coords = parseCoordinates(plot);
+              if (coords.length > 0) {
+                lat = coords.reduce((s, c) => s + c.lat, 0) / coords.length;
+                lng = coords.reduce((s, c) => s + c.lng, 0) / coords.length;
+              }
+            }
+          }
+          if (prev[driverId]) return { ...prev, [driverId]: { ...prev[driverId], ...data, status, driving_status: status, position: (lat && lng) ? { lat: Number(lat), lng: Number(lng) } : prev[driverId].position } };
           else if (lat && lng) return { ...prev, [driverId]: { ...data, position: { lat: Number(lat), lng: Number(lng) }, status, driving_status: status } };
           return prev;
         });
@@ -614,7 +720,7 @@ const Map = () => {
     };
   }, [socket]);
 
-  const sharedProps = { mapRef, mapInstance, markers, driverData, setDriverData, selectedStatus, searchQuery, socket, apiKeys };
+  const sharedProps = { mapRef, mapInstance, markers, driverData, setDriverData, selectedStatus, searchQuery, socket, apiKeys, plotsData };
 
   return (
     <div className="px-4 py-5 sm:p-6 lg:p-10 min-h-[calc(100vh-85px)]">
@@ -1178,7 +1284,11 @@ export default Map;
 //             <CustomSelect variant={2} options={MAP_STATUS_OPTIONS} value={selectedStatus} onChange={setSelectedStatus} placeholder="Driver Status" />
 //           </div>
 //         </div>
-//         {mapType === "barikoi" ? <BarikoiMapView {...sharedProps} /> : <GoogleMapView {...sharedProps} />}
+//         {mapType === "barikoi" && apiKeys.barikoiKey ? (
+//                 <BarikoiMapView {...sharedProps} />
+//               ) : apiKeys.googleKey ? (
+//                 <GoogleMapView {...sharedProps} />
+//               ) : null}
 //         <div className="flex justify-center gap-10 flex-wrap py-4 mt-3 border-t">
 //           <div className="flex items-center gap-2">
 //             <RedCarIcon width={30} height={30} />
