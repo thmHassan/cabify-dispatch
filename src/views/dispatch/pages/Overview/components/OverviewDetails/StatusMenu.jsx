@@ -12,10 +12,12 @@ import SMSToCustomerIcon from "../../../../../../components/svg/SMSToCustomerIco
 import { createPortal } from "react-dom";
 import toast from "react-hot-toast";
 import {
+    recordDispatcherAction,
     sendConfirmationEmail,
     startAutoDispatch,
     updateBookingStatus,
 } from "../../../../../../services/AddBookingServices";
+import { getDispatcherName } from "../../../../../../utils/auth";
 
 const StatusMenu = ({
     anchorRef,
@@ -72,7 +74,8 @@ const StatusMenu = ({
 
             if (action === "Dispatch Job") {
                 try {
-                    const res = await startAutoDispatch(bookingId);
+                    const dispatcherName = getDispatcherName();
+                    const res = await startAutoDispatch(bookingId, dispatcherName);
                     if (res?.data?.success) {
                         toast.success("Auto dispatch started");
                         onStatusUpdate({ ...bookingData, booking_status: "pending" });
@@ -110,7 +113,8 @@ const StatusMenu = ({
             }
 
             if (action === "Send Confirmation Email") {
-                const res = await sendConfirmationEmail(bookingId);
+                const dispatcherName = getDispatcherName();
+                const res = await sendConfirmationEmail(bookingId, dispatcherName);
                 if (res?.data?.success) {
                     toast.success("Confirmation email sent successfully");
                 } else {
@@ -123,6 +127,9 @@ const StatusMenu = ({
 
             if (action === "Copy Booking") {
                 try {
+                    const dispatcherName = getDispatcherName();
+                    await recordDispatcherAction(bookingId, "copy booking", dispatcherName);
+                    
                     let viaPoints = [];
                     let viaLatitudes = [];
                     let viaLongitudes = [];
@@ -246,7 +253,8 @@ const StatusMenu = ({
                     return;
             }
 
-            const res = await updateBookingStatus(bookingId, payload);
+            const dispatcherName = getDispatcherName();
+            const res = await updateBookingStatus(bookingId, payload, dispatcherName);
             if (res?.data?.success) {
                 toast.success(res.data.message || "Status updated");
                 onStatusUpdate({ ...bookingData, ...payload, ...(res.data.data || {}) });

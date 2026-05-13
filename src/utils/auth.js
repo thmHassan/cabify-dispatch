@@ -6,3 +6,12 @@ export const getDispatcherId = () => {
         return null;
     }
 };
+
+export const getDispatcherName = () => {
+    try {
+        const user = JSON.parse(localStorage.getItem("auth_user"));
+        return user?.name ?? "Dispatcher";
+    } catch (e) {
+        return "Dispatcher";
+    }
+};

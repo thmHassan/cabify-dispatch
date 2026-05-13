@@ -430,6 +430,7 @@ const OverViewDetails = ({ filter }) => {
                                     <Col w="w-[170px]">Sub Company</Col>
                                     {/* <Col w="w-[100px]">OTP</Col> */}
                                     <Col w="w-[170px]">Status</Col>
+                                    <Col w="w-[230px]">Action</Col>
                                 </div>
 
                                 {bookings.map((b, index) => {
@@ -524,6 +525,10 @@ const OverViewDetails = ({ filter }) => {
                                                         />
                                                     )}
                                                 </div>
+                                            </Col>
+
+                                            <Col w="w-[230px]" className="truncate" title={b.dispatcher_action}>
+                                                {b.dispatcher_action ?? "-"}
                                             </Col>
                                         </div>
                                     );

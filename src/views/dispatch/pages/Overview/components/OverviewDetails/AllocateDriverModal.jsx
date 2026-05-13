@@ -3,6 +3,7 @@ import toast from "react-hot-toast";
 import { apiGetDriverManagement } from "../../../../../../services/DriverManagementService";
 import { assignDriverToBooking } from "../../../../../../services/AddBookingServices";
 import Button from "../../../../../../components/ui/Button/Button";
+import { getDispatcherName } from "../../../../../../utils/auth";
 
 const AllocateDriverModal = ({ bookingData, onClose, onSuccess }) => {
     const [drivers, setDrivers] = useState([]);
@@ -49,10 +50,12 @@ const AllocateDriverModal = ({ bookingData, onClose, onSuccess }) => {
 
         setSaving(true);
         try {
+            const dispatcherName = getDispatcherName();
             const response = await assignDriverToBooking(
                 bookingData.id,
                 selectedDriverId,
-                assignmentType
+                assignmentType,
+                dispatcherName
             );
 
             if (response?.data?.success) {

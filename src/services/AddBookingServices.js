@@ -79,16 +79,21 @@ export const getBookings = ({
     return socketApi.get("/bookings", { params });
 };
 
-export const sendConfirmationEmail = (bookingId) => {
-    return socketApi.post(`/bookings/${bookingId}/send-confirmation-email`);
+export const sendConfirmationEmail = (bookingId, dispatcherName) => {
+    return socketApi.post(`/bookings/${bookingId}/send-confirmation-email`, {
+        dispatcher_name: dispatcherName
+    });
 };
 
 export const getDashboardCards = () => {
     return socketApi.get("/bookings/dashboard-cards");
 };
 
-export const updateBookingStatus = (bookingId, data) => {
-    return socketApi.put(`/bookings/${bookingId}/status`, data);
+export const updateBookingStatus = (bookingId, data, dispatcherName) => {
+    return socketApi.put(`/bookings/${bookingId}/status`, {
+        ...data,
+        dispatcher_name: dispatcherName
+    });
 };
 
 export const followDriverTracking = (bookingId) => {
@@ -101,20 +106,31 @@ export const followDriverTracking = (bookingId) => {
 //     });
 // };
 
-export const assignDriverToBooking = (bookingId, driverId, assignmentType = "allocate_driver") => {
+export const assignDriverToBooking = (bookingId, driverId, assignmentType = "allocate_driver", dispatcherName) => {
     return socketApi.put(`/bookings/${bookingId}/assign-driver`, {
         driver_id: driverId,
         assignment_type: assignmentType,
+        dispatcher_name: dispatcherName,
     });
 };
 
-export const startAutoDispatch = (bookingId) => {
-    return socketApi.post(`/bookings/${bookingId}/start-auto-dispatch`);
+export const startAutoDispatch = (bookingId, dispatcherName) => {
+    return socketApi.post(`/bookings/${bookingId}/start-auto-dispatch`, {
+        dispatcher_name: dispatcherName
+    });
 };
 
-export const setFollowOnJob = (job1Id, followOnBookingId) => {
+export const recordDispatcherAction = (bookingId, action, dispatcherName) => {
+    return socketApi.post(`/bookings/${bookingId}/record-action`, {
+        action: action,
+        dispatcher_name: dispatcherName
+    });
+};
+
+export const setFollowOnJob = (job1Id, followOnBookingId, dispatcherName) => {
     return socketApi.post(`/bookings/${job1Id}/set-follow-on-job`, {
         follow_on_booking_id: followOnBookingId,
+        dispatcher_name: dispatcherName,
     });
 };
 

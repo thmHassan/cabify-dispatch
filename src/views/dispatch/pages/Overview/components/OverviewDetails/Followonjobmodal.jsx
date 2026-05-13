@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { getBookings, setFollowOnJob } from "../../../../../../services/AddBookingServices";
 import toast from "react-hot-toast";
+import { getDispatcherName } from "../../../../../../utils/auth";
 
 const FollowOnJobModal = ({ bookingData, onClose, onSuccess }) => {
     const [pendingBookings, setPendingBookings] = useState([]);
@@ -48,7 +49,8 @@ const FollowOnJobModal = ({ bookingData, onClose, onSuccess }) => {
         }
         setSubmitting(true);
         try {
-            const res = await setFollowOnJob(bookingData.id, selectedBookingId);
+            const dispatcherName = getDispatcherName();
+            const res = await setFollowOnJob(bookingData.id, selectedBookingId, dispatcherName);
             if (res?.data?.success) {
                 toast.success(res.data.message || "Follow-on job linked successfully");
                 onSuccess?.({ job1: bookingData, job2_id: selectedBookingId, message: res.data.message });
