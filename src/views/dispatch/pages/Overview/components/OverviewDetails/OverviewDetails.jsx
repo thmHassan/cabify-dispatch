@@ -527,7 +527,7 @@ const OverViewDetails = ({ filter }) => {
                                                 </div>
                                             </Col>
 
-                                            <Col w="w-[230px]" className="truncate" title={b.dispatcher_action}>
+                                            <Col w="w-[230px]" className="whitespace-normal break-words">
                                                 {b.dispatcher_action ?? "-"}
                                             </Col>
                                         </div>
