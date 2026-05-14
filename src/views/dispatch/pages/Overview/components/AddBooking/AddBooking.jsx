@@ -566,7 +566,6 @@ const AddBooking = ({ setIsOpen }) => {
             if (values.multi_start_at && values.multi_end_at && new Date(values.multi_start_at) > new Date(values.multi_end_at))
                 errors.multi_end_at = "End date cannot be before start date";
         }
-        if (shouldDisableDispatchOptions(values) && !values.driver) errors.driver = "Driver is required for future or multi bookings";
         if (!fareCalculated) errors.fare = "Please calculate fares before creating booking";
         return errors;
     };
@@ -1251,8 +1250,7 @@ const AddBooking = ({ setIsOpen }) => {
                                                                                 }
                                                                             }}
                                                                             disabled={loadingSubCompanies}
-                                                                            className={`border-[1.5px] shadow-lg rounded-[8px] px-3 py-2 w-full bg-gray-50 ${bookingErrors.driver ? 'border-red-500' : 'border-[#8D8D8D]'}`}
-                                                                            required={shouldDisableDispatchOptions(values)}>
+                                                                            className={`border-[1.5px] shadow-lg rounded-[8px] px-3 py-2 w-full bg-gray-50 ${bookingErrors.driver ? 'border-red-500' : 'border-[#8D8D8D]'}`}>
                                                                             <option value="">Select Driver</option>
                                                                             {driverList?.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}
                                                                         </select>
@@ -1265,15 +1263,15 @@ const AddBooking = ({ setIsOpen }) => {
                                                         {/* ── Auto Dispatch / Bidding ── */}
                                                         <div className="border mt-2 max-sm:w-full rounded-lg h-28 md:mt-0 px-4 py-4 bg-white shadow-sm">
                                                             <div className="flex flex-col gap-3">
-                                                                <label className={`flex items-center gap-2 ${shouldDisableDispatchOptions(values) || isManualDispatchOnly || values.driver ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                                                                <label className={`flex items-center gap-2 ${isManualDispatchOnly || values.driver ? 'opacity-50 cursor-not-allowed' : ''}`}>
                                                                     <input type="checkbox" checked={values.auto_dispatch}
-                                                                        disabled={shouldDisableDispatchOptions(values) || isManualDispatchOnly || values.driver}
+                                                                        disabled={isManualDispatchOnly || values.driver}
                                                                         onChange={(e) => { setFieldValue("auto_dispatch", e.target.checked); if (e.target.checked) setFieldValue("booking_system", "auto_dispatch"); }} />
                                                                     Auto Dispatch
                                                                 </label>
-                                                                <label className={`flex items-center gap-2 ${shouldDisableDispatchOptions(values) || isManualDispatchOnly || values.driver ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                                                                <label className={`flex items-center gap-2 ${isManualDispatchOnly || values.driver ? 'opacity-50 cursor-not-allowed' : ''}`}>
                                                                     <input type="checkbox" checked={values.bidding}
-                                                                        disabled={shouldDisableDispatchOptions(values) || isManualDispatchOnly || values.driver}
+                                                                        disabled={isManualDispatchOnly || values.driver}
                                                                         onChange={(e) => { setFieldValue("bidding", e.target.checked); if (e.target.checked) setFieldValue("booking_system", "bidding"); }} />
                                                                     Bidding
                                                                 </label>

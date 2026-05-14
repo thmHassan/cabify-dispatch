@@ -117,7 +117,7 @@ const OverViewDetails = ({ filter }) => {
 
 
         const handleNewBooking = (booking) => {
-            console.log("🆕 [Socket] new-booking-event:", booking);
+            console.log("new-booking-event:", booking);
             if (!booking || booking.id == null) return;
             setBookings((prev) => {
                 const safe = prev.filter(Boolean);
@@ -127,7 +127,7 @@ const OverViewDetails = ({ filter }) => {
         };
 
         const handleDriverAssignmentPending = (data) => {
-            console.log("⏳ [Socket] driver-assignment-pending:", data);
+            console.log("driver-assignment-pending:", data);
             const updatedBooking = data?.booking ?? null;
             if (updatedBooking?.id) {
                 setBookings((prev) =>
@@ -138,7 +138,7 @@ const OverViewDetails = ({ filter }) => {
         };
 
         const handleJobAccepted = (data) => {
-            console.log("✅ [Socket] job-accepted-by-driver:", data);
+            console.log("job-accepted-by-driver:", data);
             if (!data?.booking_id) return;
             setBookings((prev) =>
                 safeMap(prev, (b) =>
@@ -156,7 +156,7 @@ const OverViewDetails = ({ filter }) => {
         };
 
         const handleJobRejected = (data) => {
-            console.log("❌ [Socket] job-rejected-by-driver:", data);
+            console.log("job-rejected-by-driver:", data);
             if (!data?.booking_id) return;
             setBookings((prev) =>
                 safeMap(prev, (b) =>
@@ -172,7 +172,7 @@ const OverViewDetails = ({ filter }) => {
         };
 
         const handleAutoDispatchFailed = (data) => {
-            console.log("⚠️ [Socket] auto-dispatch-failed:", data);
+            console.log("auto-dispatch-failed:", data);
             if (!data?.booking_id) return;
             showNotification({
                 booking_id: data.booking_id,
@@ -182,7 +182,7 @@ const OverViewDetails = ({ filter }) => {
         };
 
         const handleBookingCancelled = (data) => {
-            console.log("🛑 [Socket] booking-cancelled:", data);
+            console.log("booking-cancelled:", data);
             if (!data?.booking_id) return;
             setBookings((prev) =>
                 prev.filter(Boolean).map((b) =>
@@ -198,7 +198,7 @@ const OverViewDetails = ({ filter }) => {
         };
 
         const handleFollowOnLinked = (data) => {
-            console.log("🔗 [Socket] follow-on-job-linked:", data);
+            console.log("follow-on-job-linked:", data);
             if (!data?.job1_id) return;
             setBookings((prev) =>
                 prev.filter(Boolean).map((b) =>
@@ -214,7 +214,7 @@ const OverViewDetails = ({ filter }) => {
         };
 
         const handleFollowOnSentToDriver = (data) => {
-            console.log("📤 [Socket] follow-on-job-sent-to-driver:", data);
+            console.log("follow-on-job-sent-to-driver:", data);
             if (!data?.booking_id) return;
             setBookings((prev) =>
                 safeMap(prev, (b) =>
@@ -232,7 +232,7 @@ const OverViewDetails = ({ filter }) => {
         };
 
         const handleFollowOnTimeout = (data) => {
-            console.log("⏰ [Socket] follow-on-job-timeout:", data);
+            console.log("follow-on-job-timeout:", data);
             if (!data?.booking_id) return;
             setBookings((prev) =>
                 prev.filter(Boolean).map((b) =>
@@ -250,7 +250,7 @@ const OverViewDetails = ({ filter }) => {
         };
 
         const handleFollowOnRemoved = (data) => {
-            console.log("🗑️ [Socket] follow-on-job-removed:", data);
+            console.log("follow-on-job-removed:", data);
             if (!data?.booking_id) return;
             setBookings((prev) =>
                 prev.filter(Boolean).map((b) =>
@@ -260,7 +260,7 @@ const OverViewDetails = ({ filter }) => {
         };
 
         socket.onAny((event, ...args) => {
-            console.log(`🌐 [Socket Detail Event] ${event}:`, args);
+            console.log(`${event}:`, args);
         });
 
         socket.on("new-booking-event", handleNewBooking);
@@ -272,7 +272,7 @@ const OverViewDetails = ({ filter }) => {
         socket.on("booking-cancelled", handleBookingCancelled);
         socket.on("cancel-booking-event", handleBookingCancelled);
         socket.on("dashboard-cards-update", (data) => {
-            console.log("📊 [Socket Detail] dashboard-cards-update (triggering refresh)");
+            console.log("dashboard-cards-update (triggering refresh)");
             setRefreshTrigger(prev => prev + 1);
         });
         socket.on("follow-on-job-linked", handleFollowOnLinked);
@@ -521,7 +521,7 @@ const OverViewDetails = ({ filter }) => {
                                                             onClose={() => setOpenMenu(null)}
                                                             onStatusUpdate={handleBookingUpdate}
                                                             onOpenAllocateModal={handleOpenAllocateModal}
-                                                            onOpenFollowOnModal={handleOpenFollowOnModal}  // ← NEW
+                                                            onOpenFollowOnModal={handleOpenFollowOnModal}
                                                         />
                                                     )}
                                                 </div>

@@ -399,7 +399,6 @@ const parseDriverData = (rawData) => {
 const parseCoordinates = (plot) => {
   if (!plot) return [];
   try {
-    // 1. Try GeoJSON features (new apiGetPlot format)
     if (plot.features) {
       const feature = typeof plot.features === "string" ? JSON.parse(plot.features) : plot.features;
       let geometry = feature.geometry;
@@ -407,12 +406,10 @@ const parseCoordinates = (plot) => {
       let coords = geometry?.coordinates;
       if (typeof coords === "string") coords = JSON.parse(coords);
       if (Array.isArray(coords) && Array.isArray(coords[0])) {
-        // GeoJSON is typically [lng, lat]
         return coords[0].map((p) => ({ lat: Number(p[1]), lng: Number(p[0]) }));
       }
     }
 
-    // 2. Try coordinates property (old apiGetAllPlot format)
     let coords = plot.coordinates;
     if (typeof coords === "string") coords = JSON.parse(coords);
     if (Array.isArray(coords)) {
@@ -905,7 +902,6 @@ const Overview = () => {
     busy: onJobDrivers.length, idle: waitingDrivers.length, total: onJobDrivers.length + waitingDrivers.length,
   }), [onJobDrivers, waitingDrivers]);
 
-  // Prune stale idle drivers
   useEffect(() => {
     const interval = setInterval(() => {
       const now = Date.now();
@@ -1138,7 +1134,6 @@ const Overview = () => {
                 </div>
               </div>
             </div>
-            {/* ── FIXED: explicit flex-1 + overflow-hidden so map fills remaining space ── */}
             <div className="flex-1 rounded-xl overflow-hidden" style={{ minHeight: 0, position: "relative" }}>
               {mapType === "barikoi" && apiKeys.barikoiKey && (
                 <BarikoiMapSection
