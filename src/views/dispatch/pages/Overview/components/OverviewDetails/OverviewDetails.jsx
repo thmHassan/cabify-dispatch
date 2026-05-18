@@ -321,6 +321,7 @@ const OverViewDetails = ({ filter }) => {
         setBookings((prev) =>
             prev.filter(Boolean).map((b) => b.id === updated.id ? { ...b, ...updated } : b)
         );
+        setRefreshTrigger(prev => prev + 1);
     };
 
     const handleOpenAllocateModal = (booking, assignmentType = "allocate_driver") => {
@@ -362,6 +363,7 @@ const OverViewDetails = ({ filter }) => {
         );
         setShowFollowOnModal(false);
         setFollowOnSourceBooking(null);
+        setRefreshTrigger(prev => prev + 1);
     };
 
     return (

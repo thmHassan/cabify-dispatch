@@ -115,7 +115,7 @@ const AddBooking = ({ setIsOpen }) => {
     };
 
     const MAPS_API = getInitialMapType();
-    const COUNTRY_CODE = tenant?.country_of_use?.toLowerCase();
+    const [countryCode, setCountryCode] = useState(tenant?.country_of_use?.toLowerCase() || "");
 
     const [subCompanyList, setSubCompanyList] = useState([]);
     const [vehicleList, setVehicleList] = useState([]);
@@ -250,6 +250,9 @@ const AddBooking = ({ setIsOpen }) => {
                     }
                     if (data.search_api) {
                         setSearchApi(data.search_api.toLowerCase());
+                    }
+                    if (data.country_of_use) {
+                        setCountryCode(data.country_of_use.toLowerCase());
                     }
                 }
             } catch (err) {
@@ -407,7 +410,7 @@ const AddBooking = ({ setIsOpen }) => {
             googleService.getPlacePredictions(
                 {
                     input: query,
-                    componentRestrictions: { country: COUNTRY_CODE },
+                    componentRestrictions: { country: countryCode },
                 },
                 (predictions, status) => {
                     if (status === "OK") {
