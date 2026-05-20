@@ -96,9 +96,9 @@ export const updateBookingStatus = (bookingId, data, dispatcherName) => {
     });
 };
 
-export const followDriverTracking = (bookingId) => {
-    return socketApi.post(`/bookings/${bookingId}/follow-driver`);
-};
+// export const followDriverTracking = (bookingId) => {
+//     return socketApi.post(`/bookings/${bookingId}/follow-driver`);
+// };
 
 // export const assignDriverToBooking = (bookingId, driverId) => {
 //     return socketApi.put(`/bookings/${bookingId}/assign-driver`, {
@@ -134,6 +134,6 @@ export const setFollowOnJob = (job1Id, followOnBookingId, dispatcherName) => {
     });
 };
 
-export const removeFollowOnJob = (job1Id) => {
-    return socketApi.delete(`/bookings/${job1Id}/remove-follow-on-job`);
-};
+// export const removeFollowOnJob = (job1Id) => {
+//     return socketApi.delete(`/bookings/${job1Id}/remove-follow-on-job`);
+// };

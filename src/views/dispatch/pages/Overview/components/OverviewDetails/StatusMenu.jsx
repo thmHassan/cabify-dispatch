@@ -66,7 +66,7 @@ const StatusMenu = ({
                 return;
             }
 
-            if (action === "Set Follow-On Job") {
+            if (action === "Follow-On Job") {
                 onOpenFollowOnModal(bookingData);
                 setUpdating(false);
                 return;
@@ -129,7 +129,7 @@ const StatusMenu = ({
                 try {
                     const dispatcherName = getDispatcherName();
                     await recordDispatcherAction(bookingId, "copied this booking", dispatcherName);
-                    
+
                     let viaPoints = [];
                     let viaLatitudes = [];
                     let viaLongitudes = [];
@@ -274,9 +274,9 @@ const StatusMenu = ({
         { label: "Dispatch Job", icon: DispatchJobIcon, color: "bg-[#1F41BB]" },
         { label: "Cancel Job", icon: CancelJobIcon, color: "bg-[#1F41BB]" },
         { label: "Allocate Driver", icon: AllocateDriverIcon, color: "bg-[#1F41BB]" },
-        { label: "Follow on job", icon: FollowOnJobIcon, color: "bg-[#1F41BB]" },
+        // { label: "Follow on job", icon: FollowOnJobIcon, color: "bg-[#1F41BB]" },
         { label: "Send Pre-Job", icon: SendPreJobIcon, color: "bg-[#1F41BB]" },
-        { label: "Set Follow-On Job", icon: SendPreJobIcon, color: "bg-[#1F41BB]" },
+        { label: "Follow-On Job", icon: FollowOnJobIcon, color: "bg-[#1F41BB]" },
         { label: "Completed Job", icon: CompletedJobIcon, color: "bg-[#1F41BB]" },
         { label: "Call Customer", icon: CallCustomerIcon, color: "bg-[#1F41BB]" },
         { label: "Copy Booking", icon: CopyBookingIcon, color: "bg-[#1F41BB]" },
@@ -305,20 +305,20 @@ const StatusMenu = ({
             if (hasFollowOnLinked) {
                 return [
                     ...allMenuItems.filter((item) =>
-                        ["Follow on job", "Completed Job", "Cancel Job",
+                        ["Completed Job", "Cancel Job",
                             "Call Customer", "Send Confirmation Email", "Send SMS To Customer"].includes(item.label)
                     ),
                     { label: "✓ Follow-On Linked", icon: SendPreJobIcon, color: "bg-green-500", disabled: true },
                 ];
             }
             return allMenuItems.filter((item) =>
-                ["Follow on job", "Set Follow-On Job", "Completed Job", "Cancel Job",
+                ["Follow-On Job", "Completed Job", "Cancel Job",
                     "Call Customer", "Send Confirmation Email", "Send SMS To Customer"].includes(item.label)
             );
         }
 
         let items = allMenuItems.filter(
-            (item) => !["Set Follow-On Job", "Follow on job"].includes(item.label)
+            (item) => !["Follow-On Job", "Follow on job"].includes(item.label)
         );
 
         if (isDriverAssigned) {
