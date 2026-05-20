@@ -17,7 +17,9 @@ const FollowOnJobModal = ({ bookingData, onClose, onSuccess }) => {
                 const res = await getBookings({ status: "pending", limit: 100 });
                 if (res?.data?.success) {
                     const filtered = (res.data.data || []).filter(
-                        (b) => b.id !== bookingData.id
+                        (b) =>
+                            b.id !== bookingData.id &&
+                            b.booking_status === "pending"
                     );
                     setPendingBookings(filtered);
                 }
@@ -118,13 +120,18 @@ const FollowOnJobModal = ({ bookingData, onClose, onSuccess }) => {
                             <button
                                 key={b.id}
                                 onClick={() => setSelectedBookingId(b.id)}
-                                className={`w-full text-left px-4 py-3 border-b last:border-b-0 transition-colors ${isSelected ? "bg-[#1F41BB] text-white" : "bg-white hover:bg-gray-50 text-gray-800"
-                                    }`}
+                                className={`w-full text-left px-4 py-3 border-b last:border-b-0 transition-colors ${
+                                    isSelected
+                                        ? "bg-[#1F41BB] text-white"
+                                        : "bg-white hover:bg-gray-50 text-gray-800"
+                                }`}
                             >
                                 <div className="flex items-start justify-between gap-3">
                                     <div className="flex-1 min-w-0">
                                         <div className="flex items-center gap-2 mb-1">
-                                            <span className={`text-xs font-bold px-2 py-0.5 rounded ${isSelected ? "bg-white text-[#1F41BB]" : "bg-blue-100 text-[#1F41BB]"}`}>
+                                            <span className={`text-xs font-bold px-2 py-0.5 rounded ${
+                                                isSelected ? "bg-white text-[#1F41BB]" : "bg-blue-100 text-[#1F41BB]"
+                                            }`}>
                                                 #{b.booking_id}
                                             </span>
                                             <span className={`text-xs ${isSelected ? "text-blue-100" : "text-gray-500"}`}>
@@ -177,10 +184,11 @@ const FollowOnJobModal = ({ bookingData, onClose, onSuccess }) => {
                 <button
                     onClick={handleLink}
                     disabled={!selectedBookingId || submitting}
-                    className={`px-5 py-2 rounded-lg text-sm font-semibold text-white transition-colors ${!selectedBookingId || submitting
-                        ? "bg-gray-300 cursor-not-allowed"
-                        : "bg-[#1F41BB] hover:bg-blue-700"
-                        }`}
+                    className={`px-5 py-2 rounded-lg text-sm font-semibold text-white transition-colors ${
+                        !selectedBookingId || submitting
+                            ? "bg-gray-300 cursor-not-allowed"
+                            : "bg-[#1F41BB] hover:bg-blue-700"
+                    }`}
                 >
                     {submitting ? "Linking…" : "Confirm Follow-On Job"}
                 </button>
