@@ -103,9 +103,26 @@ const DriverManagementCard = ({ driver, onEdit, onDelete, onStatusChange }) => {
         if (!value) return "-";
         return value.charAt(0).toUpperCase() + value.slice(1);
     };
+    const getFirstLetter = (name) => {
+        if (!name) return "?";
+        return name.charAt(0).toUpperCase();
+    };
     return (
         <div className="bg-white rounded-[15px] p-4 gap-2 flex items-center justify-between hover:shadow-md overflow-x-auto">
             <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-full overflow-hidden bg-[#EFEFEF] flex items-center justify-center">
+                    {driver?.profile_image ? (
+                        <img
+                            src={`${import.meta.env.VITE_BACKEND_URL}${driver.profile_image}`}
+                            alt={driver?.name}
+                            className="w-full h-full object-cover"
+                        />
+                    ) : (
+                        <span className="text-[#333333] font-semibold text-xl">
+                            {getFirstLetter(driver.name)}
+                        </span>
+                    )}
+                </div>
                 <div className="w-60">
                     <p className="font-semibold text-xl">{driver.name}</p>
                     <p className="text-[10px]">{driver.email}</p>

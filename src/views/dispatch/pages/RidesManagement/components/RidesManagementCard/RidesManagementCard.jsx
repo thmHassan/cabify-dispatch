@@ -4,7 +4,7 @@ import UserDropdown from "../../../../../../components/shared/UserDropdown/UserD
 import Button from "../../../../../../components/ui/Button/Button";
 import ThreeDotsIcon from "../../../../../../components/svg/ThreeDotsIcon";
 
-const RidesManagementCard = ({ ride, onDelete }) => {
+const RidesManagementCard = ({ ride, onDelete, distanceUnit }) => {
 
     const statusColors = {
         pending: "bg-[#F5C60B] text-white",
@@ -24,17 +24,10 @@ const RidesManagementCard = ({ ride, onDelete }) => {
         AED: "د.إ",
     };
 
-    const [distanceUnit, setDistanceUnit] = useState("Miles");
     const [currencySymbol, setCurrencySymbol] = useState("₹");
 
     useEffect(() => {
         const tenant = getTenantData();
-
-        if (tenant?.units) {
-            const unit = tenant.units.toLowerCase() === "km" ? "Km" : "Miles";
-            setDistanceUnit(unit);
-        }
-
         const currency = tenant?.currency || tenant?.data?.currency;
         if (currency) {
             setCurrencySymbol(currencySymbols[currency] || currency);

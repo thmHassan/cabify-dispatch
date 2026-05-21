@@ -335,6 +335,24 @@ const DriverDetails = () => {
                                 className="w-full h-11 rounded-lg border border-gray-300 px-4 text-sm bg-gray-100 text-gray-600"
                             />
                         </div>
+
+                        <div className="md:col-span-3 flex items-center gap-6 mb-4">
+                            <div className="w-20 h-20 overflow-hidden border border-gray-300 bg-gray-100 flex items-center justify-center">
+                                {profileImage ? (
+                                    <img
+                                        src={
+                                            profileImage?.startsWith("data:")
+                                                ? profileImage
+                                                : `${import.meta.env.VITE_BACKEND_URL}${profileImage}`
+                                        }
+                                        alt="Profile"
+                                        className="w-full h-full object-cover"
+                                    />
+                                ) : (
+                                    <span className="text-sm text-gray-400">No Image</span>
+                                )}
+                            </div>
+                        </div>
                     </div>
                 </CardContainer>
             </div>

@@ -896,7 +896,7 @@ const AddBooking = ({ setIsOpen }) => {
                                                     <span className="font-semibold text-sm">Select day of the week</span>
                                                     <div className="flex flex-wrap gap-3 pb-2">
                                                         {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((day) => {
-                                                            const value = day.toLowerCase();
+                                                            const value = day;
                                                             const checked = values.multi_days?.includes(value);
                                                             return (
                                                                 <label key={day} className="flex items-center gap-2 cursor-pointer text-sm">
