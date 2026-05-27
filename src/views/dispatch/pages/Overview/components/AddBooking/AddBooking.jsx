@@ -689,13 +689,31 @@ const AddBooking = ({ setIsOpen }) => {
             if (pickupCoords) {
                 formData.append('pickup_point', `${pickupCoords.latitude}, ${pickupCoords.longitude}`);
                 formData.append('pickup_location', values.pickup_point);
-                if (values.pickup_plot_id) formData.append('pickup_point_id', values.pickup_plot_id);
+                
+                let pickupPlotId = values.pickup_plot_id;
+                const plotRes = await fetchPlotName(pickupCoords.latitude, pickupCoords.longitude);
+                if (plotRes && plotRes.found && plotRes.id) {
+                    pickupPlotId = plotRes.id;
+                }
+                if (pickupPlotId) {
+                    formData.append('pickup_point_id', pickupPlotId);
+                    formData.append('pickup_plot_id', pickupPlotId);
+                }
             }
 
             if (destinationCoords) {
                 formData.append('destination_point', `${destinationCoords.latitude}, ${destinationCoords.longitude}`);
                 formData.append('destination_location', values.destination);
-                if (values.destination_plot_id) formData.append('destination_point_id', values.destination_plot_id);
+                
+                let destinationPlotId = values.destination_plot_id;
+                const plotRes = await fetchPlotName(destinationCoords.latitude, destinationCoords.longitude);
+                if (plotRes && plotRes.found && plotRes.id) {
+                    destinationPlotId = plotRes.id;
+                }
+                if (destinationPlotId) {
+                    formData.append('destination_point_id', destinationPlotId);
+                    formData.append('destination_plot_id', destinationPlotId);
+                }
             }
 
             if (values.via_points?.length > 0) {
@@ -708,7 +726,16 @@ const AddBooking = ({ setIsOpen }) => {
                             formData.append(`via_point[${vi}][latitude]`, viaCoords.latitude.toString());
                             formData.append(`via_point[${vi}][longitude]`, viaCoords.longitude.toString());
                             formData.append(`via_location[${vi}]`, viaPoint);
-                            if (values.via_plot_id?.[i]) formData.append(`via_point_id[${vi}]`, values.via_plot_id[i]);
+                            
+                            let viaPlotId = values.via_plot_id?.[i];
+                            const plotRes = await fetchPlotName(viaCoords.latitude, viaCoords.longitude);
+                            if (plotRes && plotRes.found && plotRes.id) {
+                                viaPlotId = plotRes.id;
+                            }
+                            if (viaPlotId) {
+                                formData.append(`via_point_id[${vi}]`, viaPlotId);
+                                formData.append(`via_plot_id[${vi}]`, viaPlotId);
+                            }
                             vi++;
                         }
                     }
