@@ -108,6 +108,49 @@ const RideCard = ({ data, onClose }) => {
   );
 };
 
+const DispatchFailedCard = ({ data, onClose }) => {
+  const [visible, setVisible] = useState(false);
+  const [leaving, setLeaving] = useState(false);
+  useEffect(() => {
+    requestAnimationFrame(() => setVisible(true));
+    const timer = setTimeout(() => handleClose(), 8000);
+    return () => clearTimeout(timer);
+  }, []);
+  const handleClose = () => { setLeaving(true); setTimeout(onClose, 350); };
+  
+  const pickup = data.pickup_location || (data.pickup_point ? formatCoord(data.pickup_point) : "");
+  const destination = data.destination_location || (data.destination_point ? formatCoord(data.destination_point) : "");
+  const reason = data.message || data.reason || data.cancel_reason || "No driver accepted the request or no active drivers found.";
+
+  return (
+    <>
+      <style>{`
+        @keyframes dispatchNotifShrink { from { width: 100%; } to { width: 0%; } }
+        @keyframes dispatchNotifPulse { 0%,100%{box-shadow:0 0 0 0 rgba(239,68,68,0.25);} 50%{box-shadow:0 0 0 6px rgba(239,68,68,0);} }
+      `}</style>
+      <div style={{ transform: visible && !leaving ? "translateX(0) scale(1)" : "translateX(110%) scale(0.95)", opacity: visible && !leaving ? 1 : 0, transition: "transform 0.4s cubic-bezier(.22,1,.36,1), opacity 0.35s ease", background: "#ffffff", borderRadius: "16px", boxShadow: "0 12px 40px rgba(239,68,68,0.18), 0 2px 12px rgba(0,0,0,0.08)", border: "1.5px solid #fee2e2", width: "320px", overflow: "hidden", marginBottom: "12px", fontFamily: "'Segoe UI', system-ui, sans-serif", animation: "dispatchNotifPulse 2s ease-in-out 3" }}>
+        <div style={{ background: "linear-gradient(135deg, #dc2626 0%, #ef4444 100%)", padding: "12px 14px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <div>
+              <div style={{ color: "#fff", fontWeight: 700, fontSize: "14px", lineHeight: 1.2 }}>Nearest Dispatch Failed</div>
+              {(data.booking_id || data.bookingId) && <div style={{ color: "#fee2e2", fontSize: "11px", marginTop: "2px", fontWeight: 500 }}>#{data.booking_id || data.bookingId}</div>}
+            </div>
+          </div>
+          <button onClick={handleClose} style={{ background: "rgba(255,255,255,0.18)", border: "1px solid rgba(255,255,255,0.3)", borderRadius: "50%", width: "28px", height: "28px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: "13px", transition: "background 0.2s", flexShrink: 0 }} onMouseEnter={(e) => e.currentTarget.style.background = "rgba(255,255,255,0.32)"} onMouseLeave={(e) => e.currentTarget.style.background = "rgba(255,255,255,0.18)"} aria-label="Close">✕</button>
+        </div>
+        <div style={{ padding: "14px 16px 10px" }}>
+          {pickup && <NotifRow label="Pickup" value={pickup} color="#16a34a" />}
+          {destination && <NotifRow label="Destination" value={destination} color="#dc2626" />}
+          <NotifRow label="Failure Reason" value={reason} color="#b91c1c" bold />
+        </div>
+        <div style={{ height: "3px", background: "#fee2e2", position: "relative", overflow: "hidden" }}>
+          <div style={{ position: "absolute", top: 0, left: 0, height: "100%", background: "linear-gradient(90deg, #dc2626, #f87171)", animation: "dispatchNotifShrink 8s linear forwards" }} />
+        </div>
+      </div>
+    </>
+  );
+};
+
 const RideNotificationContainer = () => {
   const [notifications, setNotifications] = useState([]);
   useEffect(() => {
@@ -119,7 +162,13 @@ const RideNotificationContainer = () => {
   return (
     <div style={{ position: "fixed", bottom: "80px", right: "20px", zIndex: 9999, display: "flex", flexDirection: "column-reverse", alignItems: "flex-end", pointerEvents: "none" }}>
       {notifications.map(({ id, data }) => (
-        <div key={id} style={{ pointerEvents: "auto" }}><RideCard data={data} onClose={() => remove(id)} /></div>
+        <div key={id} style={{ pointerEvents: "auto" }}>
+          {data.isFailedDispatch ? (
+            <DispatchFailedCard data={data} onClose={() => remove(id)} />
+          ) : (
+            <RideCard data={data} onClose={() => remove(id)} />
+          )}
+        </div>
       ))}
     </div>
   );
@@ -873,10 +922,16 @@ const Overview = () => {
       });
     };
 
+    const handleNearestDispatchFailed = (rawData) => {
+      let data; try { data = typeof rawData === "string" ? JSON.parse(rawData) : rawData; } catch { data = rawData; }
+      showRideNotification({ ...data, isFailedDispatch: true });
+    };
+
     socket.on("dashboard-cards-update", handleDashboardUpdate);
     socket.on("waiting-driver-event", handleWaitingDriver);
     socket.on("on-job-driver-event", handleOnJobDriver);
     socket.on("notification-ride", handleNotificationRide);
+    socket.on("nearest-dispatch-failed", handleNearestDispatchFailed);
     socket.on("job-accepted-by-driver", handleJobAccepted);
     socket.on("job-cancelled-by-driver", handleJobCancelled);
     socket.on("driver-location-update", handleDriverLocationUpdate);
@@ -889,6 +944,7 @@ const Overview = () => {
       socket.off("waiting-driver-event", handleWaitingDriver);
       socket.off("on-job-driver-event", handleOnJobDriver);
       socket.off("notification-ride", handleNotificationRide);
+      socket.off("nearest-dispatch-failed", handleNearestDispatchFailed);
       socket.off("job-accepted-by-driver", handleJobAccepted);
       socket.off("job-cancelled-by-driver", handleJobCancelled);
       socket.off("driver-location-update", handleDriverLocationUpdate);
