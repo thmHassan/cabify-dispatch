@@ -26,6 +26,7 @@ const BARIKOI_KEY = "bkoi_a468389d0211910bd6723de348e0de79559c435f07a17a5419cbe5
 
 const ON_JOB_STORAGE_KEY = "onJobDrivers_persistent";
 const DRIVER_DATA_STORAGE_KEY = "driverData_persistent";
+const WAITING_DRIVERS_STORAGE_KEY = "waitingDrivers_persistent";
 
 const loadFromStorage = (key, fallback) => {
   try {
@@ -669,6 +670,22 @@ const usePersistedDriverData = () => {
   return [driverData, setDriverData];
 };
 
+const usePersistedWaitingDrivers = () => {
+  const [waitingDrivers, setRaw] = useState(() => {
+    const stored = loadFromStorage(WAITING_DRIVERS_STORAGE_KEY, []);
+    const now = Date.now();
+    return stored.filter((d) => !d.updatedAt || now - d.updatedAt < 5 * 60 * 1000);
+  });
+  const setWaitingDrivers = useCallback((updater) => {
+    setRaw((prev) => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      saveToStorage(WAITING_DRIVERS_STORAGE_KEY, next);
+      return next;
+    });
+  }, []);
+  return [waitingDrivers, setWaitingDrivers];
+};
+
 const Overview = () => {
   const [isBookingModelOpen, setIsBookingModelOpen] = useState({ type: "new", isOpen: false });
   const [isMessageModelOpen, setIsMessageModelOpen] = useState({ type: "new", isOpen: false });
@@ -693,7 +710,7 @@ const Overview = () => {
 
   const [driverData, setDriverData] = usePersistedDriverData();
   const [onJobDrivers, setOnJobDrivers] = usePersistedOnJobDrivers();
-  const [waitingDrivers, setWaitingDrivers] = useState([]);
+  const [waitingDrivers, setWaitingDrivers] = usePersistedWaitingDrivers();
 
   useEffect(() => {
     const fetchApiKeys = async () => {
@@ -730,10 +747,13 @@ const Overview = () => {
   useEffect(() => {
     const interval = setInterval(() => {
       const now = Date.now();
-      setWaitingDrivers((prev) => { const filtered = prev.filter((d) => !d.updatedAt || now - d.updatedAt < 15 * 1000); return filtered.length === prev.length ? prev : filtered; });
+      setWaitingDrivers((prev) => {
+        const filtered = prev.filter((d) => !d.updatedAt || now - d.updatedAt < 5 * 60 * 1000);
+        return filtered.length === prev.length ? prev : filtered;
+      });
     }, 1000);
     return () => clearInterval(interval);
-  }, []);
+  }, [setWaitingDrivers]);
 
   const user = useAppSelector((state) => state.auth.user);
   const displayName = user?.name ? user.name.charAt(0).toUpperCase() + user.name.slice(1) : "Admin";
