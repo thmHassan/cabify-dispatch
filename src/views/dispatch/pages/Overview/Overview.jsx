@@ -823,34 +823,69 @@ const Overview = () => {
     };
 
     const handleWaitingDriver = (rawData) => {
-      let data; try { data = typeof rawData === "string" ? JSON.parse(rawData) : rawData; } catch { data = rawData; }
-      if (Array.isArray(data)) { setWaitingDrivers(data.map(d => ({ ...d, updatedAt: Date.now() }))); return; }
-      if (data?.driverName || data?.driver_name) {
-        const name = data.driverName || data.driver_name;
-        const driverId = data.id || data.driver_id || data.dispatcher_id;
-        const sId = String(driverId);
-        if (sId) {
-          setDriverData(prev => {
-            let lat = data.latitude || data.lat, lng = data.longitude || data.lng;
-            if ((lat == null || lng == null) && (data.plot_id || data.plot)) {
-              const plot = plotsDataRef.current.find(p => p.id == (data.plot_id || data.plot) || p.plot_id == (data.plot_id || data.plot));
-              if (plot) { const coords = parseCoordinates(plot); if (coords.length > 0) { lat = coords.reduce((s, c) => s + c.lat, 0) / coords.length; lng = coords.reduce((s, c) => s + c.lng, 0) / coords.length; } }
+      let data; 
+      try { 
+        data = typeof rawData === "string" ? JSON.parse(rawData) : rawData; 
+      } catch { 
+        data = rawData; 
+      }
+      
+      console.log("Socket Event 'my-rank-update' Response Received:", data);
+      
+      // Support both the new { success, drivers: [...] } format and old array format
+      const driversList = data?.drivers || (Array.isArray(data) ? data : []);
+
+      if (Array.isArray(driversList)) {
+        // Map drivers to expected format and set updatedAt for expiry
+        const formattedDrivers = driversList.map(d => ({
+          ...d,
+          id: d.driver_id || d.id,
+          name: d.driver_name || d.name || d.driverName,
+          plot: d.plot_name || d.plot || "N/A",
+          rank: d.rank || d.ranking || 1,
+          updatedAt: Date.now()
+        }));
+
+        // Fully replace the waiting drivers list state and localStorage
+        setWaitingDrivers(formattedDrivers);
+
+        // Remove from onJobDrivers if they are in the waiting list now (meaning they became idle)
+        const driverNames = new Set(formattedDrivers.map(d => d.name).filter(Boolean));
+        setOnJobDrivers((prev) => prev.filter((d) => !driverNames.has(d.name)));
+
+        // Update coordinates in driverData for map rendering
+        setDriverData(prev => {
+          let updated = { ...prev };
+          formattedDrivers.forEach(d => {
+            const sId = String(d.id);
+            if (sId) {
+              let lat = d.latitude || d.lat;
+              let lng = d.longitude || d.lng;
+
+              // Fallback to plot center coordinates if driver coordinates are missing
+              if ((lat == null || lng == null) && (d.plot_id || d.plot)) {
+                const plot = plotsDataRef.current.find(p => p.id == (d.plot_id || d.plot) || p.plot_id == (d.plot_id || d.plot));
+                if (plot) {
+                  const coords = parseCoordinates(plot);
+                  if (coords.length > 0) {
+                    lat = coords.reduce((s, c) => s + c.lat, 0) / coords.length;
+                    lng = coords.reduce((s, c) => s + c.lng, 0) / coords.length;
+                  }
+                }
+              }
+
+              const status = "idle";
+              updated[sId] = {
+                ...updated[sId],
+                ...d,
+                position: (lat && lng) ? { lat: Number(lat), lng: Number(lng) } : updated[sId]?.position,
+                status,
+                driving_status: status
+              };
             }
-            const status = "idle";
-            const updated = prev[sId]
-              ? { ...prev, [sId]: { ...prev[sId], ...data, position: (lat && lng) ? { lat: Number(lat), lng: Number(lng) } : prev[sId].position, status, driving_status: status } }
-              : (lat && lng ? { ...prev, [sId]: { ...data, position: { lat: Number(lat), lng: Number(lng) }, status, driving_status: status } } : prev);
-            saveToStorage(DRIVER_DATA_STORAGE_KEY, updated);
-            return updated;
           });
-        }
-        // Driver back to idle → remove from on-job (also removes from localStorage via setOnJobDrivers)
-        setOnJobDrivers((prev) => prev.filter((d) => d.name !== name));
-        const obj = { id: driverId || Date.now(), name, plot: data.plot_name || data.plot || "N/A", rank: data.rank || 1, ...data };
-        setWaitingDrivers((prev) => {
-          const exists = prev.some((d) => d.name === obj.name);
-          const updatedObj = { ...obj, updatedAt: Date.now() };
-          return exists ? prev.map((d) => d.name === obj.name ? updatedObj : d) : [updatedObj, ...prev];
+          saveToStorage(DRIVER_DATA_STORAGE_KEY, updated);
+          return updated;
         });
       }
     };
@@ -928,7 +963,7 @@ const Overview = () => {
     };
 
     socket.on("dashboard-cards-update", handleDashboardUpdate);
-    socket.on("waiting-driver-event", handleWaitingDriver);
+    socket.on("my-rank-update", handleWaitingDriver);
     socket.on("on-job-driver-event", handleOnJobDriver);
     socket.on("notification-ride", handleNotificationRide);
     socket.on("nearest-dispatch-failed", handleNearestDispatchFailed);
@@ -941,7 +976,7 @@ const Overview = () => {
 
     return () => {
       socket.off("dashboard-cards-update", handleDashboardUpdate);
-      socket.off("waiting-driver-event", handleWaitingDriver);
+      socket.off("my-rank-update", handleWaitingDriver);
       socket.off("on-job-driver-event", handleOnJobDriver);
       socket.off("notification-ride", handleNotificationRide);
       socket.off("nearest-dispatch-failed", handleNearestDispatchFailed);
@@ -1144,6 +1179,22 @@ export default Overview;
 // const GOOGLE_KEY = "AIzaSyDTlV1tPVuaRbtvBQu4-kjDhTV54tR4cDU";
 // const BARIKOI_KEY = "bkoi_a468389d0211910bd6723de348e0de79559c435f07a17a5419cbe55ab55a890a";
 
+// const ON_JOB_STORAGE_KEY = "onJobDrivers_persistent";
+// const DRIVER_DATA_STORAGE_KEY = "driverData_persistent";
+// const WAITING_DRIVERS_STORAGE_KEY = "waitingDrivers_persistent";
+
+// const loadFromStorage = (key, fallback) => {
+//   try {
+//     const raw = localStorage.getItem(key);
+//     if (!raw) return fallback;
+//     return JSON.parse(raw);
+//   } catch { return fallback; }
+// };
+
+// const saveToStorage = (key, value) => {
+//   try { localStorage.setItem(key, JSON.stringify(value)); } catch { }
+// };
+
 // const notifListeners = new Set();
 // const showRideNotification = (data) => notifListeners.forEach((fn) => fn(data));
 
@@ -1164,18 +1215,8 @@ export default Overview;
 //   <div style={{ display: "flex", alignItems: "flex-start", gap: "8px", marginBottom: "8px" }}>
 //     <span style={{ fontSize: "14px", flexShrink: 0, marginTop: "1px" }}>{icon}</span>
 //     <div style={{ minWidth: 0 }}>
-//       <span style={{
-//         fontSize: "10px", color: "#6b7280", display: "block",
-//         textTransform: "uppercase", letterSpacing: "0.05em", lineHeight: 1, marginBottom: "2px",
-//       }}>
-//         {label}
-//       </span>
-//       <span style={{
-//         fontSize: "12px", color: color || "#111827",
-//         fontWeight: bold ? 700 : 500, wordBreak: "break-word", lineHeight: 1.4,
-//       }}>
-//         {value || "—"}
-//       </span>
+//       <span style={{ fontSize: "10px", color: "#6b7280", display: "block", textTransform: "uppercase", letterSpacing: "0.05em", lineHeight: 1, marginBottom: "2px" }}>{label}</span>
+//       <span style={{ fontSize: "12px", color: color || "#111827", fontWeight: bold ? 700 : 500, wordBreak: "break-word", lineHeight: 1.4 }}>{value || "—"}</span>
 //     </div>
 //   </div>
 // );
@@ -1183,58 +1224,27 @@ export default Overview;
 // const RideCard = ({ data, onClose }) => {
 //   const [visible, setVisible] = useState(false);
 //   const [leaving, setLeaving] = useState(false);
-
 //   useEffect(() => {
 //     requestAnimationFrame(() => setVisible(true));
 //     const timer = setTimeout(() => handleClose(), 8000);
 //     return () => clearTimeout(timer);
 //   }, []);
-
-//   const handleClose = () => {
-//     setLeaving(true);
-//     setTimeout(onClose, 350);
-//   };
-
+//   const handleClose = () => { setLeaving(true); setTimeout(onClose, 350); };
 //   return (
 //     <>
 //       <style>{`
 //         @keyframes rideNotifShrink { from { width: 100%; } to { width: 0%; } }
-//         @keyframes rideNotifPulse {
-//           0%, 100% { box-shadow: 0 0 0 0 rgba(31,65,187,0.25); }
-//           50%       { box-shadow: 0 0 0 6px rgba(31,65,187,0); }
-//         }
+//         @keyframes rideNotifPulse { 0%,100%{box-shadow:0 0 0 0 rgba(31,65,187,0.25);} 50%{box-shadow:0 0 0 6px rgba(31,65,187,0);} }
 //       `}</style>
-//       <div style={{
-//         transform: visible && !leaving ? "translateX(0) scale(1)" : "translateX(110%) scale(0.95)",
-//         opacity: visible && !leaving ? 1 : 0,
-//         transition: "transform 0.4s cubic-bezier(.22,1,.36,1), opacity 0.35s ease",
-//         background: "#ffffff", borderRadius: "16px",
-//         boxShadow: "0 12px 40px rgba(31,65,187,0.18), 0 2px 12px rgba(0,0,0,0.08)",
-//         border: "1.5px solid #e0e7ff", width: "320px", overflow: "hidden",
-//         marginBottom: "12px", fontFamily: "'Segoe UI', system-ui, sans-serif",
-//         animation: "rideNotifPulse 2s ease-in-out 3",
-//       }}>
-//         <div style={{
-//           background: "linear-gradient(135deg, #1F41BB 0%, #3a5fd9 100%)",
-//           padding: "12px 14px", display: "flex", alignItems: "center", justifyContent: "space-between",
-//         }}>
+//       <div style={{ transform: visible && !leaving ? "translateX(0) scale(1)" : "translateX(110%) scale(0.95)", opacity: visible && !leaving ? 1 : 0, transition: "transform 0.4s cubic-bezier(.22,1,.36,1), opacity 0.35s ease", background: "#ffffff", borderRadius: "16px", boxShadow: "0 12px 40px rgba(31,65,187,0.18), 0 2px 12px rgba(0,0,0,0.08)", border: "1.5px solid #e0e7ff", width: "320px", overflow: "hidden", marginBottom: "12px", fontFamily: "'Segoe UI', system-ui, sans-serif", animation: "rideNotifPulse 2s ease-in-out 3" }}>
+//         <div style={{ background: "linear-gradient(135deg, #1F41BB 0%, #3a5fd9 100%)", padding: "12px 14px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
 //           <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
 //             <div>
 //               <div style={{ color: "#fff", fontWeight: 700, fontSize: "14px", lineHeight: 1.2 }}>New Ride Request</div>
-//               {data.booking_id && (
-//                 <div style={{ color: "#c7d4ff", fontSize: "11px", marginTop: "2px", fontWeight: 500 }}>#{data.booking_id}</div>
-//               )}
+//               {data.booking_id && <div style={{ color: "#c7d4ff", fontSize: "11px", marginTop: "2px", fontWeight: 500 }}>#{data.booking_id}</div>}
 //             </div>
 //           </div>
-//           <button onClick={handleClose} style={{
-//             background: "rgba(255,255,255,0.18)", border: "1px solid rgba(255,255,255,0.3)",
-//             borderRadius: "50%", width: "28px", height: "28px", cursor: "pointer",
-//             display: "flex", alignItems: "center", justifyContent: "center",
-//             color: "#fff", fontSize: "13px", transition: "background 0.2s", flexShrink: 0,
-//           }}
-//             onMouseEnter={(e) => e.currentTarget.style.background = "rgba(255,255,255,0.32)"}
-//             onMouseLeave={(e) => e.currentTarget.style.background = "rgba(255,255,255,0.18)"}
-//             aria-label="Close">✕</button>
+//           <button onClick={handleClose} style={{ background: "rgba(255,255,255,0.18)", border: "1px solid rgba(255,255,255,0.3)", borderRadius: "50%", width: "28px", height: "28px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: "13px", transition: "background 0.2s", flexShrink: 0 }} onMouseEnter={(e) => e.currentTarget.style.background = "rgba(255,255,255,0.32)"} onMouseLeave={(e) => e.currentTarget.style.background = "rgba(255,255,255,0.18)"} aria-label="Close">✕</button>
 //         </div>
 //         <div style={{ padding: "14px 16px 10px" }}>
 //           <NotifRow label="Pickup" value={data.pickup_location || formatCoord(data.pickup_point)} color="#16a34a" />
@@ -1242,23 +1252,54 @@ export default Overview;
 //           {data.offered_amount && <NotifRow label="Offered Amount" value={formatAmount(data.offered_amount)} color="#1F41BB" bold />}
 //         </div>
 //         <div style={{ padding: "0 16px 12px", display: "flex", gap: "6px", flexWrap: "wrap" }}>
-//           {data.payment_method && (
-//             <span style={{ background: "#eff6ff", color: "#1F41BB", fontSize: "10px", fontWeight: 600, padding: "3px 8px", borderRadius: "20px", border: "1px solid #bfdbfe" }}>
-//               {data.payment_method}
-//             </span>
-//           )}
-//           {data.ride_type && (
-//             <span style={{ background: "#f0fdf4", color: "#16a34a", fontSize: "10px", fontWeight: 600, padding: "3px 8px", borderRadius: "20px", border: "1px solid #bbf7d0" }}>
-//               {data.ride_type}
-//             </span>
-//           )}
+//           {data.payment_method && <span style={{ background: "#eff6ff", color: "#1F41BB", fontSize: "10px", fontWeight: 600, padding: "3px 8px", borderRadius: "20px", border: "1px solid #bfdbfe" }}>{data.payment_method}</span>}
+//           {data.ride_type && <span style={{ background: "#f0fdf4", color: "#16a34a", fontSize: "10px", fontWeight: 600, padding: "3px 8px", borderRadius: "20px", border: "1px solid #bbf7d0" }}>{data.ride_type}</span>}
 //         </div>
 //         <div style={{ height: "3px", background: "#e0e7ff", position: "relative", overflow: "hidden" }}>
-//           <div style={{
-//             position: "absolute", top: 0, left: 0, height: "100%",
-//             background: "linear-gradient(90deg, #1F41BB, #60a5fa)",
-//             animation: "rideNotifShrink 8s linear forwards",
-//           }} />
+//           <div style={{ position: "absolute", top: 0, left: 0, height: "100%", background: "linear-gradient(90deg, #1F41BB, #60a5fa)", animation: "rideNotifShrink 8s linear forwards" }} />
+//         </div>
+//       </div>
+//     </>
+//   );
+// };
+
+// const DispatchFailedCard = ({ data, onClose }) => {
+//   const [visible, setVisible] = useState(false);
+//   const [leaving, setLeaving] = useState(false);
+//   useEffect(() => {
+//     requestAnimationFrame(() => setVisible(true));
+//     const timer = setTimeout(() => handleClose(), 8000);
+//     return () => clearTimeout(timer);
+//   }, []);
+//   const handleClose = () => { setLeaving(true); setTimeout(onClose, 350); };
+  
+//   const pickup = data.pickup_location || (data.pickup_point ? formatCoord(data.pickup_point) : "");
+//   const destination = data.destination_location || (data.destination_point ? formatCoord(data.destination_point) : "");
+//   const reason = data.message || data.reason || data.cancel_reason || "No driver accepted the request or no active drivers found.";
+
+//   return (
+//     <>
+//       <style>{`
+//         @keyframes dispatchNotifShrink { from { width: 100%; } to { width: 0%; } }
+//         @keyframes dispatchNotifPulse { 0%,100%{box-shadow:0 0 0 0 rgba(239,68,68,0.25);} 50%{box-shadow:0 0 0 6px rgba(239,68,68,0);} }
+//       `}</style>
+//       <div style={{ transform: visible && !leaving ? "translateX(0) scale(1)" : "translateX(110%) scale(0.95)", opacity: visible && !leaving ? 1 : 0, transition: "transform 0.4s cubic-bezier(.22,1,.36,1), opacity 0.35s ease", background: "#ffffff", borderRadius: "16px", boxShadow: "0 12px 40px rgba(239,68,68,0.18), 0 2px 12px rgba(0,0,0,0.08)", border: "1.5px solid #fee2e2", width: "320px", overflow: "hidden", marginBottom: "12px", fontFamily: "'Segoe UI', system-ui, sans-serif", animation: "dispatchNotifPulse 2s ease-in-out 3" }}>
+//         <div style={{ background: "linear-gradient(135deg, #dc2626 0%, #ef4444 100%)", padding: "12px 14px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+//           <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+//             <div>
+//               <div style={{ color: "#fff", fontWeight: 700, fontSize: "14px", lineHeight: 1.2 }}>Nearest Dispatch Failed</div>
+//               {(data.booking_id || data.bookingId) && <div style={{ color: "#fee2e2", fontSize: "11px", marginTop: "2px", fontWeight: 500 }}>#{data.booking_id || data.bookingId}</div>}
+//             </div>
+//           </div>
+//           <button onClick={handleClose} style={{ background: "rgba(255,255,255,0.18)", border: "1px solid rgba(255,255,255,0.3)", borderRadius: "50%", width: "28px", height: "28px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: "13px", transition: "background 0.2s", flexShrink: 0 }} onMouseEnter={(e) => e.currentTarget.style.background = "rgba(255,255,255,0.32)"} onMouseLeave={(e) => e.currentTarget.style.background = "rgba(255,255,255,0.18)"} aria-label="Close">✕</button>
+//         </div>
+//         <div style={{ padding: "14px 16px 10px" }}>
+//           {pickup && <NotifRow label="Pickup" value={pickup} color="#16a34a" />}
+//           {destination && <NotifRow label="Destination" value={destination} color="#dc2626" />}
+//           <NotifRow label="Failure Reason" value={reason} color="#b91c1c" bold />
+//         </div>
+//         <div style={{ height: "3px", background: "#fee2e2", position: "relative", overflow: "hidden" }}>
+//           <div style={{ position: "absolute", top: 0, left: 0, height: "100%", background: "linear-gradient(90deg, #dc2626, #f87171)", animation: "dispatchNotifShrink 8s linear forwards" }} />
 //         </div>
 //       </div>
 //     </>
@@ -1268,10 +1309,7 @@ export default Overview;
 // const RideNotificationContainer = () => {
 //   const [notifications, setNotifications] = useState([]);
 //   useEffect(() => {
-//     const handler = (data) => {
-//       const id = Date.now() + Math.random();
-//       setNotifications((prev) => [...prev, { id, data }]);
-//     };
+//     const handler = (data) => { const id = Date.now() + Math.random(); setNotifications((prev) => [...prev, { id, data }]); };
 //     notifListeners.add(handler);
 //     return () => notifListeners.delete(handler);
 //   }, []);
@@ -1280,7 +1318,11 @@ export default Overview;
 //     <div style={{ position: "fixed", bottom: "80px", right: "20px", zIndex: 9999, display: "flex", flexDirection: "column-reverse", alignItems: "flex-end", pointerEvents: "none" }}>
 //       {notifications.map(({ id, data }) => (
 //         <div key={id} style={{ pointerEvents: "auto" }}>
-//           <RideCard data={data} onClose={() => remove(id)} />
+//           {data.isFailedDispatch ? (
+//             <DispatchFailedCard data={data} onClose={() => remove(id)} />
+//           ) : (
+//             <RideCard data={data} onClose={() => remove(id)} />
+//           )}
 //         </div>
 //       ))}
 //     </div>
@@ -1346,21 +1388,14 @@ export default Overview;
 //     if (window.google?.maps?.Map) return resolve();
 //     const existing = document.getElementById("google-maps-script");
 //     if (existing) {
-//       const check = setInterval(() => {
-//         if (window.google?.maps?.Map) { clearInterval(check); resolve(); }
-//       }, 100);
+//       const check = setInterval(() => { if (window.google?.maps?.Map) { clearInterval(check); resolve(); } }, 100);
 //       return;
 //     }
 //     const script = document.createElement("script");
 //     script.id = "google-maps-script";
 //     script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey || GOOGLE_KEY}&libraries=places&loading=async`;
-//     script.async = true;
-//     script.defer = true;
-//     script.onload = () => {
-//       const check = setInterval(() => {
-//         if (window.google?.maps?.Map) { clearInterval(check); resolve(); }
-//       }, 50);
-//     };
+//     script.async = true; script.defer = true;
+//     script.onload = () => { const check = setInterval(() => { if (window.google?.maps?.Map) { clearInterval(check); resolve(); } }, 50); };
 //     script.onerror = reject;
 //     document.head.appendChild(script);
 //   });
@@ -1369,93 +1404,44 @@ export default Overview;
 // const loadBarikoiMaps = () => {
 //   return new Promise((resolve, reject) => {
 //     if (window.maplibregl) return resolve();
-
 //     if (!document.getElementById("maplibre-css")) {
 //       const link = document.createElement("link");
-//       link.id = "maplibre-css";
-//       link.rel = "stylesheet";
+//       link.id = "maplibre-css"; link.rel = "stylesheet";
 //       link.href = "https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css";
 //       document.head.appendChild(link);
 //     }
-
 //     const existing = document.getElementById("maplibre-script");
 //     if (existing) {
-//       const check = setInterval(() => {
-//         if (window.maplibregl) { clearInterval(check); resolve(); }
-//       }, 100);
+//       const check = setInterval(() => { if (window.maplibregl) { clearInterval(check); resolve(); } }, 100);
 //       return;
 //     }
-
 //     const script = document.createElement("script");
 //     script.id = "maplibre-script";
 //     script.src = "https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js";
 //     script.async = true;
-//     script.onload = () => {
-//       setTimeout(() => {
-//         if (window.maplibregl) resolve();
-//         else reject(new Error("MapLibre GL not available after load"));
-//       }, 100);
-//     };
+//     script.onload = () => { setTimeout(() => { if (window.maplibregl) resolve(); else reject(new Error("MapLibre GL not available after load")); }, 100); };
 //     script.onerror = () => reject(new Error("MapLibre GL script failed to load"));
 //     document.head.appendChild(script);
 //   });
 // };
 
 // const buildBarikoiStyle = (barikoiKey) => ({
-//   version: 8,
-//   name: "Barikoi",
+//   version: 8, name: "Barikoi",
 //   glyphs: "https://fonts.openmaptiles.org/{fontstack}/{range}.pbf",
-//   sources: {
-//     "osm-tiles": {
-//       type: "raster",
-//       tiles: [
-//         `https://tile.barikoi.com/styles/barikoi/tiles/{z}/{x}/{y}.png?key=${barikoiKey}`,
-//       ],
-//       tileSize: 256,
-//       attribution: "© Barikoi | © OpenStreetMap contributors",
-//       maxzoom: 19,
-//     },
-//   },
-//   layers: [
-//     {
-//       id: "osm-tiles",
-//       type: "raster",
-//       source: "osm-tiles",
-//       minzoom: 0,
-//       maxzoom: 22,
-//     },
-//   ],
+//   sources: { "osm-tiles": { type: "raster", tiles: [`https://tile.barikoi.com/styles/barikoi/tiles/{z}/{x}/{y}.png?key=${barikoiKey}`], tileSize: 256, attribution: "© Barikoi | © OpenStreetMap contributors", maxzoom: 19 } },
+//   layers: [{ id: "osm-tiles", type: "raster", source: "osm-tiles", minzoom: 0, maxzoom: 22 }],
 // });
 
 // const buildOsmFallbackStyle = () => ({
-//   version: 8,
-//   name: "OSM",
+//   version: 8, name: "OSM",
 //   glyphs: "https://fonts.openmaptiles.org/{fontstack}/{range}.pbf",
-//   sources: {
-//     "osm-tiles": {
-//       type: "raster",
-//       tiles: [
-//         "https://a.tile.openstreetmap.org/{z}/{x}/{y}.png",
-//         "https://b.tile.openstreetmap.org/{z}/{x}/{y}.png",
-//         "https://c.tile.openstreetmap.org/{z}/{x}/{y}.png",
-//       ],
-//       tileSize: 256,
-//       attribution: "© OpenStreetMap contributors",
-//       maxzoom: 19,
-//     },
-//   },
-//   layers: [
-//     { id: "osm-tiles", type: "raster", source: "osm-tiles", minzoom: 0, maxzoom: 22 },
-//   ],
+//   sources: { "osm-tiles": { type: "raster", tiles: ["https://a.tile.openstreetmap.org/{z}/{x}/{y}.png", "https://b.tile.openstreetmap.org/{z}/{x}/{y}.png", "https://c.tile.openstreetmap.org/{z}/{x}/{y}.png"], tileSize: 256, attribution: "© OpenStreetMap contributors", maxzoom: 19 } },
+//   layers: [{ id: "osm-tiles", type: "raster", source: "osm-tiles", minzoom: 0, maxzoom: 22 }],
 // });
 
 // const makeGoogleIcon = (status) => {
 //   const icon = MARKER_ICONS[status] || MARKER_ICONS.idle;
-//   return {
-//     url: icon.url,
-//     scaledSize: new window.google.maps.Size(icon.scaledSize.width, icon.scaledSize.height),
-//     anchor: new window.google.maps.Point(icon.anchor.x, icon.anchor.y),
-//   };
+//   return { url: icon.url, scaledSize: new window.google.maps.Size(icon.scaledSize.width, icon.scaledSize.height), anchor: new window.google.maps.Point(icon.anchor.x, icon.anchor.y) };
 // };
 
 // const createSvgMarkerEl = (status) => {
@@ -1504,12 +1490,7 @@ export default Overview;
 //       const plateM = rawData.match(/"plate_no":\s*"([^"]*)"/);
 //       const idM = rawData.match(/"id":\s*(\d+)/);
 //       if (latM && lngM) {
-//         return {
-//           latitude: parseFloat(latM[1]), longitude: parseFloat(lngM[1]),
-//           client_id: cidM?.[1] ?? null, dispatcher_id: didM ? parseInt(didM[1]) : null,
-//           id: idM ? parseInt(idM[1]) : null, driving_status: stM?.[1] ?? "idle",
-//           name: nameM?.[1] ?? null, phone_no: phoneM?.[1] ?? null, plate_no: plateM?.[1] ?? null,
-//         };
+//         return { latitude: parseFloat(latM[1]), longitude: parseFloat(lngM[1]), client_id: cidM?.[1] ?? null, dispatcher_id: didM ? parseInt(didM[1]) : null, id: idM ? parseInt(idM[1]) : null, driving_status: stM?.[1] ?? "idle", name: nameM?.[1] ?? null, phone_no: phoneM?.[1] ?? null, plate_no: plateM?.[1] ?? null };
 //       }
 //     }
 //     return null;
@@ -1525,19 +1506,12 @@ export default Overview;
 //       if (typeof geometry === "string") geometry = JSON.parse(geometry);
 //       let coords = geometry?.coordinates;
 //       if (typeof coords === "string") coords = JSON.parse(coords);
-//       if (Array.isArray(coords) && Array.isArray(coords[0])) {
-//         return coords[0].map((p) => ({ lat: Number(p[1]), lng: Number(p[0]) }));
-//       }
+//       if (Array.isArray(coords) && Array.isArray(coords[0])) return coords[0].map((p) => ({ lat: Number(p[1]), lng: Number(p[0]) }));
 //     }
-
 //     let coords = plot.coordinates;
 //     if (typeof coords === "string") coords = JSON.parse(coords);
-//     if (Array.isArray(coords)) {
-//       return coords.map((c) => ({ lat: Number(c.lat), lng: Number(c.lng) }));
-//     }
-//   } catch (error) {
-//     console.error("Parse coordinates error:", error);
-//   }
+//     if (Array.isArray(coords)) return coords.map((c) => ({ lat: Number(c.lat), lng: Number(c.lng) }));
+//   } catch (error) { console.error("Parse coordinates error:", error); }
 //   return [];
 // };
 
@@ -1548,26 +1522,7 @@ export default Overview;
 //   const status = (data.driving_status || data.status || "idle").toLowerCase();
 //   const statusLabel = status.charAt(0).toUpperCase() + status.slice(1);
 //   const statusColor = status === "busy" ? "#10b981" : "#ef4444";
-//   return `
-//     <div style="font-family:'Inter',sans-serif;min-width:150px;padding:4px 6px;">
-//       <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
-//         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="color:#4b5563;"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-//         <span style="font-weight:700;color:#111827;font-size:15px;">${name}</span>
-//       </div>
-//       <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
-//         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="color:#6b7280;"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
-//         <span style="color:#4b5563;font-size:13px;">${phone}</span>
-//       </div>
-//       <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
-//         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="color:#6b7280;"><rect x="1" y="3" width="22" height="18" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
-//         <span style="background:#f9fafb;color:#374151;font-weight:600;font-size:12px;padding:1px 6px;border-radius:4px;border:1px solid #e5e7eb;">${plate}</span>
-//       </div>
-//       <div style="display:flex;align-items:center;gap:6px;border-top:1px solid #f3f4f6;padding-top:8px;">
-//         <span style="height:7px;width:7px;background-color:${statusColor};border-radius:50%;display:inline-block;"></span>
-//         <span style="color:${statusColor};font-weight:700;font-size:12px;text-transform:capitalize;border:1px solid ${statusColor}40;padding:1px 8px;border-radius:20px;background:${statusColor}10;">${statusLabel}</span>
-//       </div>
-//     </div>
-//   `;
+//   return `<div style="font-family:'Inter',sans-serif;min-width:150px;padding:4px 6px;"><div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="color:#4b5563;"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg><span style="font-weight:700;color:#111827;font-size:15px;">${name}</span></div><div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="color:#6b7280;"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg><span style="color:#4b5563;font-size:13px;">${phone}</span></div><div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="color:#6b7280;"><rect x="1" y="3" width="22" height="18" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg><span style="background:#f9fafb;color:#374151;font-weight:600;font-size:12px;padding:1px 6px;border-radius:4px;border:1px solid #e5e7eb;">${plate}</span></div><div style="display:flex;align-items:center;gap:6px;border-top:1px solid #f3f4f6;padding-top:8px;"><span style="height:7px;width:7px;background-color:${statusColor};border-radius:50%;display:inline-block;"></span><span style="color:${statusColor};font-weight:700;font-size:12px;text-transform:capitalize;border:1px solid ${statusColor}40;padding:1px 8px;border-radius:20px;background:${statusColor}10;">${statusLabel}</span></div></div>`;
 // };
 
 // const GoogleMapSection = ({ mapRef, mapInstance, markers, driverData, setDriverData, socket, countryCenter, plotsData, apiKeys, waitingDrivers, onJobDrivers }) => {
@@ -1582,29 +1537,19 @@ export default Overview;
 //     plotsData.forEach(plot => {
 //       const coords = parseCoordinates(plot);
 //       if (coords.length === 0) return;
-//       const polygon = new window.google.maps.Polygon({
-//         paths: coords, strokeColor: "#1F41BB", strokeOpacity: 0.8, strokeWeight: 2,
-//         fillColor: "#1F41BB", fillOpacity: 0.1, map: mapInstance.current,
-//       });
+//       const polygon = new window.google.maps.Polygon({ paths: coords, strokeColor: "#1F41BB", strokeOpacity: 0.8, strokeWeight: 2, fillColor: "#1F41BB", fillOpacity: 0.1, map: mapInstance.current });
 //       plotPolygons.current.push(polygon);
 //     });
 //   };
 
-//   useEffect(() => {
-//     if (mapInstance.current && plotsData) renderPlots();
-//   }, [plotsData]);
+//   useEffect(() => { if (mapInstance.current && plotsData) renderPlots(); }, [plotsData]);
 
 //   const fitMapToMarkers = () => {
 //     if (!mapInstance.current || Object.keys(markers.current).length === 0) return;
 //     const bounds = new window.google.maps.LatLngBounds();
 //     let hasVisible = false;
-//     Object.values(markers.current).forEach((m) => {
-//       if (m.getVisible()) { bounds.extend(m.getPosition()); hasVisible = true; }
-//     });
-//     if (hasVisible) {
-//       mapInstance.current.fitBounds(bounds);
-//       if (mapInstance.current.getZoom() > 15) mapInstance.current.setZoom(15);
-//     }
+//     Object.values(markers.current).forEach((m) => { if (m.getVisible()) { bounds.extend(m.getPosition()); hasVisible = true; } });
+//     if (hasVisible) { mapInstance.current.fitBounds(bounds); if (mapInstance.current.getZoom() > 15) mapInstance.current.setZoom(15); }
 //   };
 
 //   useEffect(() => {
@@ -1613,16 +1558,12 @@ export default Overview;
 //     loadGoogleMaps(googleKey).then(() => {
 //       if (!mounted || !mapRef.current || mapInstance.current) return;
 //       mapInstance.current = new window.google.maps.Map(mapRef.current, {
-//         center: { lat: countryCenter.lat, lng: countryCenter.lng },
-//         zoom: 5,
+//         center: { lat: countryCenter.lat, lng: countryCenter.lng }, zoom: 5,
 //         styles: [{ featureType: "poi", elementType: "labels", stylers: [{ visibility: "off" }] }],
 //       });
 //       setIsMapReady(true);
 //     }).catch((err) => console.error("Google Map load failed:", err));
-//     return () => {
-//       mounted = false;
-//       if (mapInstance.current) mapInstance.current = null;
-//     };
+//     return () => { mounted = false; if (mapInstance.current) mapInstance.current = null; };
 //   }, [googleKey]);
 
 //   const socketRef = useRef(socket);
@@ -1631,8 +1572,11 @@ export default Overview;
 //   useEffect(() => { driverDataRef.current = driverData; }, [driverData]);
 
 //   useEffect(() => {
+//     if (!isMapReady) return;
 //     const getDriverId = (d) => String(d.id || d.driver_id || d.dispatcher_id || d.client_id || "");
-//     const activeIds = new Set([...waitingDrivers.map(getDriverId), ...onJobDrivers.map(getDriverId)].filter(id => id !== ""));
+//     const onJobIds = new Set(onJobDrivers.map(getDriverId).filter(Boolean));
+//     const waitingIds = new Set(waitingDrivers.map(getDriverId).filter(Boolean));
+//     const activeIds = new Set([...onJobIds, ...waitingIds]);
 
 //     const renderMarker = (id, data) => {
 //       if (!mapInstance.current || !id) return;
@@ -1640,10 +1584,12 @@ export default Overview;
 //       const longitude = data?.longitude !== undefined ? data?.longitude : data?.lng;
 //       if (latitude == null || longitude == null || isNaN(latitude) || isNaN(longitude)) return;
 //       const position = { lat: Number(latitude), lng: Number(longitude) };
-//       const status = data?.driving_status || data?.status || "idle";
-//       const validStatus = status === "busy" ? "busy" : "idle";
+//       // ── on-job drivers always show as green (busy) ──
+//       const isOnJob = onJobIds.has(id);
+//       const validStatus = isOnJob ? "busy" : ((data?.driving_status || data?.status || "idle") === "busy" ? "busy" : "idle");
 //       const name = data?.name || data?.driverName || data?.driver_name || `Driver ${id}`;
-//       const infoContent = buildPopupHTML(data);
+//       const infoContent = buildPopupHTML({ ...data, driving_status: validStatus });
+
 //       if (markers.current[id]) {
 //         const marker = markers.current[id];
 //         const oldPos = marker.getPosition();
@@ -1652,35 +1598,47 @@ export default Overview;
 //         marker.setIcon(makeGoogleIcon(validStatus));
 //         marker.infoWindow?.setContent(infoContent);
 //       } else {
-//         const marker = new window.google.maps.Marker({
-//           position, map: mapInstance.current, title: name,
-//           icon: makeGoogleIcon(validStatus), animation: window.google.maps.Animation.DROP,
-//         });
+//         const marker = new window.google.maps.Marker({ position, map: mapInstance.current, title: name, icon: makeGoogleIcon(validStatus), animation: window.google.maps.Animation.DROP });
 //         const infoWindow = new window.google.maps.InfoWindow({ content: infoContent });
-//         marker.addListener("click", () => {
-//           Object.values(markers.current).forEach((m) => m.infoWindow?.close());
-//           infoWindow.open(mapInstance.current, marker);
-//         });
+//         marker.addListener("click", () => { Object.values(markers.current).forEach((m) => m.infoWindow?.close()); infoWindow.open(mapInstance.current, marker); });
 //         marker.infoWindow = infoWindow;
 //         markers.current[id] = marker;
 //       }
 //     };
 
-//     if (isMapReady && mapInstance.current) {
-//       Object.keys(markers.current).forEach(id => {
-//         if (!activeIds.has(id)) { markers.current[id].setMap(null); delete markers.current[id]; }
-//       });
-//       Object.entries(driverDataRef.current).forEach(([id, data]) => {
-//         if (activeIds.has(id)) renderMarker(id, data);
-//       });
-//     }
+//     // Remove markers for drivers no longer active
+//     Object.keys(markers.current).forEach(id => {
+//       if (!activeIds.has(id)) { markers.current[id].setMap(null); delete markers.current[id]; }
+//     });
+
+//     // Render all active drivers from driverData (includes persisted data after refresh)
+//     Object.entries(driverDataRef.current).forEach(([id, data]) => {
+//       if (activeIds.has(id)) renderMarker(id, data);
+//     });
+
+//     // Also directly render on-job drivers (even if driverData entry has no coords yet,
+//     // skip — but ensure every on-job driver with coords gets a marker)
+//     onJobDrivers.forEach((driver) => {
+//       const id = getDriverId(driver);
+//       if (!id) return;
+//       const data = driverDataRef.current[id] || driver;
+//       const lat = data?.latitude ?? data?.lat ?? driver?.latitude ?? driver?.lat;
+//       const lng = data?.longitude ?? data?.lng ?? driver?.longitude ?? driver?.lng;
+//       if (lat != null && lng != null && !isNaN(lat) && !isNaN(lng)) {
+//         renderMarker(id, { ...data, latitude: lat, longitude: lng, driving_status: "busy" });
+//       }
+//     });
 
 //     const handle = (rawData) => {
 //       const data = parseDriverData(rawData);
 //       if (!data) return;
 //       const id = getDriverId(data);
 //       if (!id) return;
-//       setDriverData(prev => ({ ...prev, [id]: { ...prev[id], ...data } }));
+//       setDriverData(prev => {
+//         const updated = { ...prev, [id]: { ...prev[id], ...data } };
+//         saveToStorage(DRIVER_DATA_STORAGE_KEY, updated); // persist location update
+//         return updated;
+//       });
 //       if (activeIds.has(id)) renderMarker(id, data);
 //     };
 
@@ -1708,127 +1666,65 @@ export default Overview;
 //     if (!map || !plotsData || plotsData.length === 0) return;
 //     const doRender = () => {
 //       try {
-//         ["plots-labels", "plots-outline", "plots-fill"].forEach(id => {
-//           if (map.getLayer(id)) map.removeLayer(id);
-//         });
+//         ["plots-labels", "plots-outline", "plots-fill"].forEach(id => { if (map.getLayer(id)) map.removeLayer(id); });
 //         if (map.getSource("plots")) map.removeSource("plots");
-
 //         const features = plotsData.map(plot => {
 //           const coords = parseCoordinates(plot);
 //           if (coords.length === 0) return null;
-//           return {
-//             type: "Feature",
-//             properties: { name: plot.plot_name || "Plot" },
-//             geometry: { type: "Polygon", coordinates: [coords.map(c => [c.lng, c.lat])] },
-//           };
+//           return { type: "Feature", properties: { name: plot.plot_name || "Plot" }, geometry: { type: "Polygon", coordinates: [coords.map(c => [c.lng, c.lat])] } };
 //         }).filter(Boolean);
-
 //         if (features.length === 0) return;
-
 //         map.addSource("plots", { type: "geojson", data: { type: "FeatureCollection", features } });
 //         map.addLayer({ id: "plots-fill", type: "fill", source: "plots", paint: { "fill-color": "#1F41BB", "fill-opacity": 0.15 } });
 //         map.addLayer({ id: "plots-outline", type: "line", source: "plots", paint: { "line-color": "#1F41BB", "line-width": 2.5, "line-opacity": 0.9 } });
 //         plotsRendered.current = true;
-//       } catch (err) {
-//         console.warn("Plot render error:", err);
-//       }
+//       } catch (err) { console.warn("Plot render error:", err); }
 //     };
-
-//     if (map.isStyleLoaded()) {
-//       doRender();
-//     } else {
-//       map.once("idle", doRender);
-//     }
+//     if (map.isStyleLoaded()) doRender(); else map.once("idle", doRender);
 //   };
 
-//   useEffect(() => {
-//     if (mapReady && mapInstance.current && plotsData?.length > 0) {
-//       renderPlots(mapInstance.current);
-//     }
-//   }, [mapReady, plotsData]);
+//   useEffect(() => { if (mapReady && mapInstance.current && plotsData?.length > 0) renderPlots(mapInstance.current); }, [mapReady, plotsData]);
 
 //   useEffect(() => {
 //     if (!barikoiKey) return;
 //     let mounted = true;
-
 //     const init = async () => {
-//       try {
-//         await loadBarikoiMaps();
-//       } catch (err) {
-//         console.error("Barikoi/MapLibre load failed:", err);
-//         return;
-//       }
-
+//       try { await loadBarikoiMaps(); } catch (err) { console.error("Barikoi/MapLibre load failed:", err); return; }
 //       if (!mounted || !mapRef.current || mapInstance.current) return;
-
 //       const container = mapRef.current;
-//       container.style.width = "100%";
-//       container.style.height = "100%";
-//       container.style.minHeight = "400px";
-//       container.style.position = "relative";
+//       container.style.width = "100%"; container.style.height = "100%"; container.style.minHeight = "400px"; container.style.position = "relative";
 //       await new Promise(resolve => requestAnimationFrame(resolve));
 //       await new Promise(resolve => setTimeout(resolve, 50));
-
 //       if (!mounted || !mapRef.current) return;
-
 //       const initMap = (style) => {
 //         try {
-//           const map = new window.maplibregl.Map({
-//             container,
-//             style,
-//             center: [countryCenter.lng, countryCenter.lat],
-//             zoom: 8,
-//             attributionControl: true,
-//             fadeDuration: 0,
-//           });
-
+//           const map = new window.maplibregl.Map({ container, style, center: [countryCenter.lng, countryCenter.lat], zoom: 8, attributionControl: true, fadeDuration: 0 });
 //           map.addControl(new window.maplibregl.NavigationControl(), "top-right");
-
-//           map.on("load", () => {
-//             if (!mounted) return;
-//             map.resize();
-//             setTimeout(() => {
-//               if (mounted && map) { map.resize(); setMapReady(true); }
-//             }, 150);
-//           });
-
+//           map.on("load", () => { if (!mounted) return; map.resize(); setTimeout(() => { if (mounted && map) { map.resize(); setMapReady(true); } }, 150); });
 //           map.on("error", (e) => {
 //             const msg = e?.error?.message || String(e);
 //             if (msg.includes("403") || msg.includes("401") || (msg.includes("Failed to fetch") && !map._usedFallback)) {
-//               console.warn("Barikoi tiles unavailable, switching to OSM fallback");
 //               map._usedFallback = true;
 //               try { map.setStyle(buildOsmFallbackStyle()); } catch { }
 //             }
 //           });
-
 //           mapInstance.current = map;
 //         } catch (err) {
 //           console.error("MapLibre Map instantiation failed:", err);
 //           try {
-//             const map = new window.maplibregl.Map({
-//               container, style: buildOsmFallbackStyle(),
-//               center: [countryCenter.lng, countryCenter.lat], zoom: 8,
-//             });
+//             const map = new window.maplibregl.Map({ container, style: buildOsmFallbackStyle(), center: [countryCenter.lng, countryCenter.lat], zoom: 8 });
 //             map.on("load", () => { map.resize(); setMapReady(true); });
 //             mapInstance.current = map;
 //           } catch { }
 //         }
 //       };
-
-//       const barikoiRasterStyle = buildBarikoiStyle(barikoiKey);
-//       initMap(barikoiRasterStyle);
+//       initMap(buildBarikoiStyle(barikoiKey));
 //     };
-
 //     init();
-
 //     return () => {
 //       mounted = false;
 //       if (mapInstance.current) {
-//         try {
-//           Object.values(markers.current).forEach((m) => { try { m.remove(); } catch { } });
-//           markers.current = {};
-//           mapInstance.current.remove();
-//         } catch { }
+//         try { Object.values(markers.current).forEach((m) => { try { m.remove(); } catch { } }); markers.current = {}; mapInstance.current.remove(); } catch { }
 //         mapInstance.current = null;
 //       }
 //     };
@@ -1836,11 +1732,7 @@ export default Overview;
 
 //   useEffect(() => {
 //     if (!mapRef.current) return;
-//     const ro = new ResizeObserver(() => {
-//       if (mapInstance.current && typeof mapInstance.current.resize === "function") {
-//         mapInstance.current.resize();
-//       }
-//     });
+//     const ro = new ResizeObserver(() => { if (mapInstance.current && typeof mapInstance.current.resize === "function") mapInstance.current.resize(); });
 //     ro.observe(mapRef.current);
 //     return () => ro.disconnect();
 //   }, []);
@@ -1850,6 +1742,10 @@ export default Overview;
 
 //   useEffect(() => {
 //     if (!mapReady) return;
+//     const getDriverId = (d) => String(d.id || d.driver_id || d.dispatcher_id || d.client_id || "");
+//     const onJobIds = new Set(onJobDrivers.map(getDriverId).filter(Boolean));
+//     const waitingIds = new Set(waitingDrivers.map(getDriverId).filter(Boolean));
+//     const activeIds = new Set([...onJobIds, ...waitingIds]);
 
 //     const updateOrAddMarker = (data) => {
 //       if (!mapInstance.current) return;
@@ -1859,15 +1755,16 @@ export default Overview;
 //       const lng = Number(data.longitude !== undefined ? data.longitude : data.lng);
 //       if (isNaN(lat) || isNaN(lng)) return;
 //       const lngLat = [lng, lat];
-//       const status = data.driving_status || "idle";
-//       const validStatus = status === "busy" ? "busy" : "idle";
+//       const isOnJob = onJobIds.has(String(driverId));
+//       const validStatus = isOnJob ? "busy" : ((data.driving_status || "idle") === "busy" ? "busy" : "idle");
 //       const name = data.name || data.driverName || data.driver_name || `Driver ${driverId}`;
-//       const popupHTML = buildPopupHTML(data);
+//       const popupHTML = buildPopupHTML({ ...data, driving_status: validStatus });
 
-//       setDriverData((prev) => ({
-//         ...prev,
-//         [driverId]: { ...data, position: { lat, lng }, status: validStatus, driving_status: validStatus, name },
-//       }));
+//       setDriverData((prev) => {
+//         const updated = { ...prev, [driverId]: { ...data, position: { lat, lng }, status: validStatus, driving_status: validStatus, name } };
+//         saveToStorage(DRIVER_DATA_STORAGE_KEY, updated); // persist
+//         return updated;
+//       });
 
 //       if (markers.current[driverId]) {
 //         markers.current[driverId].setLngLat(lngLat);
@@ -1878,42 +1775,41 @@ export default Overview;
 //         try {
 //           const el = createSvgMarkerEl(validStatus);
 //           const popup = new window.maplibregl.Popup({ offset: 25, closeButton: false, closeOnClick: false }).setHTML(popupHTML);
-//           const marker = new window.maplibregl.Marker({ element: el, anchor: "center" })
-//             .setLngLat(lngLat).setPopup(popup).addTo(mapInstance.current);
+//           const marker = new window.maplibregl.Marker({ element: el, anchor: "center" }).setLngLat(lngLat).setPopup(popup).addTo(mapInstance.current);
 //           marker._isOpen = false;
 //           el.addEventListener("click", () => {
 //             if (marker._isOpen) { popup.remove(); marker._isOpen = false; }
-//             else {
-//               Object.values(markers.current).forEach((m) => { try { m.getPopup()?.remove(); m._isOpen = false; } catch { } });
-//               popup.setLngLat(lngLat).addTo(mapInstance.current);
-//               marker._isOpen = true;
-//             }
+//             else { Object.values(markers.current).forEach((m) => { try { m.getPopup()?.remove(); m._isOpen = false; } catch { } }); popup.setLngLat(lngLat).addTo(mapInstance.current); marker._isOpen = true; }
 //           });
 //           markers.current[driverId] = marker;
-//         } catch (err) {
-//           console.warn("Marker add error:", err);
-//         }
+//         } catch (err) { console.warn("Marker add error:", err); }
 //       }
 //     };
 
-//     const activeIds = new Set([
-//       ...waitingDrivers.map(d => String(d.id || d.driver_id || d.dispatcher_id || "")),
-//       ...onJobDrivers.map(d => String(d.id || d.driver_id || d.dispatcher_id || "")),
-//     ].filter(Boolean));
-
+//     // Remove stale markers
 //     Object.keys(markers.current).forEach(id => {
-//       if (!activeIds.has(String(id))) {
-//         try { markers.current[id].remove(); } catch { }
-//         delete markers.current[id];
-//       }
+//       if (!activeIds.has(String(id))) { try { markers.current[id].remove(); } catch { } delete markers.current[id]; }
 //     });
 
+//     // Render all drivers with known location
 //     Object.values(driverData).forEach(data => {
 //       const id = String(data.id || data.driver_id || data.dispatcher_id || data.client_id || "");
 //       if (id && activeIds.has(id)) {
 //         const lat = data.latitude !== undefined ? data.latitude : data.lat;
 //         const lng = data.longitude !== undefined ? data.longitude : data.lng;
 //         if (lat != null && lng != null) updateOrAddMarker(data);
+//       }
+//     });
+
+//     // Ensure on-job drivers from the list also render (uses persisted data)
+//     onJobDrivers.forEach((driver) => {
+//       const id = getDriverId(driver);
+//       if (!id) return;
+//       const merged = { ...driver, ...driverData[id] };
+//       const lat = merged?.latitude ?? merged?.lat;
+//       const lng = merged?.longitude ?? merged?.lng;
+//       if (lat != null && lng != null && !isNaN(lat) && !isNaN(lng)) {
+//         updateOrAddMarker({ ...merged, latitude: lat, longitude: lng, driving_status: "busy" });
 //       }
 //     });
 
@@ -1932,12 +1828,7 @@ export default Overview;
 //         if (!mapInstance.current || Object.keys(markers.current).length === 0) return;
 //         let minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity, hasVisible = false;
 //         Object.values(markers.current).forEach((m) => {
-//           try {
-//             const { lat, lng } = m.getLngLat();
-//             minLat = Math.min(minLat, lat); maxLat = Math.max(maxLat, lat);
-//             minLng = Math.min(minLng, lng); maxLng = Math.max(maxLng, lng);
-//             hasVisible = true;
-//           } catch { }
+//           try { const { lat, lng } = m.getLngLat(); minLat = Math.min(minLat, lat); maxLat = Math.max(maxLat, lat); minLng = Math.min(minLng, lng); maxLng = Math.max(maxLng, lng); hasVisible = true; } catch { }
 //         });
 //         if (hasVisible) mapInstance.current.fitBounds([[minLng, minLat], [maxLng, maxLat]], { padding: 50, maxZoom: 15 });
 //       };
@@ -1946,12 +1837,57 @@ export default Overview;
 //     }
 //   }, [mapReady, driverData]);
 
-//   return (
-//     <div
-//       ref={mapRef}
-//       style={{ width: "100%", height: "100%", minHeight: "400px", position: "relative" }}
-//     />
-//   );
+//   return <div ref={mapRef} style={{ width: "100%", height: "100%", minHeight: "400px", position: "relative" }} />;
+// };
+
+// const usePersistedOnJobDrivers = () => {
+//   const [onJobDrivers, setRaw] = useState(() => loadFromStorage(ON_JOB_STORAGE_KEY, []));
+//   const setOnJobDrivers = useCallback((updater) => {
+//     setRaw((prev) => {
+//       const next = typeof updater === "function" ? updater(prev) : updater;
+//       saveToStorage(ON_JOB_STORAGE_KEY, next);
+//       return next;
+//     });
+//   }, []);
+//   return [onJobDrivers, setOnJobDrivers];
+// };
+
+// const usePersistedDriverData = () => {
+//   // ── load from storage; set driving_status=busy for any on-job driver ────────
+//   const [driverData, setRaw] = useState(() => {
+//     const storedDrivers = loadFromStorage(DRIVER_DATA_STORAGE_KEY, {});
+//     const onJobDrivers = loadFromStorage(ON_JOB_STORAGE_KEY, []);
+//     const onJobIds = new Set(onJobDrivers.map(d => String(d.id || d.driver_id || d.dispatcher_id || "")));
+//     const merged = { ...storedDrivers };
+//     Object.keys(merged).forEach(id => {
+//       if (onJobIds.has(id)) merged[id] = { ...merged[id], driving_status: "busy", status: "busy" };
+//     });
+//     return merged;
+//   });
+//   const setDriverData = useCallback((updater) => {
+//     setRaw((prev) => {
+//       const next = typeof updater === "function" ? updater(prev) : updater;
+//       saveToStorage(DRIVER_DATA_STORAGE_KEY, next);
+//       return next;
+//     });
+//   }, []);
+//   return [driverData, setDriverData];
+// };
+
+// const usePersistedWaitingDrivers = () => {
+//   const [waitingDrivers, setRaw] = useState(() => {
+//     const stored = loadFromStorage(WAITING_DRIVERS_STORAGE_KEY, []);
+//     const now = Date.now();
+//     return stored.filter((d) => !d.updatedAt || now - d.updatedAt < 5 * 60 * 1000);
+//   });
+//   const setWaitingDrivers = useCallback((updater) => {
+//     setRaw((prev) => {
+//       const next = typeof updater === "function" ? updater(prev) : updater;
+//       saveToStorage(WAITING_DRIVERS_STORAGE_KEY, next);
+//       return next;
+//     });
+//   }, []);
+//   return [waitingDrivers, setWaitingDrivers];
 // };
 
 // const Overview = () => {
@@ -1975,9 +1911,10 @@ export default Overview;
 //   useEffect(() => { plotsDataRef.current = allPlots; }, [allPlots]);
 
 //   const [dashboardCounts, setDashboardCounts] = useState({ todaysBooking: 0, preBookings: 0, recentJobs: 0, completed: 0, noShow: 0, cancelled: 0 });
-//   const [driverData, setDriverData] = useState({});
-//   const [waitingDrivers, setWaitingDrivers] = useState([]);
-//   const [onJobDrivers, setOnJobDrivers] = useState([]);
+
+//   const [driverData, setDriverData] = usePersistedDriverData();
+//   const [onJobDrivers, setOnJobDrivers] = usePersistedOnJobDrivers();
+//   const [waitingDrivers, setWaitingDrivers] = usePersistedWaitingDrivers();
 
 //   useEffect(() => {
 //     const fetchApiKeys = async () => {
@@ -1988,32 +1925,21 @@ export default Overview;
 //           const googleKey = data.google_api_key?.startsWith("AIza") ? data.google_api_key : GOOGLE_KEY;
 //           const barikoiKey = data.barikoi_api_key?.startsWith("bkoi_") ? data.barikoi_api_key : BARIKOI_KEY;
 //           setApiKeys({ googleKey, barikoiKey, searchApi: data.search_api || "google", countryOfUse: data.country_of_use || null });
-//           const newType = data.maps_api ? data.maps_api.toLowerCase() : getMapType(data);
-//           setMapType(newType);
+//           setMapType(data.maps_api ? data.maps_api.toLowerCase() : getMapType(data));
 //         }
-//       } catch (err) {
-//         console.error("Fetch API keys error:", err);
-//         setMapType("google"); // fallback
-//       }
+//       } catch (err) { console.error("Fetch API keys error:", err); setMapType("google"); }
 //     };
 //     fetchApiKeys();
 //   }, []);
 
 //   useEffect(() => {
 //     const fetchPlots = async () => {
-//       try {
-//         const res = await apiGetAllPlot({ page: 1, limit: 100 });
-//         if (res.data?.success) setPlotsData(res.data.data?.data || res.data.data || []);
-//       } catch (err) { console.error("Fetch plotsData error:", err); }
+//       try { const res = await apiGetAllPlot({ page: 1, limit: 100 }); if (res.data?.success) setPlotsData(res.data.data?.data || res.data.data || []); } catch (err) { console.error("Fetch plotsData error:", err); }
 //     };
 //     const fetchListPlots = async () => {
-//       try {
-//         const res = await apiGetPlot({ page: 1, perPage: 1000 });
-//         if (res.data?.success) setListPlots(res.data.list?.data || []);
-//       } catch (err) { console.error("Fetch listPlots error:", err); }
+//       try { const res = await apiGetPlot({ page: 1, perPage: 1000 }); if (res.data?.success) setListPlots(res.data.list?.data || []); } catch (err) { console.error("Fetch listPlots error:", err); }
 //     };
-//     fetchPlots();
-//     fetchListPlots();
+//     fetchPlots(); fetchListPlots();
 //   }, []);
 
 //   useEffect(() => { socketRef.current = socket; }, [socket]);
@@ -2026,21 +1952,18 @@ export default Overview;
 //     const interval = setInterval(() => {
 //       const now = Date.now();
 //       setWaitingDrivers((prev) => {
-//         const filtered = prev.filter((d) => !d.updatedAt || now - d.updatedAt < 15000);
+//         const filtered = prev.filter((d) => !d.updatedAt || now - d.updatedAt < 5 * 60 * 1000);
 //         return filtered.length === prev.length ? prev : filtered;
 //       });
 //     }, 1000);
 //     return () => clearInterval(interval);
-//   }, []);
+//   }, [setWaitingDrivers]);
 
 //   const user = useAppSelector((state) => state.auth.user);
 //   const displayName = user?.name ? user.name.charAt(0).toUpperCase() + user.name.slice(1) : "Admin";
 
 //   const fetchDashboardCards = useCallback(async () => {
-//     try {
-//       const res = await getDashboardCards();
-//       if (res.data?.success) setDashboardCounts(res.data.data);
-//     } catch (err) { console.error("Dashboard cards error:", err); }
+//     try { const res = await getDashboardCards(); if (res.data?.success) setDashboardCounts(res.data.data); } catch (err) { console.error("Dashboard cards error:", err); }
 //   }, []);
 
 //   useEffect(() => { fetchDashboardCards(); }, [fetchDashboardCards]);
@@ -2049,16 +1972,13 @@ export default Overview;
 //     if (!socket) return;
 
 //     const handleDashboardUpdate = (data) => setDashboardCounts(data);
-
 //     const handleNotificationRide = (rawData) => {
-//       let data;
-//       try { data = typeof rawData === "string" ? JSON.parse(rawData) : rawData; } catch { data = rawData; }
+//       let data; try { data = typeof rawData === "string" ? JSON.parse(rawData) : rawData; } catch { data = rawData; }
 //       showRideNotification(data);
 //     };
 
 //     const handleWaitingDriver = (rawData) => {
-//       let data;
-//       try { data = typeof rawData === "string" ? JSON.parse(rawData) : rawData; } catch { data = rawData; }
+//       let data; try { data = typeof rawData === "string" ? JSON.parse(rawData) : rawData; } catch { data = rawData; }
 //       if (Array.isArray(data)) { setWaitingDrivers(data.map(d => ({ ...d, updatedAt: Date.now() }))); return; }
 //       if (data?.driverName || data?.driver_name) {
 //         const name = data.driverName || data.driver_name;
@@ -2066,25 +1986,20 @@ export default Overview;
 //         const sId = String(driverId);
 //         if (sId) {
 //           setDriverData(prev => {
-//             let lat = data.latitude || data.lat;
-//             let lng = data.longitude || data.lng;
+//             let lat = data.latitude || data.lat, lng = data.longitude || data.lng;
 //             if ((lat == null || lng == null) && (data.plot_id || data.plot)) {
-//               const plotId = data.plot_id || data.plot;
-//               const plot = plotsDataRef.current.find(p => p.id == plotId || p.plot_id == plotId);
-//               if (plot) {
-//                 const coords = parseCoordinates(plot);
-//                 if (coords.length > 0) {
-//                   lat = coords.reduce((s, c) => s + c.lat, 0) / coords.length;
-//                   lng = coords.reduce((s, c) => s + c.lng, 0) / coords.length;
-//                 }
-//               }
+//               const plot = plotsDataRef.current.find(p => p.id == (data.plot_id || data.plot) || p.plot_id == (data.plot_id || data.plot));
+//               if (plot) { const coords = parseCoordinates(plot); if (coords.length > 0) { lat = coords.reduce((s, c) => s + c.lat, 0) / coords.length; lng = coords.reduce((s, c) => s + c.lng, 0) / coords.length; } }
 //             }
 //             const status = "idle";
-//             if (prev[sId]) return { ...prev, [sId]: { ...prev[sId], ...data, position: (lat && lng) ? { lat: Number(lat), lng: Number(lng) } : prev[sId].position, status, driving_status: status } };
-//             else if (lat && lng) return { ...prev, [sId]: { ...data, position: { lat: Number(lat), lng: Number(lng) }, status, driving_status: status } };
-//             return prev;
+//             const updated = prev[sId]
+//               ? { ...prev, [sId]: { ...prev[sId], ...data, position: (lat && lng) ? { lat: Number(lat), lng: Number(lng) } : prev[sId].position, status, driving_status: status } }
+//               : (lat && lng ? { ...prev, [sId]: { ...data, position: { lat: Number(lat), lng: Number(lng) }, status, driving_status: status } } : prev);
+//             saveToStorage(DRIVER_DATA_STORAGE_KEY, updated);
+//             return updated;
 //           });
 //         }
+//         // Driver back to idle → remove from on-job (also removes from localStorage via setOnJobDrivers)
 //         setOnJobDrivers((prev) => prev.filter((d) => d.name !== name));
 //         const obj = { id: driverId || Date.now(), name, plot: data.plot_name || data.plot || "N/A", rank: data.rank || 1, ...data };
 //         setWaitingDrivers((prev) => {
@@ -2096,8 +2011,7 @@ export default Overview;
 //     };
 
 //     const handleOnJobDriver = (rawData) => {
-//       let data;
-//       try { data = typeof rawData === "string" ? JSON.parse(rawData) : rawData; } catch { data = rawData; }
+//       let data; try { data = typeof rawData === "string" ? JSON.parse(rawData) : rawData; } catch { data = rawData; }
 //       if (Array.isArray(data)) { setOnJobDrivers(data); return; }
 //       if (data?.driverName || data?.driver_name) {
 //         const name = data.driverName || data.driver_name;
@@ -2105,51 +2019,37 @@ export default Overview;
 //         const sId = String(driverId);
 //         if (sId) {
 //           setDriverData(prev => {
-//             let lat = data.latitude || data.lat;
-//             let lng = data.longitude || data.lng;
+//             let lat = data.latitude || data.lat, lng = data.longitude || data.lng;
 //             if ((lat == null || lng == null) && (data.plot_id || data.plot)) {
-//               const plotId = data.plot_id || data.plot;
-//               const plot = plotsDataRef.current.find(p => p.id == plotId || p.plot_id == plotId);
-//               if (plot) {
-//                 const coords = parseCoordinates(plot);
-//                 if (coords.length > 0) {
-//                   lat = coords.reduce((s, c) => s + c.lat, 0) / coords.length;
-//                   lng = coords.reduce((s, c) => s + c.lng, 0) / coords.length;
-//                 }
-//               }
+//               const plot = plotsDataRef.current.find(p => p.id == (data.plot_id || data.plot) || p.plot_id == (data.plot_id || data.plot));
+//               if (plot) { const coords = parseCoordinates(plot); if (coords.length > 0) { lat = coords.reduce((s, c) => s + c.lat, 0) / coords.length; lng = coords.reduce((s, c) => s + c.lng, 0) / coords.length; } }
 //             }
 //             const status = "busy";
-//             if (prev[sId]) return { ...prev, [sId]: { ...prev[sId], ...data, position: (lat && lng) ? { lat: Number(lat), lng: Number(lng) } : prev[sId].position, status, driving_status: status } };
-//             else if (lat && lng) return { ...prev, [sId]: { ...data, position: { lat: Number(lat), lng: Number(lng) }, status, driving_status: status } };
-//             return prev;
+//             const updated = prev[sId]
+//               ? { ...prev, [sId]: { ...prev[sId], ...data, position: (lat && lng) ? { lat: Number(lat), lng: Number(lng) } : prev[sId].position, status, driving_status: status } }
+//               : (lat && lng ? { ...prev, [sId]: { ...data, position: { lat: Number(lat), lng: Number(lng) }, status, driving_status: status } } : prev);
+//             saveToStorage(DRIVER_DATA_STORAGE_KEY, updated);
+//             return updated;
 //           });
 //         }
 //         setWaitingDrivers((prev) => prev.filter((d) => d.name !== name));
 //         const obj = { id: driverId || Date.now(), name, ...data };
-//         setOnJobDrivers((prev) => {
-//           const exists = prev.some((d) => d.name === obj.name);
-//           return exists ? prev.map((d) => d.name === obj.name ? obj : d) : [obj, ...prev];
-//         });
+//         setOnJobDrivers((prev) => { const exists = prev.some((d) => d.name === obj.name); return exists ? prev.map((d) => d.name === obj.name ? obj : d) : [obj, ...prev]; });
 //       }
 //     };
 
 //     const handleJobAccepted = (rawData) => {
-//       let data;
-//       try { data = typeof rawData === "string" ? JSON.parse(rawData) : rawData; } catch { data = rawData; }
+//       let data; try { data = typeof rawData === "string" ? JSON.parse(rawData) : rawData; } catch { data = rawData; }
 //       const driverName = data?.driver_name || data?.driverName;
 //       if (driverName) {
 //         setWaitingDrivers((prev) => prev.filter((d) => d.name !== driverName));
 //         const obj = { id: Date.now(), name: driverName, ...data };
-//         setOnJobDrivers((prev) => {
-//           const exists = prev.some((d) => d.name === obj.name);
-//           return exists ? prev.map((d) => d.name === obj.name ? obj : d) : [obj, ...prev];
-//         });
+//         setOnJobDrivers((prev) => { const exists = prev.some((d) => d.name === obj.name); return exists ? prev.map((d) => d.name === obj.name ? obj : d) : [obj, ...prev]; });
 //       }
 //     };
 
 //     const handleJobCancelled = (rawData) => {
-//       let data;
-//       try { data = typeof rawData === "string" ? JSON.parse(rawData) : rawData; } catch { data = rawData; }
+//       let data; try { data = typeof rawData === "string" ? JSON.parse(rawData) : rawData; } catch { data = rawData; }
 //       const driverName = data?.driver_name || data?.driverName;
 //       if (driverName) setOnJobDrivers((prev) => prev.filter((d) => d.name !== driverName));
 //       fetchDashboardCards();
@@ -2164,6 +2064,12 @@ export default Overview;
 //       if (!driverId) return;
 //       const sId = String(driverId);
 //       const now = Date.now();
+
+//       // If socket explicitly says idle, remove from on-job + localStorage
+//       if (data.driving_status === "idle") {
+//         setOnJobDrivers((prev) => prev.filter(d => String(d.id || d.driver_id || d.dispatcher_id) !== sId));
+//       }
+
 //       setWaitingDrivers((prev) => {
 //         const exists = prev.some((d) => String(d.id || d.driver_id || d.dispatcher_id) === sId);
 //         if (exists) return prev.map((d) => String(d.id || d.driver_id || d.dispatcher_id) === sId ? { ...d, ...data, updatedAt: now } : d);
@@ -2171,10 +2077,16 @@ export default Overview;
 //       });
 //     };
 
+//     const handleNearestDispatchFailed = (rawData) => {
+//       let data; try { data = typeof rawData === "string" ? JSON.parse(rawData) : rawData; } catch { data = rawData; }
+//       showRideNotification({ ...data, isFailedDispatch: true });
+//     };
+
 //     socket.on("dashboard-cards-update", handleDashboardUpdate);
 //     socket.on("waiting-driver-event", handleWaitingDriver);
 //     socket.on("on-job-driver-event", handleOnJobDriver);
 //     socket.on("notification-ride", handleNotificationRide);
+//     socket.on("nearest-dispatch-failed", handleNearestDispatchFailed);
 //     socket.on("job-accepted-by-driver", handleJobAccepted);
 //     socket.on("job-cancelled-by-driver", handleJobCancelled);
 //     socket.on("driver-location-update", handleDriverLocationUpdate);
@@ -2187,6 +2099,7 @@ export default Overview;
 //       socket.off("waiting-driver-event", handleWaitingDriver);
 //       socket.off("on-job-driver-event", handleOnJobDriver);
 //       socket.off("notification-ride", handleNotificationRide);
+//       socket.off("nearest-dispatch-failed", handleNearestDispatchFailed);
 //       socket.off("job-accepted-by-driver", handleJobAccepted);
 //       socket.off("job-cancelled-by-driver", handleJobCancelled);
 //       socket.off("driver-location-update", handleDriverLocationUpdate);
@@ -2215,20 +2128,14 @@ export default Overview;
 //           </div>
 //         </div>
 //         <div className="flex flex-col sm:flex-row gap-3 items-center justify-center w-full sm:w-auto">
-//           <Button
-//             className="w-full sm:w-auto px-3 py-1.5 border border-[#1f41bb] rounded-full"
-//             onClick={() => { lockBodyScroll(); setIsMessageModelOpen({ isOpen: true, type: "new" }); }}
-//           >
+//           <Button className="w-full sm:w-auto px-3 py-1.5 border border-[#1f41bb] rounded-full" onClick={() => { lockBodyScroll(); setIsMessageModelOpen({ isOpen: true, type: "new" }); }}>
 //             <div className="flex gap-1 items-center justify-center whitespace-nowrap">
 //               <span className="hidden sm:inline-block"><PlusIcon fill={"#1f41bb"} height={13} width={13} /></span>
 //               <span className="sm:hidden"><PlusIcon height={8} width={8} /></span>
 //               <span>Call Queue</span>
 //             </div>
 //           </Button>
-//           <Button type="filled" btnSize="md"
-//             onClick={() => { lockBodyScroll(); setIsBookingModelOpen({ isOpen: true, type: "new" }); }}
-//             className="w-full sm:w-auto -mb-2 sm:-mb-3 lg:-mb-3 !py-3.5 sm:!py-3 lg:!py-3"
-//           >
+//           <Button type="filled" btnSize="md" onClick={() => { lockBodyScroll(); setIsBookingModelOpen({ isOpen: true, type: "new" }); }} className="w-full sm:w-auto -mb-2 sm:-mb-3 lg:-mb-3 !py-3.5 sm:!py-3 lg:!py-3">
 //             <div className="flex gap-2 sm:gap-[15px] items-center justify-center whitespace-nowrap">
 //               <span className="hidden sm:inline-block"><PlusIcon /></span>
 //               <span className="sm:hidden"><PlusIcon height={16} width={16} /></span>
@@ -2256,16 +2163,10 @@ export default Overview;
 //             </div>
 //             <div className="flex-1 rounded-xl overflow-hidden" style={{ minHeight: 0, position: "relative" }}>
 //               {mapType === "barikoi" && apiKeys.barikoiKey && (
-//                 <BarikoiMapSection
-//                   key={`barikoi-${apiKeys.barikoiKey}-${apiKeys.countryOfUse}`}
-//                   {...mapProps}
-//                 />
+//                 <BarikoiMapSection key={`barikoi-${apiKeys.barikoiKey}-${apiKeys.countryOfUse}`} {...mapProps} />
 //               )}
 //               {mapType === "google" && apiKeys.googleKey && (
-//                 <GoogleMapSection
-//                   key={`google-${apiKeys.googleKey}-${apiKeys.countryOfUse}`}
-//                   {...mapProps}
-//                 />
+//                 <GoogleMapSection key={`google-${apiKeys.googleKey}-${apiKeys.countryOfUse}`} {...mapProps} />
 //               )}
 //               {!mapType && (
 //                 <div className="w-full h-full flex items-center justify-center bg-gray-100 rounded-xl">
@@ -2291,16 +2192,14 @@ export default Overview;
 //                 </tr>
 //               </thead>
 //               <tbody>
-//                 {waitingDrivers.length > 0 ? (
-//                   waitingDrivers.map((driver, i) => (
-//                     <tr key={driver.id || driver.driver_id || i} className="border-t">
-//                       <td className="py-1">{i + 1}</td>
-//                       <td>{driver.name || driver.driver_name || "Unknown"}</td>
-//                       <td>{driver.plot_name && driver.plot && driver.plot_name !== driver.plot.toString() ? `${driver.plot_name} (${driver.plot})` : (driver.plot_name || driver.plot || "N/A")}</td>
-//                       <td className="text-right">{driver.rank || driver.ranking || i + 1}</td>
-//                     </tr>
-//                   ))
-//                 ) : (
+//                 {waitingDrivers.length > 0 ? waitingDrivers.map((driver, i) => (
+//                   <tr key={driver.id || driver.driver_id || i} className="border-t">
+//                     <td className="py-1">{i + 1}</td>
+//                     <td>{driver.name || driver.driver_name || "Unknown"}</td>
+//                     <td>{driver.plot_name && driver.plot && driver.plot_name !== driver.plot.toString() ? `${driver.plot_name} (${driver.plot})` : (driver.plot_name || driver.plot || "N/A")}</td>
+//                     <td className="text-right">{driver.rank || driver.ranking || i + 1}</td>
+//                   </tr>
+//                 )) : (
 //                   <tr><td colSpan="4" className="text-center py-4 text-gray-500">No waiting drivers</td></tr>
 //                 )}
 //               </tbody>
@@ -2321,14 +2220,12 @@ export default Overview;
 //                 </tr>
 //               </thead>
 //               <tbody>
-//                 {onJobDrivers.length > 0 ? (
-//                   onJobDrivers.map((driver, i) => (
-//                     <tr key={driver.id || driver.driver_id || i} className="border-t">
-//                       <td className="py-1">{i + 1}</td>
-//                       <td>{driver.name || driver.driver_name || `Driver ${i + 1}`}</td>
-//                     </tr>
-//                   ))
-//                 ) : (
+//                 {onJobDrivers.length > 0 ? onJobDrivers.map((driver, i) => (
+//                   <tr key={driver.id || driver.driver_id || i} className="border-t">
+//                     <td className="py-1">{i + 1}</td>
+//                     <td>{driver.name || driver.driver_name || `Driver ${i + 1}`}</td>
+//                   </tr>
+//                 )) : (
 //                   <tr><td colSpan="2" className="text-center py-4 text-gray-500">No active jobs</td></tr>
 //                 )}
 //               </tbody>
