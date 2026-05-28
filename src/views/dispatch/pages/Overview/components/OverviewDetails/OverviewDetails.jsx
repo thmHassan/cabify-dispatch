@@ -174,9 +174,15 @@ const OverViewDetails = ({ filter }) => {
         const handleAutoDispatchFailed = (data) => {
             console.log("auto-dispatch-failed:", data);
             if (!data?.booking_id) return;
+            const updatedBooking = data?.booking ?? null;
+            if (updatedBooking) {
+                setBookings((prev) =>
+                    safeMap(prev, (b) => b.id === updatedBooking.id ? updatedBooking : b)
+                );
+            }
             showNotification({
                 booking_id: data.booking_id,
-                message: data.message || "No drivers accepted the ride",
+                message: data.message || "Ride not selected during auto dispatch. Please book manually.",
                 type: "failed",
             });
         };
