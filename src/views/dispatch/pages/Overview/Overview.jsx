@@ -723,7 +723,7 @@ const usePersistedWaitingDrivers = () => {
   const [waitingDrivers, setRaw] = useState(() => {
     const stored = loadFromStorage(WAITING_DRIVERS_STORAGE_KEY, []);
     const now = Date.now();
-    return stored.filter((d) => !d.updatedAt || now - d.updatedAt < 5 * 60 * 1000);
+    return stored.filter((d) => !d.updatedAt || now - d.updatedAt < 15 * 60 * 1000);
   });
   const setWaitingDrivers = useCallback((updater) => {
     setRaw((prev) => {
@@ -797,7 +797,7 @@ const Overview = () => {
     const interval = setInterval(() => {
       const now = Date.now();
       setWaitingDrivers((prev) => {
-        const filtered = prev.filter((d) => !d.updatedAt || now - d.updatedAt < 5 * 60 * 1000);
+        const filtered = prev.filter((d) => !d.updatedAt || now - d.updatedAt < 15 * 60 * 1000);
         return filtered.length === prev.length ? prev : filtered;
       });
     }, 1000);
@@ -1075,7 +1075,15 @@ const Overview = () => {
                 {waitingDrivers.length > 0 ? waitingDrivers.map((driver, i) => (
                   <tr key={driver.id || driver.driver_id || i} className="border-t">
                     <td className="py-1">{i + 1}</td>
-                    <td>{driver.name || driver.driver_name || "Unknown"}</td>
+                    <td>
+                      {driver.is_reconnecting ? (
+                        <span className="text-orange-500 font-medium animate-pulse">
+                          Reconnecting... {driver.name || driver.driver_name || "Unknown"}
+                        </span>
+                      ) : (
+                        driver.display_name || driver.name || driver.driver_name || "Unknown"
+                      )}
+                    </td>
                     <td>{driver.plot_name && driver.plot && driver.plot_name !== driver.plot.toString() ? `${driver.plot_name} (${driver.plot})` : (driver.plot_name || driver.plot || "N/A")}</td>
                     <td className="text-right">{driver.rank || driver.ranking || i + 1}</td>
                   </tr>
