@@ -187,6 +187,23 @@ const OverViewDetails = ({ filter }) => {
             });
         };
 
+        const handleNearestDispatchFailed = (rawData) => {
+            console.log("nearest-dispatch-failed:", rawData);
+            let data;
+            try {
+                data = typeof rawData === "string" ? JSON.parse(rawData) : rawData;
+            } catch {
+                data = rawData;
+            }
+            setRefreshTrigger(prev => prev + 1);
+            showNotification({
+                booking_id: data?.booking_id || data?.bookingId || data?.booking?.id,
+                booking: data?.booking || null,
+                message: data?.message || data?.reason || "No nearby drivers available within 6km radius.",
+                type: "failed",
+            });
+        };
+
         const handleBookingCancelled = (data) => {
             console.log("booking-cancelled:", data);
             if (!data?.booking_id) return;
@@ -274,6 +291,7 @@ const OverViewDetails = ({ filter }) => {
         socket.on("job-accepted-by-driver", handleJobAccepted);
         socket.on("job-rejected-by-driver", handleJobRejected);
         socket.on("auto-dispatch-failed", handleAutoDispatchFailed);
+        socket.on("nearest-dispatch-failed", handleNearestDispatchFailed);
         socket.on("booking-cancelled-event", handleBookingCancelled);
         socket.on("booking-cancelled", handleBookingCancelled);
         socket.on("cancel-booking-event", handleBookingCancelled);
@@ -293,6 +311,7 @@ const OverViewDetails = ({ filter }) => {
             socket.off("job-accepted-by-driver", handleJobAccepted);
             socket.off("job-rejected-by-driver", handleJobRejected);
             socket.off("auto-dispatch-failed", handleAutoDispatchFailed);
+            socket.off("nearest-dispatch-failed", handleNearestDispatchFailed);
             socket.off("booking-cancelled-event", handleBookingCancelled);
             socket.off("booking-cancelled", handleBookingCancelled);
             socket.off("cancel-booking-event", handleBookingCancelled);

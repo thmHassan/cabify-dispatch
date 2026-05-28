@@ -960,6 +960,7 @@ const Overview = () => {
     const handleNearestDispatchFailed = (rawData) => {
       let data; try { data = typeof rawData === "string" ? JSON.parse(rawData) : rawData; } catch { data = rawData; }
       showRideNotification({ ...data, isFailedDispatch: true });
+      fetchDashboardCards();
     };
 
     socket.on("dashboard-cards-update", handleDashboardUpdate);

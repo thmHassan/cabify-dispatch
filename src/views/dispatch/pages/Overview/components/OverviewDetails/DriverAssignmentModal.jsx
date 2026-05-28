@@ -54,6 +54,15 @@ const DriverAssignmentModal = ({
             avatar: "bg-red-600",
             progress: "bg-red-600",
         },
+        failed: {
+            color: "#dc2626",
+            label: "Dispatch Failed",
+            gradient: "from-red-600 via-red-400 to-red-600",
+            dot: "bg-red-600",
+            ping: "bg-red-600",
+            avatar: "bg-red-600",
+            progress: "bg-red-600",
+        },
         default: {
             color: "#1F41BB",
             label: "Driver Assignment",
