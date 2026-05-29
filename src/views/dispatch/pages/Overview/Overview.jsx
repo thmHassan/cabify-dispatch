@@ -823,72 +823,74 @@ const Overview = () => {
     };
 
     const handleWaitingDriver = (rawData) => {
-      let data; 
-      try { 
-        data = typeof rawData === "string" ? JSON.parse(rawData) : rawData; 
-      } catch { 
-        data = rawData; 
-      }
-      
-      console.log("Socket Event 'my-rank-update' Response Received:", data);
-      
-      // Support both the new { success, drivers: [...] } format and old array format
-      const driversList = data?.drivers || (Array.isArray(data) ? data : []);
-
-      if (Array.isArray(driversList)) {
-        // Map drivers to expected format and set updatedAt for expiry
-        const formattedDrivers = driversList.map(d => ({
-          ...d,
-          id: d.driver_id || d.id,
-          name: d.driver_name || d.name || d.driverName,
-          plot: d.plot_name || d.plot || "N/A",
-          rank: d.rank || d.ranking || 1,
-          updatedAt: Date.now()
-        }));
-
-        // Fully replace the waiting drivers list state and localStorage
-        setWaitingDrivers(formattedDrivers);
-
-        // Remove from onJobDrivers if they are in the waiting list now (meaning they became idle)
-        const driverNames = new Set(formattedDrivers.map(d => d.name).filter(Boolean));
-        setOnJobDrivers((prev) => prev.filter((d) => !driverNames.has(d.name)));
-
-        // Update coordinates in driverData for map rendering
-        setDriverData(prev => {
-          let updated = { ...prev };
-          formattedDrivers.forEach(d => {
+    let data;
+    try {
+        data = typeof rawData === "string" ? JSON.parse(rawData) : rawData;
+    } catch {
+        data = rawData;
+    }
+ 
+    console.log("Socket Event 'my-rank-update' Response Received:", data);
+ 
+    const driversList = data?.drivers || (Array.isArray(data) ? data : []);
+ 
+    if (!Array.isArray(driversList)) return;
+ 
+    const formattedDrivers = driversList.map(d => ({
+        ...d,
+        id: d.driver_id || d.id,
+        name: d.driver_name || d.name || d.driverName,
+        plot: d.plot_name || d.plot || "N/A",
+        rank: d.rank || d.ranking || 1,
+        updatedAt: Date.now(),
+        is_reconnecting: d.is_reconnecting === true,
+        display_name: d.is_reconnecting === true
+            ? `Reconnecting... ${d.driver_name || d.name || d.driverName || "Driver"} - Rank ${d.rank || 1}`
+            : (d.display_name || d.driver_name || d.name || d.driverName || "Driver")
+    }));
+ 
+    setWaitingDrivers(formattedDrivers);
+ 
+    const waitingIds = new Set(formattedDrivers.map(d => String(d.id)).filter(Boolean));
+    setOnJobDrivers((prev) => prev.filter((d) => {
+        const id = String(d.id || d.driver_id || d.dispatcher_id || "");
+        return !waitingIds.has(id);
+    }));
+ 
+    setDriverData(prev => {
+        let updated = { ...prev };
+        formattedDrivers.forEach(d => {
             const sId = String(d.id);
-            if (sId) {
-              let lat = d.latitude || d.lat;
-              let lng = d.longitude || d.lng;
-
-              // Fallback to plot center coordinates if driver coordinates are missing
-              if ((lat == null || lng == null) && (d.plot_id || d.plot)) {
-                const plot = plotsDataRef.current.find(p => p.id == (d.plot_id || d.plot) || p.plot_id == (d.plot_id || d.plot));
+            if (!sId) return;
+ 
+            let lat = d.latitude || d.lat;
+            let lng = d.longitude || d.lng;
+ 
+            if ((lat == null || lng == null) && (d.plot_id || d.plot)) {
+                const plot = plotsDataRef.current.find(
+                    p => p.id == (d.plot_id || d.plot) || p.plot_id == (d.plot_id || d.plot)
+                );
                 if (plot) {
-                  const coords = parseCoordinates(plot);
-                  if (coords.length > 0) {
-                    lat = coords.reduce((s, c) => s + c.lat, 0) / coords.length;
-                    lng = coords.reduce((s, c) => s + c.lng, 0) / coords.length;
-                  }
+                    const coords = parseCoordinates(plot);
+                    if (coords.length > 0) {
+                        lat = coords.reduce((s, c) => s + c.lat, 0) / coords.length;
+                        lng = coords.reduce((s, c) => s + c.lng, 0) / coords.length;
+                    }
                 }
-              }
-
-              const status = "idle";
-              updated[sId] = {
+            }
+ 
+            updated[sId] = {
                 ...updated[sId],
                 ...d,
                 position: (lat && lng) ? { lat: Number(lat), lng: Number(lng) } : updated[sId]?.position,
-                status,
-                driving_status: status
-              };
-            }
-          });
-          saveToStorage(DRIVER_DATA_STORAGE_KEY, updated);
-          return updated;
+                status: "idle",
+                driving_status: "idle"
+            };
         });
-      }
-    };
+        saveToStorage(DRIVER_DATA_STORAGE_KEY, updated);
+        return updated;
+    });
+};
 
     const handleOnJobDriver = (rawData) => {
       let data; try { data = typeof rawData === "string" ? JSON.parse(rawData) : rawData; } catch { data = rawData; }
