@@ -2,7 +2,9 @@ import React, { useState } from "react";
 import Button from "../../../../../../components/ui/Button/Button";
 import { apiReplyTicket } from "../../../../../../services/TicketServices";
 
-const AddTicketModel = ({ ticket, onClose, refreshList }) => {
+const getUserTypeLabel = (userType) => (userType === "driver" ? "Driver" : "Customer");
+
+const AddTicketModel = ({ ticket, onClose, refreshList, onUserClick }) => {
     const [message, setMessage] = useState("");
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState("");
@@ -44,9 +46,13 @@ const AddTicketModel = ({ ticket, onClose, refreshList }) => {
             {/* Ticket ID */}
             <h2 className="text-xl font-semibold mb-1">#{ticket.ticket_id}</h2>
 
-            <p className="text-gray-600 text-sm">
-                Customer - {ticket.customer ?? "Unknown"}
-            </p>
+            <button
+                type="button"
+                onClick={() => onUserClick?.(ticket)}
+                className="text-gray-600 text-sm hover:text-[#1F41BB] hover:underline text-left"
+            >
+                {getUserTypeLabel(ticket.user_type)} - {ticket.customer ?? "Unknown"}
+            </button>
 
             <p className="text-gray-400 text-sm mb-5">
                 {new Date(ticket.created_at).toLocaleDateString("en-GB")}

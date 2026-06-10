@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { getTenantData } from "../../../../../../../utils/functions/tokenEncryption";
+import { getTenantCountryIso } from "../../../../../../../utils/functions/tenantSettings";
 
 const COUNTRY_CENTERS = {
     GB: { lat: 51.5074, lng: -0.1278 },
@@ -28,8 +28,7 @@ const COUNTRY_CENTERS = {
 };
 
 const getCountryCenter = () => {
-    const tenant = getTenantData();
-    const code = (tenant?.country_of_use || tenant?.data?.country_of_use)?.trim().toUpperCase();
+    const code = getTenantCountryIso();
     return COUNTRY_CENTERS[code] || COUNTRY_CENTERS.DEFAULT;
 };
 
@@ -40,16 +39,26 @@ const getApiKeys = (apiKeys) => {
     };
 };
 
+const waitForGoogleMapsApi = (maxAttempts = 100) =>
+    new Promise((resolve, reject) => {
+        let attempts = 0;
+        const check = () => {
+            if (window.google?.maps) return resolve();
+            if (++attempts >= maxAttempts) return reject(new Error("Google Maps API timed out"));
+            setTimeout(check, 50);
+        };
+        check();
+    });
+
 let googleMapsPromise = null;
 const loadGoogleMaps = (apiKey) => {
-    if (window.google?.maps?.places) return Promise.resolve();
+    if (window.google?.maps) return waitForGoogleMapsApi();
     if (googleMapsPromise) return googleMapsPromise;
     const existing = document.querySelector('script[src*="maps.googleapis.com"]');
     if (existing) {
-        googleMapsPromise = new Promise((resolve) => {
-            if (window.google?.maps) return resolve();
-            existing.addEventListener("load", resolve);
-            setTimeout(() => { if (window.google?.maps) resolve(); }, 3000);
+        googleMapsPromise = waitForGoogleMapsApi().catch(() => {
+            googleMapsPromise = null;
+            throw new Error("Google Maps API timed out");
         });
         return googleMapsPromise;
     }
@@ -57,11 +66,24 @@ const loadGoogleMaps = (apiKey) => {
         const s = document.createElement("script");
         s.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places&loading=async`;
         s.async = true;
-        s.onload = resolve;
-        s.onerror = () => { googleMapsPromise = null; reject(); };
+        s.onload = () => waitForGoogleMapsApi().then(resolve).catch(reject);
+        s.onerror = () => { googleMapsPromise = null; reject(new Error("Google Maps script failed to load")); };
         document.head.appendChild(s);
     });
     return googleMapsPromise;
+};
+
+const useMapResizeObserver = (containerRef, onResize) => {
+    const onResizeRef = useRef(onResize);
+    useEffect(() => { onResizeRef.current = onResize; }, [onResize]);
+
+    useEffect(() => {
+        if (!containerRef.current) return;
+        const ro = new ResizeObserver(() => onResizeRef.current?.());
+        ro.observe(containerRef.current);
+        onResizeRef.current?.();
+        return () => ro.disconnect();
+    }, [containerRef]);
 };
 
 let maplibrePromise = null;
@@ -173,21 +195,35 @@ const GoogleMap = ({
     plotsData,
 }) => {
     const { googleKey } = getApiKeys(apiKeys);
+    const wrapperRef = useRef(null);
     const mapRef = useRef(null);
     const mapInstanceRef = useRef(null);
     const markersRef = useRef([]);
     const plotPolygons = useRef([]);
     const directionsRendererRef = useRef(null);
     const [isLoaded, setIsLoaded] = useState(false);
+    const [loadError, setLoadError] = useState(false);
     const clickCountRef = useRef(0);
     const mountedRef = useRef(true);
+
+    const resizeGoogleMap = () => {
+        if (mapInstanceRef.current && window.google?.maps) {
+            window.google.maps.event.trigger(mapInstanceRef.current, "resize");
+        }
+    };
+
+    useMapResizeObserver(wrapperRef, resizeGoogleMap);
 
     useEffect(() => {
         mountedRef.current = true;
         if (!googleKey) return;
+        setLoadError(false);
         loadGoogleMaps(googleKey)
             .then(() => { if (mountedRef.current) setIsLoaded(true); })
-            .catch((e) => console.error("Google Maps load error:", e));
+            .catch((e) => {
+                console.error("Google Maps load error:", e);
+                if (mountedRef.current) setLoadError(true);
+            });
         return () => { mountedRef.current = false; };
     }, [googleKey]);
 
@@ -227,48 +263,64 @@ const GoogleMap = ({
 
     useEffect(() => {
         if (!isLoaded || !mapRef.current || mapInstanceRef.current) return;
-        try {
-            const center = getCountryCenter();
-            mapInstanceRef.current = new window.google.maps.Map(mapRef.current, {
-                zoom: 5,
-                center: { lat: center.lat, lng: center.lng },
-                mapTypeControl: true,
-                streetViewControl: false,
-                fullscreenControl: true,
-                styles: [{ featureType: "poi", elementType: "labels", stylers: [{ visibility: "off" }] }],
-            });
-            directionsRendererRef.current = new window.google.maps.DirectionsRenderer({
-                map: mapInstanceRef.current,
-                suppressMarkers: true,
-                polylineOptions: { strokeColor: "#4285F4", strokeWeight: 4 },
-            });
-            mapInstanceRef.current.addListener("click", async (event) => {
-                const lat = event.latLng.lat();
-                const lng = event.latLng.lng();
-                clickCountRef.current += 1;
-                const address = await getAddressFromCoords(lat, lng);
-                const plotData = await fetchPlotName(lat, lng);
-                if (clickCountRef.current === 1) {
-                    setFieldValue("pickup_point", address);
-                    setFieldValue("pickup_latitude", lat);
-                    setFieldValue("pickup_longitude", lng);
-                    setFieldValue("pickup_plot_id", plotData.id);
-                    setPickupPlotData(plotData);
-                    onPickupConfirmed?.({ lat, lng });
-                } else if (clickCountRef.current === 2) {
-                    setFieldValue("destination", address);
-                    setFieldValue("destination_latitude", lat);
-                    setFieldValue("destination_longitude", lng);
-                    setFieldValue("destination_plot_id", plotData.id);
-                    setDestinationPlotData(plotData);
-                    onDestinationConfirmed?.({ lat, lng });
-                    clickCountRef.current = 0;
-                }
-            });
-        } catch (err) {
-            console.error("Google map init error:", err);
-        }
+
+        let cancelled = false;
+        const initMap = async () => {
+            await new Promise((resolve) => requestAnimationFrame(resolve));
+            await new Promise((resolve) => setTimeout(resolve, 150));
+            if (cancelled || !mapRef.current || mapInstanceRef.current) return;
+
+            try {
+                const center = getCountryCenter();
+                mapRef.current.style.minHeight = "400px";
+                mapInstanceRef.current = new window.google.maps.Map(mapRef.current, {
+                    zoom: 5,
+                    center: { lat: center.lat, lng: center.lng },
+                    mapTypeControl: true,
+                    streetViewControl: false,
+                    fullscreenControl: true,
+                    styles: [{ featureType: "poi", elementType: "labels", stylers: [{ visibility: "off" }] }],
+                });
+                directionsRendererRef.current = new window.google.maps.DirectionsRenderer({
+                    map: mapInstanceRef.current,
+                    suppressMarkers: true,
+                    polylineOptions: { strokeColor: "#4285F4", strokeWeight: 4 },
+                });
+                mapInstanceRef.current.addListener("click", async (event) => {
+                    const lat = event.latLng.lat();
+                    const lng = event.latLng.lng();
+                    clickCountRef.current += 1;
+                    const address = await getAddressFromCoords(lat, lng);
+                    const plotData = await fetchPlotName(lat, lng);
+                    if (clickCountRef.current === 1) {
+                        setFieldValue("pickup_point", address);
+                        setFieldValue("pickup_latitude", lat);
+                        setFieldValue("pickup_longitude", lng);
+                        setFieldValue("pickup_plot_id", plotData.id);
+                        setPickupPlotData(plotData);
+                        onPickupConfirmed?.({ lat, lng });
+                    } else if (clickCountRef.current === 2) {
+                        setFieldValue("destination", address);
+                        setFieldValue("destination_latitude", lat);
+                        setFieldValue("destination_longitude", lng);
+                        setFieldValue("destination_plot_id", plotData.id);
+                        setDestinationPlotData(plotData);
+                        onDestinationConfirmed?.({ lat, lng });
+                        clickCountRef.current = 0;
+                    }
+                });
+                setTimeout(() => {
+                    if (!cancelled) resizeGoogleMap();
+                }, 200);
+            } catch (err) {
+                console.error("Google map init error:", err);
+                if (!cancelled) setLoadError(true);
+            }
+        };
+
+        initMap();
         return () => {
+            cancelled = true;
             markersRef.current.forEach((m) => { try { m?.setMap(null); } catch (e) { } });
             markersRef.current = [];
             plotPolygons.current.forEach(p => p.setMap(null));
@@ -333,17 +385,19 @@ const GoogleMap = ({
         return () => clearTimeout(id);
     }, [pickupCoords, destinationCoords, viaCoords, isLoaded]);
 
-    if (!googleKey) {
+    if (!googleKey || loadError) {
         return (
             <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "400px", background: "#fef2f2", borderRadius: "8px" }}>
-                <p style={{ color: "#dc2626", fontSize: "14px" }}>Google Maps API key is not configured.</p>
+                <p style={{ color: "#dc2626", fontSize: "14px" }}>
+                    {!googleKey ? "Google Maps API key is not configured." : "Google Maps failed to load. Please check your API key."}
+                </p>
             </div>
         );
     }
 
     return (
-        <div style={{ position: "relative", width: "100%", height: "400px", borderRadius: "8px", overflow: "hidden" }}>
-            <div ref={mapRef} style={{ width: "100%", height: "100%" }} />
+        <div ref={wrapperRef} style={{ position: "relative", width: "100%", height: "400px", minHeight: "400px", borderRadius: "8px", overflow: "hidden" }}>
+            <div ref={mapRef} style={{ width: "100%", height: "100%", minHeight: "400px" }} />
             {!isLoaded && <LoadingPlaceholder />}
         </div>
     );
@@ -374,9 +428,16 @@ const BarikoiMap = ({
     const clickCountRef = useRef(0);
     const mountedRef = useRef(true);
 
+    const resizeBarikoiMap = () => {
+        if (mapRef.current?.resize) mapRef.current.resize();
+    };
+
+    useMapResizeObserver(wrapperRef, resizeBarikoiMap);
+
     useEffect(() => {
         mountedRef.current = true;
-        if (!barikoiKey) { return; }
+        if (!barikoiKey) return;
+        setLoadError(false);
         loadMaplibre()
             .then(() => { if (mountedRef.current) setIsLoaded(true); })
             .catch(() => { if (mountedRef.current) setLoadError(true); });
@@ -444,58 +505,74 @@ const BarikoiMap = ({
 
     useEffect(() => {
         if (!isLoaded || !containerRef.current || mapRef.current || !barikoiKey) return;
-        try {
-            const center = getCountryCenter();
-            mapRef.current = new window.maplibregl.Map({
-                container: containerRef.current,
-                style: buildBarikoiStyle(barikoiKey),
-                center: [center.lng, center.lat],
-                zoom: 12,
-                attributionControl: false,
-            });
-            mapRef.current.on('load', () => {
-                if (mapRef.current) {
+
+        let cancelled = false;
+        const initMap = async () => {
+            await new Promise((resolve) => requestAnimationFrame(resolve));
+            await new Promise((resolve) => setTimeout(resolve, 150));
+            if (cancelled || !containerRef.current || mapRef.current) return;
+
+            try {
+                const center = getCountryCenter();
+                containerRef.current.style.minHeight = "400px";
+                mapRef.current = new window.maplibregl.Map({
+                    container: containerRef.current,
+                    style: buildBarikoiStyle(barikoiKey),
+                    center: [center.lng, center.lat],
+                    zoom: 12,
+                    attributionControl: false,
+                });
+                mapRef.current.on("load", () => {
+                    if (!mapRef.current) return;
                     mapRef.current.resize();
-                    renderPlots(mapRef.current);
-                }
-            });
-            mapRef.current.addControl(new window.maplibregl.NavigationControl({ showCompass: true }), "bottom-right");
-            mapRef.current.on("error", (e) => {
-                const msg = e?.error?.message || String(e);
-                if (msg.includes("403") || msg.includes("401") || (msg.includes("Failed to fetch") && !mapRef.current._usedFallback)) {
-                    console.warn("Barikoi tiles unavailable, switching to OSM fallback");
-                    mapRef.current._usedFallback = true;
-                    try { mapRef.current.setStyle(buildOsmFallbackStyle()); } catch { }
-                }
-            });
-            mapRef.current.on("click", async (e) => {
-                const lat = e.lngLat.lat;
-                const lng = e.lngLat.lng;
-                clickCountRef.current += 1;
-                const address = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
-                const plotData = await fetchPlotName(lat, lng);
-                if (clickCountRef.current === 1) {
-                    setFieldValue("pickup_point", address);
-                    setFieldValue("pickup_latitude", lat);
-                    setFieldValue("pickup_longitude", lng);
-                    setFieldValue("pickup_plot_id", plotData.id);
-                    setPickupPlotData(plotData);
-                    onPickupConfirmed?.({ lat, lng });
-                } else if (clickCountRef.current === 2) {
-                    setFieldValue("destination", address);
-                    setFieldValue("destination_latitude", lat);
-                    setFieldValue("destination_longitude", lng);
-                    setFieldValue("destination_plot_id", plotData.id);
-                    setDestinationPlotData(plotData);
-                    onDestinationConfirmed?.({ lat, lng });
-                    clickCountRef.current = 0;
-                }
-            });
-        } catch (err) {
-            console.error("Barikoi map init error:", err);
-            setLoadError(true);
-        }
+                    setTimeout(() => {
+                        if (mapRef.current) {
+                            mapRef.current.resize();
+                            renderPlots(mapRef.current);
+                        }
+                    }, 150);
+                });
+                mapRef.current.addControl(new window.maplibregl.NavigationControl({ showCompass: true }), "bottom-right");
+                mapRef.current.on("error", (e) => {
+                    const msg = e?.error?.message || String(e);
+                    if (msg.includes("403") || msg.includes("401") || (msg.includes("Failed to fetch") && !mapRef.current._usedFallback)) {
+                        console.warn("Barikoi tiles unavailable, switching to OSM fallback");
+                        mapRef.current._usedFallback = true;
+                        try { mapRef.current.setStyle(buildOsmFallbackStyle()); } catch { }
+                    }
+                });
+                mapRef.current.on("click", async (e) => {
+                    const lat = e.lngLat.lat;
+                    const lng = e.lngLat.lng;
+                    clickCountRef.current += 1;
+                    const address = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+                    const plotData = await fetchPlotName(lat, lng);
+                    if (clickCountRef.current === 1) {
+                        setFieldValue("pickup_point", address);
+                        setFieldValue("pickup_latitude", lat);
+                        setFieldValue("pickup_longitude", lng);
+                        setFieldValue("pickup_plot_id", plotData.id);
+                        setPickupPlotData(plotData);
+                        onPickupConfirmed?.({ lat, lng });
+                    } else if (clickCountRef.current === 2) {
+                        setFieldValue("destination", address);
+                        setFieldValue("destination_latitude", lat);
+                        setFieldValue("destination_longitude", lng);
+                        setFieldValue("destination_plot_id", plotData.id);
+                        setDestinationPlotData(plotData);
+                        onDestinationConfirmed?.({ lat, lng });
+                        clickCountRef.current = 0;
+                    }
+                });
+            } catch (err) {
+                console.error("Barikoi map init error:", err);
+                if (!cancelled) setLoadError(true);
+            }
+        };
+
+        initMap();
         return () => {
+            cancelled = true;
             if (mapRef.current) {
                 try { mapRef.current.remove(); } catch (e) { }
                 mapRef.current = null;
@@ -600,17 +677,19 @@ const BarikoiMap = ({
         fontWeight: "500", color: "#666", padding: "6px 12px", lineHeight: "1", outline: "none",
     };
 
-    if (loadError) {
+    if (!barikoiKey || loadError) {
         return (
             <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "400px", background: "#fef2f2", borderRadius: "8px" }}>
-                <p style={{ color: "#dc2626", fontSize: "14px" }}>Barikoi map failed to load. Please check your API key.</p>
+                <p style={{ color: "#dc2626", fontSize: "14px" }}>
+                    {!barikoiKey ? "Barikoi API key is not configured." : "Barikoi map failed to load. Please check your API key."}
+                </p>
             </div>
         );
     }
 
     return (
-        <div ref={wrapperRef} style={{ position: "relative", width: "100%", height: "400px", borderRadius: "8px", overflow: "hidden", fontFamily: "Roboto,Arial,sans-serif" }}>
-            <div ref={containerRef} style={{ width: "100%", height: "100%" }} />
+        <div ref={wrapperRef} style={{ position: "relative", width: "100%", height: "400px", minHeight: "400px", borderRadius: "8px", overflow: "hidden", fontFamily: "Roboto,Arial,sans-serif" }}>
+            <div ref={containerRef} style={{ width: "100%", height: "100%", minHeight: "400px" }} />
             {!isLoaded && <LoadingPlaceholder />}
 
             {isLoaded && (

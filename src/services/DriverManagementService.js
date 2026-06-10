@@ -2,7 +2,7 @@ import { method } from "lodash";
 import { METHOD_GET, METHOD_POST } from "../constants/method.constant";
 import { replaceSlash } from "../utils/functions/common.function";
 import ApiService from "./ApiService";
-import { CREATE_DRIVER, DELETE_DRIVER, DRIVER_DOCUMENT_LIST, EDIT_DRIVER, GET_BY_ID_DRIVER_DOCUMENT, GET_DRIVER_BY_ID, GET_DRIVERS_MANAGEMENT, POST_EDIT_DRIVER_STATUS } from "../constants/api.route.constant";
+import { CREATE_DRIVER, DELETE_DRIVER, DRIVER_DOCUMENT_LIST, EDIT_DRIVER, GET_BY_ID_DRIVER_DOCUMENT, GET_DRIVER_BY_ID, GET_DRIVERS_MANAGEMENT, LOGOUT_DRIVER, POST_EDIT_DRIVER_STATUS, SEND_DRIVER_MESSAGE } from "../constants/api.route.constant";
 
 export async function apiCreateDriveManagement(data) {
     const isFormData = data instanceof FormData;
@@ -89,5 +89,21 @@ export async function apieditDriverStatus(params) {
         url: POST_EDIT_DRIVER_STATUS,
         method: METHOD_GET,
         params: params, 
+    });
+}
+
+export async function apiSendDriverMessage(data) {
+    return ApiService.fetchData({
+        url: SEND_DRIVER_MESSAGE,
+        method: METHOD_POST,
+        data,
+    });
+}
+
+export async function apiLogoutDriver(data) {
+    return ApiService.fetchData({
+        url: LOGOUT_DRIVER,
+        method: METHOD_POST,
+        data,
     });
 }

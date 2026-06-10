@@ -14,9 +14,12 @@ import NoShowIcon from "../../../../components/svg/NoShowIcon";
 import CancelledIcon from "../../../../components/svg/CancelledIcon";
 import { useAppSelector } from "../../../../store";
 import { apiGetCompanyApiKeys } from "../../../../services/SettingsConfigurationServices";
-import { getDashboardCards, apiGetAllPlot } from "../../../../services/AddBookingServices";
+import { getDashboardCards, apiGetAllPlot, apiUpdateDriverRank } from "../../../../services/AddBookingServices";
+import { apiLogoutDriver } from "../../../../services/DriverManagementService";
+import toast from "react-hot-toast";
 import { apiGetPlot } from "../../../../services/PlotService";
 import CallQueueModel from "./components/CallQueueModel/CallQueueModel";
+import SendDriverMessageModal from "./components/SendDriverMessageModal";
 import RedCarIcon from "../../../../components/svg/RedCarIcon";
 import GreenCarIcon from "../../../../components/svg/GreenCarIcon";
 import { renderToString } from "react-dom/server";
@@ -38,6 +41,48 @@ const loadFromStorage = (key, fallback) => {
 
 const saveToStorage = (key, value) => {
   try { localStorage.setItem(key, JSON.stringify(value)); } catch { }
+};
+
+const getDriverKey = (driver) => String(driver?.id || driver?.driver_id || "");
+
+const getDriverPlotId = (driver) => {
+  const plotId = driver?.plot_id ?? driver?.plot;
+  if (plotId == null || plotId === "" || plotId === "Unassigned" || plotId === "N/A") return null;
+  if (Number.isNaN(Number(plotId))) return null;
+  return plotId;
+};
+
+const sortWaitingDrivers = (drivers) =>
+  [...drivers].sort((a, b) => {
+    const plotA = String(getDriverPlotId(a) ?? "");
+    const plotB = String(getDriverPlotId(b) ?? "");
+    if (plotA !== plotB) return plotA.localeCompare(plotB, undefined, { numeric: true });
+    return (a.rank || a.ranking || 0) - (b.rank || b.ranking || 0);
+  });
+
+const reorderDriversByRank = (drivers, driverKey, newRank) => {
+  const target = drivers.find((d) => getDriverKey(d) === driverKey);
+  if (!target) return drivers;
+
+  const plotId = String(getDriverPlotId(target));
+  const samePlot = drivers.filter((d) => String(getDriverPlotId(d)) === plotId);
+  const others = drivers.filter((d) => String(getDriverPlotId(d)) !== plotId);
+
+  const moving = samePlot.find((d) => getDriverKey(d) === driverKey);
+  const rest = samePlot.filter((d) => getDriverKey(d) !== driverKey);
+  const clampedRank = Math.max(1, Math.min(newRank, samePlot.length));
+
+  const reordered = [...rest];
+  reordered.splice(clampedRank - 1, 0, moving);
+
+  const updatedPlotDrivers = reordered.map((d, i) => ({
+    ...d,
+    rank: i + 1,
+    ranking: i + 1,
+    updatedAt: Date.now(),
+  }));
+
+  return sortWaitingDrivers([...others, ...updatedPlotDrivers]);
 };
 
 const notifListeners = new Set();
@@ -738,6 +783,8 @@ const usePersistedWaitingDrivers = () => {
 const Overview = () => {
   const [isBookingModelOpen, setIsBookingModelOpen] = useState({ type: "new", isOpen: false });
   const [isMessageModelOpen, setIsMessageModelOpen] = useState({ type: "new", isOpen: false });
+  const [selectedMessageDriver, setSelectedMessageDriver] = useState(null);
+  const [isDriverMessageOpen, setIsDriverMessageOpen] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [activeBookingFilter, setActiveBookingFilter] = useState("todays_booking");
   const [mapType, setMapType] = useState(null);
@@ -760,6 +807,9 @@ const Overview = () => {
   const [driverData, setDriverData] = usePersistedDriverData();
   const [onJobDrivers, setOnJobDrivers] = usePersistedOnJobDrivers();
   const [waitingDrivers, setWaitingDrivers] = usePersistedWaitingDrivers();
+  const [editingRanks, setEditingRanks] = useState({});
+  const [updatingRankId, setUpdatingRankId] = useState(null);
+  const [loggingOutDriverId, setLoggingOutDriverId] = useState(null);
 
   useEffect(() => {
     const fetchApiKeys = async () => {
@@ -840,6 +890,7 @@ const Overview = () => {
         ...d,
         id: d.driver_id || d.id,
         name: d.driver_name || d.name || d.driverName,
+        plot_id: d.plot_id ?? d.plot,
         plot: d.plot_name || d.plot || "N/A",
         rank: d.rank || d.ranking || 1,
         updatedAt: Date.now(),
@@ -849,7 +900,7 @@ const Overview = () => {
             : (d.display_name || d.driver_name || d.name || d.driverName || "Driver")
     }));
  
-    setWaitingDrivers(formattedDrivers);
+    setWaitingDrivers(sortWaitingDrivers(formattedDrivers));
  
     const waitingIds = new Set(formattedDrivers.map(d => String(d.id)).filter(Boolean));
     setOnJobDrivers((prev) => prev.filter((d) => {
@@ -965,6 +1016,34 @@ const Overview = () => {
       fetchDashboardCards();
     };
 
+    const handleDriverOffline = (rawData) => {
+      let data;
+      try {
+        data = typeof rawData === "string" ? JSON.parse(rawData) : rawData;
+      } catch {
+        data = rawData;
+      }
+
+      const driverId = data?.driver_id || data?.id;
+      if (!driverId) return;
+
+      const driverKey = String(driverId);
+      setWaitingDrivers((prev) => prev.filter((d) => getDriverKey(d) !== driverKey));
+      setDriverData((prev) => {
+        if (!prev[driverKey]) return prev;
+        const updated = {
+          ...prev,
+          [driverKey]: {
+            ...prev[driverKey],
+            online_status: "offline",
+            status: "offline",
+          },
+        };
+        saveToStorage(DRIVER_DATA_STORAGE_KEY, updated);
+        return updated;
+      });
+    };
+
     socket.on("dashboard-cards-update", handleDashboardUpdate);
     socket.on("my-rank-update", handleWaitingDriver);
     socket.on("on-job-driver-event", handleOnJobDriver);
@@ -976,6 +1055,7 @@ const Overview = () => {
     socket.on("booking-cancelled-event", handleBookingCancelled);
     socket.on("booking-cancelled", handleBookingCancelled);
     socket.on("cancel-booking-event", handleBookingCancelled);
+    socket.on("driver-offline-event", handleDriverOffline);
 
     return () => {
       socket.off("dashboard-cards-update", handleDashboardUpdate);
@@ -989,6 +1069,7 @@ const Overview = () => {
       socket.off("booking-cancelled-event", handleBookingCancelled);
       socket.off("booking-cancelled", handleBookingCancelled);
       socket.off("cancel-booking-event", handleBookingCancelled);
+      socket.off("driver-offline-event", handleDriverOffline);
     };
   }, [socket, fetchDashboardCards]);
 
@@ -997,6 +1078,117 @@ const Overview = () => {
     window.addEventListener("openAddBookingModal", handleOpenModal);
     return () => window.removeEventListener("openAddBookingModal", handleOpenModal);
   }, []);
+
+  const clearEditingRank = (driverId) => {
+    setEditingRanks((prev) => {
+      const next = { ...prev };
+      delete next[String(driverId)];
+      return next;
+    });
+  };
+
+  const handleMessageDriver = (driver) => {
+    setSelectedMessageDriver(driver);
+    setIsDriverMessageOpen(true);
+  };
+
+  const handleLogoutDriver = async (driver) => {
+    const driverId = driver?.id || driver?.driver_id;
+    const driverName = driver?.name || driver?.driver_name || "this driver";
+    const driverKey = String(driverId);
+
+    if (!driverId) {
+      toast.error("Driver information is missing.");
+      return;
+    }
+
+    if (!window.confirm(`Log out ${driverName}?`)) {
+      return;
+    }
+
+    setLoggingOutDriverId(driverKey);
+
+    try {
+      const response = await apiLogoutDriver({ driver_id: driverId });
+
+      if (response?.data?.success === 1) {
+        setWaitingDrivers((prev) => prev.filter((d) => getDriverKey(d) !== driverKey));
+        toast.success(`${driverName} logged out.`);
+      } else {
+        toast.error(response?.data?.message || "Failed to logout driver.");
+      }
+    } catch (err) {
+      console.error("Logout driver error:", err);
+      toast.error(err?.response?.data?.message || "Failed to logout driver.");
+    } finally {
+      setLoggingOutDriverId(null);
+    }
+  };
+
+  const handleRankChange = async (driver, rawRank) => {
+    const driverId = driver.id || driver.driver_id;
+    const plotId = getDriverPlotId(driver);
+    const newRank = parseInt(rawRank, 10);
+    const driverKey = getDriverKey(driver);
+
+    const finishEditing = () => {
+      setUpdatingRankId(null);
+      clearEditingRank(driverId);
+    };
+
+    if (!driverId || plotId == null) {
+      toast.error("Cannot update rank: plot is missing for this driver.");
+      finishEditing();
+      return;
+    }
+
+    if (Number.isNaN(newRank) || newRank < 1) {
+      toast.error("Enter a valid rank (1 or higher).");
+      finishEditing();
+      return;
+    }
+
+    const samePlotCount = waitingDrivers.filter(
+      (d) => String(getDriverPlotId(d)) === String(plotId)
+    ).length;
+
+    if (newRank > samePlotCount) {
+      toast.error(`Rank cannot be higher than ${samePlotCount} for this plot.`);
+      finishEditing();
+      return;
+    }
+
+    const currentRank = Number(driver.rank || driver.ranking);
+    if (newRank === currentRank) {
+      finishEditing();
+      return;
+    }
+
+    setUpdatingRankId(driverKey);
+
+    try {
+      const response = await apiUpdateDriverRank(
+        {
+          driver_id: driverId,
+          plot_id: plotId,
+          rank: newRank,
+        },
+        socket
+      );
+
+      if (response?.data?.success === 1 || response?.data?.success === true) {
+        setWaitingDrivers((prev) => reorderDriversByRank(prev, driverKey, newRank));
+        toast.success("Driver rank updated.");
+      } else {
+        toast.error(response?.data?.message || "Failed to update driver rank.");
+      }
+    } catch (err) {
+      console.error("Error updating driver rank:", err);
+      toast.error(err?.response?.data?.message || err?.message || "Failed to update driver rank.");
+    } finally {
+      finishEditing();
+    }
+  };
 
   const mapProps = { mapRef, mapInstance, markers, driverData, setDriverData, socket, countryCenter, plotsData: allPlots, apiKeys, waitingDrivers, onJobDrivers };
 
@@ -1072,10 +1264,19 @@ const Overview = () => {
                   <th className="text-left text-[11px]">Driver</th>
                   <th className="text-left text-[11px]">Plot</th>
                   <th className="text-right text-[11px]">Rank</th>
+                  <th className="text-right text-[11px]">Msg</th>
+                  <th className="text-right text-[11px]">Out</th>
                 </tr>
               </thead>
               <tbody>
-                {waitingDrivers.length > 0 ? waitingDrivers.map((driver, i) => (
+                {waitingDrivers.length > 0 ? waitingDrivers.map((driver, i) => {
+                  const driverKey = getDriverKey(driver);
+                  const plotId = getDriverPlotId(driver);
+                  const maxRank = waitingDrivers.filter(
+                    (d) => String(getDriverPlotId(d)) === String(plotId)
+                  ).length;
+
+                  return (
                   <tr key={driver.id || driver.driver_id || i} className="border-t">
                     <td className="py-1">{i + 1}</td>
                     <td>
@@ -1087,11 +1288,54 @@ const Overview = () => {
                         driver.display_name || driver.name || driver.driver_name || "Unknown"
                       )}
                     </td>
-                    <td>{driver.plot_name && driver.plot && driver.plot_name !== driver.plot.toString() ? `${driver.plot_name} (${driver.plot})` : (driver.plot_name || driver.plot || "N/A")}</td>
-                    <td className="text-right">{driver.rank || driver.ranking || i + 1}</td>
+                    <td>{driver.plot_name && driver.plot_id && driver.plot_name !== driver.plot_id.toString() ? `${driver.plot_name} (${driver.plot_id})` : (driver.plot_name || driver.plot || "N/A")}</td>
+                    <td className="text-right">
+                      <input
+                        type="number"
+                        min={1}
+                        max={maxRank || undefined}
+                        title="Click to edit driver rank"
+                        disabled={driver.is_reconnecting || updatingRankId === driverKey}
+                        className="w-12 text-right border border-gray-300 rounded px-1 py-0.5 text-xs bg-white cursor-text focus:outline-none focus:border-[#1F41BB] focus:ring-1 focus:ring-[#1F41BB] disabled:opacity-50 disabled:cursor-not-allowed"
+                        value={editingRanks[driverKey] ?? (driver.rank || driver.ranking || i + 1)}
+                        onChange={(e) => {
+                          setEditingRanks((prev) => ({ ...prev, [driverKey]: e.target.value }));
+                        }}
+                        onBlur={(e) => handleRankChange(driver, e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") e.target.blur();
+                          if (e.key === "Escape") {
+                            clearEditingRank(driver.id || driver.driver_id);
+                            e.target.blur();
+                          }
+                        }}
+                      />
+                    </td>
+                    <td className="text-right py-1">
+                      <button
+                        type="button"
+                        onClick={() => handleMessageDriver(driver)}
+                        className="px-2 py-1 rounded-full border border-[#1F41BB] text-[#1F41BB] text-[10px] hover:bg-[#EEF2FF]"
+                        title="Message driver"
+                      >
+                        Msg
+                      </button>
+                    </td>
+                    <td className="text-right py-1">
+                      <button
+                        type="button"
+                        onClick={() => handleLogoutDriver(driver)}
+                        disabled={driver.is_reconnecting || loggingOutDriverId === driverKey}
+                        className="px-2 py-1 rounded-full border border-[#FF4747] text-[#FF4747] text-[10px] hover:bg-[#FFF1F1] disabled:opacity-50 disabled:cursor-not-allowed"
+                        title="Logout driver"
+                      >
+                        {loggingOutDriverId === driverKey ? "..." : "Out"}
+                      </button>
+                    </td>
                   </tr>
-                )) : (
-                  <tr><td colSpan="4" className="text-center py-4 text-gray-500">No waiting drivers</td></tr>
+                  );
+                }) : (
+                  <tr><td colSpan="6" className="text-center py-4 text-gray-500">No waiting drivers</td></tr>
                 )}
               </tbody>
             </table>
@@ -1108,6 +1352,7 @@ const Overview = () => {
                 <tr>
                   <th className="text-left py-1">Sr</th>
                   <th className="text-left">Driver</th>
+                  <th className="text-right">Msg</th>
                 </tr>
               </thead>
               <tbody>
@@ -1115,9 +1360,19 @@ const Overview = () => {
                   <tr key={driver.id || driver.driver_id || i} className="border-t">
                     <td className="py-1">{i + 1}</td>
                     <td>{driver.name || driver.driver_name || `Driver ${i + 1}`}</td>
+                    <td className="text-right py-1">
+                      <button
+                        type="button"
+                        onClick={() => handleMessageDriver(driver)}
+                        className="px-2 py-1 rounded-full border border-[#1F41BB] text-[#1F41BB] text-[10px] hover:bg-[#EEF2FF]"
+                        title="Message driver"
+                      >
+                        Msg
+                      </button>
+                    </td>
                   </tr>
                 )) : (
-                  <tr><td colSpan="2" className="text-center py-4 text-gray-500">No active jobs</td></tr>
+                  <tr><td colSpan="3" className="text-center py-4 text-gray-500">No active jobs</td></tr>
                 )}
               </tbody>
             </table>
@@ -1156,6 +1411,16 @@ const Overview = () => {
           setIsOpen={setIsMessageModelOpen}
           onClose={() => setIsMessageModelOpen({ isOpen: false })}
           refreshList={() => setRefreshTrigger((prev) => prev + 1)}
+        />
+      </Modal>
+
+      <Modal isOpen={isDriverMessageOpen} size="sm">
+        <SendDriverMessageModal
+          driver={selectedMessageDriver}
+          onClose={() => {
+            setIsDriverMessageOpen(false);
+            setSelectedMessageDriver(null);
+          }}
         />
       </Modal>
     </div>

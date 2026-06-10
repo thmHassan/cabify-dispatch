@@ -29,6 +29,8 @@ export const APPROVE_VEHICLE = "/company/approv-vehicle-details"
 export const REJECT_VAHICLE = "/company/reject-vehicle-details"
 export const DRIVER_RIDE_HISTORY = "/company/driver-ride-history"
 export const SEND_DRIVER_NOTIFICATION = "/company/send-driver-notification"
+export const SEND_DRIVER_MESSAGE = "/company/send-driver-message"
+export const LOGOUT_DRIVER = "/company/logout-driver"
 
 // api for Rides Management
 export const GET_RIDE_MANAGEMENT = "/company/booking-list"

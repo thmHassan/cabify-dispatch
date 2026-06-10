@@ -1,4 +1,5 @@
 import React from "react";
+import { formatPhoneDisplay } from "../../../../../../utils/functions/tenantSettings";
 import UserDropdown from "../../../../../../components/shared/UserDropdown";
 import Button from "../../../../../../components/ui/Button/Button";
 import ThreeDotsIcon from "../../../../../../components/svg/ThreeDotsIcon";
@@ -43,7 +44,7 @@ const UserDetails = ({ user, onEdit, onDelete }) => {
                 <div className="w-60">
                     <p className="font-semibold text-xl">{user.name}</p>
                     <p className="text-[10px]">{user.email}</p>
-                    <p className="text-xs">{user?.country_code || "+91"} {user.phone_no}</p>
+                    <p className="text-xs">{formatPhoneDisplay(user?.country_code, user?.phone_no)}</p>
                 </div>
             </div>
             <div className="flex items-center  gap-3">

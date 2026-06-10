@@ -9,6 +9,7 @@ import CustomSelect from '../../../../components/ui/CustomSelect';
 import TicketsCard from './components/TicketsCard';
 import Modal from '../../../../components/shared/Modal/Modal';
 import AddTicketModel from './components/AddTicketModel';
+import TicketUserModal from './components/TicketUserModal';
 import AppLogoLoader from '../../../../components/shared/AppLogoLoader';
 import { apiChangeTicketStatus, apiGetTicketList } from '../../../../services/TicketServices';
 import { getDispatcherId } from '../../../../utils/auth';
@@ -19,6 +20,8 @@ const Tickets = () => {
     isOpen: false,
   });
   const [selectedTicket, setSelectedTicket] = useState(null);
+  const [selectedUserTicket, setSelectedUserTicket] = useState(null);
+  const [isUserModalOpen, setIsUserModalOpen] = useState(false);
   const [_searchQuery, setSearchQuery] = useState("");
   const [tableLoading, setTableLoading] = useState(false);
   const [_selectedStatus, setSelectedStatus] = useState(
@@ -108,6 +111,11 @@ const Tickets = () => {
     setIsTicketsModelOpen({ isOpen: true });
   };
 
+  const handleUserClick = (ticket) => {
+    setSelectedUserTicket(ticket);
+    setIsUserModalOpen(true);
+  };
+
 
   const handleStatusChange = async (ticketId, newStatus) => {
     try {
@@ -169,6 +177,7 @@ const Tickets = () => {
                 tickets={ticket}
                 onReplyClick={handleReplyClick}
                 onStatusChange={handleStatusChange}
+                onUserClick={handleUserClick}
               />
             ))
           ) : (
@@ -198,6 +207,17 @@ const Tickets = () => {
           ticket={selectedTicket}
           onClose={() => setIsTicketsModelOpen({ isOpen: false })}
           refreshList={() => setRefreshTrigger(prev => prev + 1)}
+          onUserClick={handleUserClick}
+        />
+      </Modal>
+
+      <Modal isOpen={isUserModalOpen} size="sm">
+        <TicketUserModal
+          ticket={selectedUserTicket}
+          onClose={() => {
+            setIsUserModalOpen(false);
+            setSelectedUserTicket(null);
+          }}
         />
       </Modal>
     </div>

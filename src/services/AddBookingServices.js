@@ -89,6 +89,48 @@ export const getDashboardCards = () => {
     return socketApi.get("/bookings/dashboard-cards");
 };
 
+const updateDriverRankViaSocket = (socket, payload) =>
+    new Promise((resolve, reject) => {
+        if (!socket?.connected) {
+            reject(new Error("Socket not connected"));
+            return;
+        }
+
+        const timeout = setTimeout(() => {
+            socket.off("update-driver-rank-response", onResponse);
+            reject(new Error("Rank update timed out"));
+        }, 10000);
+
+        function onResponse(response) {
+            clearTimeout(timeout);
+            socket.off("update-driver-rank-response", onResponse);
+            if (response?.success) {
+                resolve({ data: response });
+                return;
+            }
+            reject(
+                Object.assign(new Error(response?.message || "Failed to update driver rank"), {
+                    response: { data: response },
+                })
+            );
+        }
+
+        socket.emit("update-driver-rank", payload);
+        socket.once("update-driver-rank-response", onResponse);
+    });
+
+export const apiUpdateDriverRank = async (payload, socket = null) => {
+    if (socket?.connected) {
+        try {
+            return await updateDriverRankViaSocket(socket, payload);
+        } catch (err) {
+            console.warn("Socket rank update failed, falling back to HTTP:", err.message);
+        }
+    }
+
+    return socketApi.post("/update-driver-rank", payload);
+};
+
 export const updateBookingStatus = (bookingId, data, dispatcherName) => {
     return socketApi.put(`/bookings/${bookingId}/status`, {
         ...data,

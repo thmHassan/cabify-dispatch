@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { formatPhoneDisplay } from "../../../../../../utils/functions/tenantSettings";
 
 
 const LostFoundCard = ({ lostfound, onView, onStatusChange }) => {
@@ -91,7 +92,7 @@ const LostFoundCard = ({ lostfound, onView, onStatusChange }) => {
 
                 <div className="inline-flex flex-col px-4 py-2 rounded-full bg-[#EFEFEF] text-left whitespace-nowrap w-[175px]">
                     <p className="text-xs text-center text-[#6C6C6C]">Phone No</p>
-                    <p className="text-[#333333] text-center font-semibold text-sm">{lostfound?.booking_details?.user_detail?.country_code || "+91"} {lostfound?.booking_details?.phone_no}</p>
+                    <p className="text-[#333333] text-center font-semibold text-sm">{formatPhoneDisplay(lostfound?.booking_details?.user_detail?.country_code, lostfound?.booking_details?.phone_no)}</p>
                 </div>
 
                 <div className="inline-flex flex-col px-4 py-2 rounded-full bg-[#EFEFEF] text-left whitespace-nowrap w-[130px]">

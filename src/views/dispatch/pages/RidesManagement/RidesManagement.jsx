@@ -15,6 +15,7 @@ import toast from 'react-hot-toast';
 import { lockBodyScroll, unlockBodyScroll } from '../../../../utils/functions/common.function';
 import Modal from '../../../../components/shared/Modal/Modal';
 import { apiGetCompanyApiKeys } from '../../../../services/SettingsConfigurationServices';
+import { getTenantDistanceUnit, resolveDistanceUnitFromApi, setCachedDistanceUnit } from '../../../../utils/functions/tenantSettings';
 
 const RidesManagement = () => {
   const [activeTab, setActiveTab] = useState("all");
@@ -44,18 +45,15 @@ const RidesManagement = () => {
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [rideToDelete, setRideToDelete] = useState(null);
-  const [distanceUnit, setDistanceUnit] = useState("Km");
+  const [distanceUnit, setDistanceUnit] = useState(getTenantDistanceUnit);
 
   useEffect(() => {
     const fetchApiKeys = async () => {
       const res = await apiGetCompanyApiKeys();
 
       if (res.data?.success) {
-        setDistanceUnit(
-          res.data.data.units.toLowerCase() === "km"
-            ? "Km"
-            : "Miles"
-        );
+        setCachedDistanceUnit(res.data.data.units);
+        setDistanceUnit(resolveDistanceUnitFromApi(res.data.data.units));
       }
     };
 

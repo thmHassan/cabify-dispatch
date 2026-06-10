@@ -2,6 +2,14 @@ import { Form, Formik } from "formik";
 import { useEffect, useState, useMemo, useCallback } from "react";
 import Maps from "./components/maps";
 import { getTenantData } from "../../../../../../utils/functions/tokenEncryption";
+import {
+    formatDistanceWithUnit,
+    getTenantCountryIso,
+    getTenantDialCode,
+    kmValueToDisplayDistance,
+    metersToDisplayDistance,
+    setCachedDistanceUnit,
+} from "../../../../../../utils/functions/tenantSettings";
 import { apiGetSubCompany } from "../../../../../../services/SubCompanyServices";
 import { apiGetAccount } from "../../../../../../services/AccountServices";
 import { apiGetDriverManagement } from "../../../../../../services/DriverManagementService";
@@ -100,22 +108,99 @@ const playSuccessSound = () => {
     }
 };
 
+const fetchOsrmRouteDistance = async (pickup, destination, viaCoords = []) => {
+    const pts = [
+        `${pickup.lng},${pickup.lat}`,
+        ...(viaCoords || []).filter((c) => c?.lat && c?.lng).map((c) => `${c.lng},${c.lat}`),
+        `${destination.lng},${destination.lat}`,
+    ];
+    try {
+        const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${pts.join(";")}?overview=false`);
+        const data = await res.json();
+        if (data?.routes?.[0]?.distance) {
+            return (data.routes[0].distance / 1000).toFixed(2);
+        }
+    } catch (error) {
+        console.error("OSRM distance error:", error);
+    }
+    return null;
+};
+
+const fetchGoogleRouteDistance = (pickup, destination, viaCoords = []) =>
+    new Promise((resolve) => {
+        if (!window.google?.maps) return resolve(null);
+        const waypoints = (viaCoords || [])
+            .filter((c) => c?.lat && c?.lng)
+            .map((c) => ({ location: new window.google.maps.LatLng(c.lat, c.lng), stopover: true }));
+        new window.google.maps.DirectionsService().route(
+            {
+                origin: { lat: pickup.lat, lng: pickup.lng },
+                destination: { lat: destination.lat, lng: destination.lng },
+                waypoints,
+                travelMode: window.google.maps.TravelMode.DRIVING,
+            },
+            (result, status) => {
+                if (status !== "OK" || !result?.routes?.[0]) return resolve(null);
+                const meters = result.routes[0].legs.reduce(
+                    (sum, leg) => sum + (leg.distance?.value || 0),
+                    0
+                );
+                resolve(meters ? (meters / 1000).toFixed(2) : null);
+            }
+        );
+    });
+
+const fetchBarikoiRouteDistance = async (pickup, destination, barikoiKey) => {
+    if (!barikoiKey) return null;
+    try {
+        const points = `${pickup.lng},${pickup.lat};${destination.lng},${destination.lat}`;
+        const res = await fetch(
+            `https://barikoi.xyz/v2/api/route/${points}?api_key=${barikoiKey}&geometries=geojson&profile=car`
+        );
+        const data = await res.json();
+        if (data?.routes?.[0]?.distance) {
+            return (data.routes[0].distance / 1000).toFixed(2);
+        }
+    } catch (error) {
+        console.error("Barikoi distance error:", error);
+    }
+    return null;
+};
+
+const fetchRouteDistance = async (pickup, destination, viaCoords, mapsApi, apiKeys) => {
+    const hasVia = (viaCoords || []).some((c) => c?.lat && c?.lng);
+    let distance = null;
+
+    if (mapsApi === "google") {
+        distance = await fetchGoogleRouteDistance(pickup, destination, viaCoords);
+    } else if (mapsApi === "barikoi" && !hasVia) {
+        distance = await fetchBarikoiRouteDistance(pickup, destination, apiKeys?.barikoiKey);
+    }
+
+    if (!distance) {
+        distance = await fetchOsrmRouteDistance(pickup, destination, viaCoords);
+    }
+
+    return distance;
+};
+
 const AddBooking = ({ setIsOpen }) => {
     const rawTenant = getTenantData();
-    const tenant = rawTenant?.data || {};
-    const SEARCH_API = tenant?.search_api;
+    const tenant = rawTenant?.data || rawTenant || {};
+    const SEARCH_API = tenant?.search_api || rawTenant?.search_api;
+    const tenantCountryIso = getTenantCountryIso();
 
     const getInitialMapType = () => {
-        const mapsApi = tenant?.maps_api?.trim().toLowerCase();
-        const countryOfUse = tenant?.country_of_use?.trim().toUpperCase();
+        const mapsApi = (tenant?.maps_api || rawTenant?.maps_api)?.trim().toLowerCase();
         if (mapsApi === "barikoi") return "barikoi";
         if (mapsApi === "google") return "google";
-        if (countryOfUse === "BD") return "barikoi";
+        if (tenantCountryIso === "BD") return "barikoi";
         return "google";
     };
 
     const MAPS_API = getInitialMapType();
-    const [countryCode, setCountryCode] = useState(tenant?.country_of_use?.toLowerCase() || "");
+    const [countryCode, setCountryCode] = useState(tenantCountryIso?.toLowerCase() || "");
+    const defaultDialCode = getTenantDialCode();
 
     const [subCompanyList, setSubCompanyList] = useState([]);
     const [vehicleList, setVehicleList] = useState([]);
@@ -180,10 +265,10 @@ const AddBooking = ({ setIsOpen }) => {
         name: "", email: "", phone_no: "", tel_no: "",
         passenger: 1, luggage: 0, hand_luggage: 0,
         special_request: "", payment_reference: "", payment_method: "cash",
-        base_fare: 0, fares: 0, return_fares: 0, parking_charges: 0,
-        booking_fee_charges: 0, ac_fares: 0, return_ac_fares: 0,
-        ac_parking_charges: 0, waiting_charges: 0, extra_charges: 0,
-        congestion_toll: 0, ac_waiting_charges: 0, total_charges: 0,
+        base_fare: "", fares: "", return_fares: "", parking_charges: "",
+        booking_fee_charges: "", ac_fares: "", return_ac_fares: "",
+        ac_parking_charges: "", waiting_charges: "", extra_charges: "",
+        congestion_toll: "", ac_waiting_charges: "", total_charges: "",
         distance: "", user_id: "",
     });
 
@@ -253,6 +338,9 @@ const AddBooking = ({ setIsOpen }) => {
                     }
                     if (data.country_of_use) {
                         setCountryCode(data.country_of_use.toLowerCase());
+                    }
+                    if (data.units) {
+                        setCachedDistanceUnit(data.units);
                     }
                 }
             } catch (err) {
@@ -573,6 +661,13 @@ const AddBooking = ({ setIsOpen }) => {
         return errors;
     };
 
+    const resolveLocationCoords = async (address, latitude, longitude) => {
+        if (latitude && longitude) {
+            return { latitude: parseFloat(latitude), longitude: parseFloat(longitude) };
+        }
+        return getCoordinatesFromAddress(address);
+    };
+
     const handleCalculateFares = async (values, setFieldValue) => {
         const errors = validateCalculateFares(values);
         if (Object.keys(errors).length > 0) { setCalculateErrors(errors); setFareLoading(false); return; }
@@ -580,10 +675,18 @@ const AddBooking = ({ setIsOpen }) => {
         setFareLoading(true);
         setFareError(null);
         try {
-            const pickupCoords = await getCoordinatesFromAddress(values.pickup_point);
+            const pickupCoords = await resolveLocationCoords(
+                values.pickup_point,
+                values.pickup_latitude,
+                values.pickup_longitude
+            );
             if (!pickupCoords) { toast.error("Could not get coordinates for pickup point"); setFareLoading(false); return; }
 
-            const destinationCoords = await getCoordinatesFromAddress(values.destination);
+            const destinationCoords = await resolveLocationCoords(
+                values.destination,
+                values.destination_latitude,
+                values.destination_longitude
+            );
             if (!destinationCoords) { toast.error("Could not get coordinates for destination"); setFareLoading(false); return; }
 
             const formData = new FormData();
@@ -597,10 +700,20 @@ const AddBooking = ({ setIsOpen }) => {
                 for (let i = 0; i < values.via_points.length; i++) {
                     const viaPoint = values.via_points[i];
                     if (viaPoint?.trim()) {
-                        const viaCoords = await getCoordinatesFromAddress(viaPoint);
+                        const viaCoords = await resolveLocationCoords(
+                            viaPoint,
+                            values.via_latitude?.[i],
+                            values.via_longitude?.[i]
+                        );
                         if (viaCoords) {
                             formData.append(`via_point[${vi}][latitude]`, viaCoords.latitude.toString());
                             formData.append(`via_point[${vi}][longitude]`, viaCoords.longitude.toString());
+                            formData.append(`via_location[${vi}]`, viaPoint);
+                            const viaPlotId = values.via_plot_id?.[i];
+                            if (viaPlotId) {
+                                formData.append(`via_point_id[${vi}]`, viaPlotId);
+                                formData.append(`via_plot_id[${vi}]`, viaPlotId);
+                            }
                             vi++;
                         }
                     }
@@ -612,7 +725,7 @@ const AddBooking = ({ setIsOpen }) => {
             if (response?.data?.success === 1) {
                 setFareData(response.data);
                 setFareCalculated(true);
-                if (response.data.distance) setFieldValue('distance', (response.data.distance / 1000).toFixed(2));
+                if (response.data.distance) setFieldValue('distance', metersToDisplayDistance(response.data.distance));
                 toast.success("Fare calculated successfully");
             } else {
                 const msg = response?.data?.message || "Failed to calculate fares";
@@ -627,6 +740,41 @@ const AddBooking = ({ setIsOpen }) => {
     const invalidateFare = () => {
         setFareData(null); setFareError(null); setFareCalculated(false);
     };
+
+    useEffect(() => {
+        if (!formikSetFieldValue) return;
+
+        if (!stablePickupCoords?.lat || !stableDestinationCoords?.lat) {
+            formikSetFieldValue("distance", "");
+            return;
+        }
+
+        let cancelled = false;
+        const timer = setTimeout(async () => {
+            const distanceKm = await fetchRouteDistance(
+                stablePickupCoords,
+                stableDestinationCoords,
+                stableViaCoords.filter(Boolean),
+                mapsApi,
+                apiKeys
+            );
+            if (!cancelled && distanceKm) {
+                formikSetFieldValue("distance", kmValueToDisplayDistance(distanceKm));
+            }
+        }, 400);
+
+        return () => {
+            cancelled = true;
+            clearTimeout(timer);
+        };
+    }, [
+        stablePickupCoords,
+        stableDestinationCoords,
+        stableViaCoords,
+        mapsApi,
+        apiKeys,
+        formikSetFieldValue,
+    ]);
 
     const swapLocations = (index, setFieldValue, values) => {
         const viaPoint = values.via_points[index];
@@ -843,7 +991,7 @@ const AddBooking = ({ setIsOpen }) => {
             onDestinationConfirmed={handleDestinationConfirmed}
             SEARCH_API={searchApi}
         />
-    ), [mapsApi, apiKeys, stablePickupCoords, stableDestinationCoords, stableViaCoords, searchApi, plotsData]);
+    ), [mapsApi, apiKeys, stablePickupCoords, stableDestinationCoords, stableViaCoords, searchApi, plotsData, formikSetFieldValue]);
 
     return (
         <>
@@ -875,7 +1023,8 @@ const AddBooking = ({ setIsOpen }) => {
                     }, [fareData]);
 
                     const handleChargeChange = (name, value) => {
-                        setFieldValue(name, Number(value) || 0);
+                        setFieldValue(name, value === "" ? "" : Number(value) || 0);
+                        if (name === "total_charges") return;
                         setTimeout(() => {
                             const additionalCharges = chargeFields.reduce((sum, key) => sum + Number(values[key] || 0), 0);
                             const baseFare = Number(values.base_fare || 0);
@@ -1167,9 +1316,14 @@ const AddBooking = ({ setIsOpen }) => {
                                                                 <div className="text-left flex flex-col relative">
                                                                     <div className="flex">
                                                                         <label className="text-sm font-semibold mb-1 md:w-28 w-20">Mobile No</label>
-                                                                        <div className="w-full relative">
+                                                                        <div className="w-full relative flex">
+                                                                            {defaultDialCode && (
+                                                                                <span className="border-[1.5px] border-r-0 border-[#8D8D8D] rounded-l-[8px] px-3 py-2 bg-gray-100 text-sm font-semibold whitespace-nowrap">
+                                                                                    {defaultDialCode}
+                                                                                </span>
+                                                                            )}
                                                                             <input type="text" placeholder="Enter Mobile No"
-                                                                                className={`border-[1.5px] shadow-lg rounded-[8px] px-3 py-2 w-full ${bookingErrors.phone_no ? 'border-red-500' : 'border-[#8D8D8D]'}`}
+                                                                                className={`border-[1.5px] shadow-lg rounded-[8px] px-3 py-2 w-full ${defaultDialCode ? "rounded-l-none" : ""} ${bookingErrors.phone_no ? 'border-red-500' : 'border-[#8D8D8D]'}`}
                                                                                 value={values.phone_no || ""}
                                                                                 onChange={(e) => { const v = e.target.value; setFieldValue("phone_no", v); searchUsers(v); clearBookingError("phone_no"); }}
                                                                                 onFocus={() => { if (values.phone_no && userSuggestions.length > 0) setShowUserSuggestions(true); }} />
@@ -1343,13 +1497,13 @@ const AddBooking = ({ setIsOpen }) => {
 
                                     {/* ✅ Map is rendered from useMemo — completely isolated from Formik re-renders */}
                                     <div className="h-full">
-                                        <div className="md:w-full xl:w-96 lg:w-72 w-full h-full rounded-xl border mt-4">
+                                        <div className="md:w-full xl:w-96 lg:w-72 w-full min-h-[400px] rounded-xl border mt-4">
                                             {memoizedMap}
                                         </div>
                                         <div className="mt-4">
                                             <label className="text-sm font-semibold text-left md:w-16 w-16">Distance</label>
                                             <input type="text" placeholder="Distance will be shown here" readOnly
-                                                value={values.distance ? `${values.distance} km` : ""}
+                                                value={formatDistanceWithUnit(values.distance)}
                                                 className="border-[1.5px] shadow-lg border-[#8D8D8D] rounded-[8px] px-3 py-2 w-full bg-gray-50" />
                                         </div>
                                     </div>
@@ -1392,7 +1546,7 @@ const AddBooking = ({ setIsOpen }) => {
                                             <ChargeInput key={field} label={field.replaceAll("_", " ").toUpperCase()} name={field} value={values[field]} onChange={handleChargeChange} />
                                         ))}
                                         <div className="font-bold text-[#10B981]">
-                                            <ChargeInput label="TOTAL CHARGES" name="total_charges" value={values.total_charges} readOnly />
+                                            <ChargeInput label="TOTAL CHARGES" name="total_charges" value={values.total_charges} onChange={handleChargeChange} />
                                         </div>
                                     </div>
                                     {bookingErrors.fare && <FieldError message={bookingErrors.fare} />}
@@ -1449,7 +1603,7 @@ const InputBox = ({ label, value, onChange, suggestions, show, onSelect, plot, p
 const ChargeInput = ({ label, name, value, onChange, readOnly = false }) => (
     <div className="flex items-center gap-2">
         <label className="text-sm font-medium w-40">{label}</label>
-        <input type="number" step="0.01" value={value || 0} readOnly={readOnly}
+        <input type="number" step="0.01" value={value === "" || value == null ? "" : value} readOnly={readOnly}
             onChange={(e) => onChange && onChange(name, e.target.value)}
             className="rounded-[8px] px-5 py-2 w-full" />
     </div>

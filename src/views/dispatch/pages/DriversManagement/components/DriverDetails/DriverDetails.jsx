@@ -9,6 +9,7 @@ import { apiGetDriverDocumentById, apiGetDriverDocumentList, apiGetDriverManagem
 import DocumentModel from "./component/DocumentModel";
 import Modal from "../../../../../../components/shared/Modal/Modal";
 import { getTenantData } from "../../../../../../utils/functions/tokenEncryption";
+import { getTenantDialCode } from "../../../../../../utils/functions/tenantSettings";
 
 const FormField = ({ label, type = "text", placeholder, options = [], value = "", onChange, name }) => {
     return (
@@ -135,7 +136,7 @@ const DriverDetails = () => {
                 setFormData({
                     name: data.name || "",
                     email: data.email || "",
-                    country_code: data.country_code || "",
+                    country_code: data.country_code || getTenantDialCode(),
                     phone_no: data.phone_no || "",
                     address: data.address || "",
                     driver_license: data.driver_license || "",
@@ -290,7 +291,7 @@ const DriverDetails = () => {
                             <label className="text-sm font-medium text-gray-700">Phone Number</label>
                             <div className="flex border border-gray-300 rounded-lg overflow-hidden focus-within:ring-1 focus-within:ring-blue-600">
                                 <span className="px-3 bg-gray-100 border-r border-gray-300 font-semibold text-sm flex items-center text-gray-700">
-                                    {formData.country_code || "+91"}
+                                    {formData.country_code || getTenantDialCode()}
                                 </span>
                                 <input
                                     type="text"

@@ -21,7 +21,15 @@ const initSocket = () => {
         return null;
     }
 
-    socket = io("https://backend.cabifyit.com", {
+    const socketBaseUrl = (() => {
+        const socketApiUrl = import.meta.env.VITE_BACKEND_SOCKET_URL;
+        if (socketApiUrl) {
+            return socketApiUrl.replace(/\/socket-api\/?$/, "");
+        }
+        return "https://backend.cabifyit.com";
+    })();
+
+    socket = io(socketBaseUrl, {
         path: "/socket.io",
         transports: ["polling", "websocket",],
         reconnection: true,

@@ -4,6 +4,7 @@ import Button from "../../../../../../components/ui/Button/Button";
 import ThreeDotsIcon from "../../../../../../components/svg/ThreeDotsIcon";
 import toast from "react-hot-toast";
 import { getTenantData } from "../../../../../../utils/functions/tokenEncryption";
+import { formatPhoneDisplay } from "../../../../../../utils/functions/tenantSettings";
 import { apieditDriverStatus } from "../../../../../../services/DriverManagementService";
 
 const DriverManagementCard = ({ driver, onEdit, onDelete, onStatusChange }) => {
@@ -126,7 +127,7 @@ const DriverManagementCard = ({ driver, onEdit, onDelete, onStatusChange }) => {
                 <div className="w-60">
                     <p className="font-semibold text-xl">{driver.name}</p>
                     <p className="text-[10px]">{driver.email}</p>
-                    <p className="text-xs">{driver.phone}</p>
+                    <p className="text-xs">{formatPhoneDisplay(driver.country_code, driver.phone_no || driver.phone)}</p>
                 </div>
             </div>
             <div className="flex items-center justify-center gap-3">

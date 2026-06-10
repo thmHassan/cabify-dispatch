@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
 
-const TicketsCard = ({ tickets, onReplyClick, onStatusChange }) => {
+const getUserTypeLabel = (userType) => (userType === "driver" ? "Driver" : "Customer");
+
+const TicketsCard = ({ tickets, onReplyClick, onStatusChange, onUserClick }) => {
     const [showDropdown, setShowDropdown] = useState(false);
     const [dropdownPos, setDropdownPos] = useState(null);
 
@@ -48,9 +50,14 @@ const TicketsCard = ({ tickets, onReplyClick, onStatusChange }) => {
                         <p className="font-semibold text-xl">
                             {tickets.ticket_id}
                         </p>
-                        <p className="text-[10px]">
-                            {tickets.customer}
-                        </p>
+                        <button
+                            type="button"
+                            onClick={() => onUserClick?.(tickets)}
+                            className="text-[10px] text-[#1F41BB] hover:underline text-left"
+                            title="View user details"
+                        >
+                            {tickets.customer || getUserTypeLabel(tickets.user_type) || "View user"}
+                        </button>
                         <p className="text-xs">
                             {new Date(tickets.created_at).toLocaleDateString("en-GB")}
                         </p>
