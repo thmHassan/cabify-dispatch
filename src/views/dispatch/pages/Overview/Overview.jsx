@@ -106,10 +106,8 @@ const reorderDriversByRank = (drivers, driverKey, newRank) => {
   return sortWaitingDrivers([...others, ...updatedPlotDrivers]);
 };
 
-const isDriverOnline = (driver) => {
-  const status = (driver?.online_status || driver?.status || "online").toLowerCase();
-  return status !== "offline";
-};
+const isDriverOnline = (driver) =>
+  (driver?.online_status || "").toLowerCase() === "online";
 
 const formatWaitingDriverFromSocket = (d) => ({
   ...d,
@@ -118,7 +116,7 @@ const formatWaitingDriverFromSocket = (d) => ({
   plot_id: d.plot_id ?? d.plot,
   plot: d.plot_name || d.plot || "N/A",
   rank: d.rank || d.ranking || 1,
-  online_status: d.online_status || d.status || "online",
+  online_status: d.online_status,
   updatedAt: Date.now(),
   is_reconnecting: d.is_reconnecting === true,
   display_name: d.is_reconnecting === true
@@ -1315,8 +1313,7 @@ const Overview = () => {
       const sId = String(driverId);
       const now = Date.now();
 
-      const onlineStatus = (data.online_status || data.status || "").toLowerCase();
-      if (onlineStatus === "offline") {
+      if ((data.online_status || "").toLowerCase() === "offline") {
         removeDriverFromWaitingAndMap(sId);
         return;
       }
