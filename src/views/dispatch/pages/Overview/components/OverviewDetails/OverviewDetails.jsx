@@ -7,6 +7,7 @@ import { useSocket } from "../../../../../../components/routes/SocketProvider";
 import { getBookings } from "../../../../../../services/AddBookingServices";
 import { apiGetSubCompany } from "../../../../../../services/SubCompanyServices";
 import { OVERVIEW_STATUS_OPTIONS } from "../../../../../../constants/selectOptions";
+import { filterBookingsForOverviewTab } from "../../../../../../utils/functions/bookingDateFilter";
 import { useNavigate } from "react-router-dom";
 import StatusMenu from "./StatusMenu";
 import AllocateDriverModal from "./AllocateDriverModal";
@@ -29,8 +30,12 @@ const Col = ({ w, children, className = "" }) => (
     <div className={`px-4 py-3 flex-shrink-0 ${w} ${className}`}>{children}</div>
 );
 
-const OverViewDetails = ({ filter }) => {
+const OverViewDetails = ({ filter, externalRefreshTrigger = 0 }) => {
     const navigate = useNavigate();
+    const applyTabFilter = useCallback(
+        (bookings) => filterBookingsForOverviewTab((bookings || []).filter(Boolean), filter),
+        [filter]
+    );
     const [openMenu, setOpenMenu] = useState(null);
     const [showAllocateModal, setShowAllocateModal] = useState(false);
     const [selectedBooking, setSelectedBooking] = useState(null);
@@ -96,7 +101,8 @@ const OverViewDetails = ({ filter }) => {
 
                 const res = await getBookings(params);
                 if (res?.data?.success) {
-                    setBookings((res.data.data || []).filter(Boolean));
+                    const fetchedBookings = (res.data.data || []).filter(Boolean);
+                    setBookings(applyTabFilter(fetchedBookings));
                     setTotalPages(res.data.pagination?.total_pages || 1);
                 }
             } catch (error) {
@@ -107,7 +113,7 @@ const OverViewDetails = ({ filter }) => {
             }
         };
         fetchBookings();
-    }, [page, search, selectedStatus, selectedSubCompany, filter, refreshTrigger]);
+    }, [page, search, selectedStatus, selectedSubCompany, filter, refreshTrigger, externalRefreshTrigger, applyTabFilter]);
 
     useEffect(() => {
         if (!socket) return;
@@ -122,16 +128,19 @@ const OverViewDetails = ({ filter }) => {
             setBookings((prev) => {
                 const safe = prev.filter(Boolean);
                 if (safe.find((b) => b.id === booking.id)) return safe;
-                return [booking, ...safe];
+                const next = [booking, ...safe];
+                return applyTabFilter(next);
             });
         };
+
+        const mapBookings = (prev, mapFn) => applyTabFilter(safeMap(prev, mapFn));
 
         const handleDriverAssignmentPending = (data) => {
             console.log("driver-assignment-pending:", data);
             const updatedBooking = data?.booking ?? null;
             if (updatedBooking?.id) {
                 setBookings((prev) =>
-                    safeMap(prev, (b) => b.id === updatedBooking.id ? updatedBooking : b)
+                    mapBookings(prev, (b) => b.id === updatedBooking.id ? updatedBooking : b)
                 );
             }
             showNotification(data);
@@ -141,7 +150,7 @@ const OverViewDetails = ({ filter }) => {
             console.log("job-accepted-by-driver:", data);
             if (!data?.booking_id) return;
             setBookings((prev) =>
-                safeMap(prev, (b) =>
+                mapBookings(prev, (b) =>
                     b.id === data.booking_id
                         ? { ...b, ...data.booking, booking_status: "ongoing" }
                         : b
@@ -159,7 +168,7 @@ const OverViewDetails = ({ filter }) => {
             console.log("job-rejected-by-driver:", data);
             if (!data?.booking_id) return;
             setBookings((prev) =>
-                safeMap(prev, (b) =>
+                mapBookings(prev, (b) =>
                     b.id === data.booking_id ? { ...b, booking_status: "pending" } : b
                 )
             );
@@ -177,7 +186,7 @@ const OverViewDetails = ({ filter }) => {
             const updatedBooking = data?.booking ?? null;
             if (updatedBooking) {
                 setBookings((prev) =>
-                    safeMap(prev, (b) => b.id === updatedBooking.id ? updatedBooking : b)
+                    mapBookings(prev, (b) => b.id === updatedBooking.id ? updatedBooking : b)
                 );
             }
             showNotification({
@@ -240,7 +249,7 @@ const OverViewDetails = ({ filter }) => {
             console.log("follow-on-job-sent-to-driver:", data);
             if (!data?.booking_id) return;
             setBookings((prev) =>
-                safeMap(prev, (b) =>
+                mapBookings(prev, (b) =>
                     b.id === data.booking_id
                         ? { ...b, ...data.booking, booking_status: "pending_acceptance" }
                         : b
@@ -322,7 +331,7 @@ const OverViewDetails = ({ filter }) => {
             socket.off("follow-on-job-removed", handleFollowOnRemoved);
         };
 
-    }, [socket, showNotification]);
+    }, [socket, showNotification, filter, applyTabFilter]);
 
     const getButtonRef = (id) => {
         if (!buttonRefs.current[id]) buttonRefs.current[id] = { current: null };
@@ -344,7 +353,7 @@ const OverViewDetails = ({ filter }) => {
     const handleBookingUpdate = (updated) => {
         if (!updated || updated.id == null) return;
         setBookings((prev) =>
-            prev.filter(Boolean).map((b) => b.id === updated.id ? { ...b, ...updated } : b)
+            applyTabFilter(prev.map((b) => b.id === updated.id ? { ...b, ...updated } : b))
         );
         setRefreshTrigger(prev => prev + 1);
     };

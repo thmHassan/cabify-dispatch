@@ -1,7 +1,76 @@
 import { METHOD_GET, METHOD_POST } from "../constants/method.constant";
 import ApiService from "./ApiService";
-import { CALCULATE_FARES, CANCELLED_BOOKING, CREATE_BOOKING, GET_ALL_PLOT } from "../constants/api.route.constant";
+import { CALCULATE_FARES, CANCELLED_BOOKING, CREATE_BOOKING, GET_ALL_PLOT, GET_RIDE_MANAGEMENT } from "../constants/api.route.constant";
 import socketApi from "./SocketApiService";
+import { getDispatcherId } from "../utils/auth";
+
+const buildBookingParams = ({
+    page = 1,
+    limit = 10,
+    search,
+    status,
+    sub_company,
+    filter,
+}) => {
+    const params = { page, limit };
+    if (search) params.search = search;
+    if (status) params.status = status;
+    if (sub_company) params.sub_company = sub_company;
+    if (filter) params.filter = filter;
+    return params;
+};
+
+const fetchBookingsFromLaravel = async ({
+    page = 1,
+    limit = 10,
+    search,
+    status,
+    sub_company,
+    filter,
+}) => {
+    const params = {
+        page,
+        perPage: limit,
+        dispatcher_id: getDispatcherId(),
+    };
+
+    if (search) params.search = search;
+    if (status) params.status = status;
+    if (sub_company) params.sub_company = sub_company;
+    if (filter) params.filter = filter;
+
+    const res = await ApiService.fetchData({
+        url: GET_RIDE_MANAGEMENT,
+        method: METHOD_GET,
+        params,
+    });
+
+    const rides = res?.data?.rides;
+
+    return {
+        data: {
+            success: res?.data?.success === 1,
+            data: rides?.data || [],
+            pagination: {
+                total_pages: rides?.last_page || 1,
+                total: rides?.total || 0,
+                current_page: rides?.current_page || page,
+            },
+        },
+    };
+};
+
+const fetchDashboardCardsFromLaravel = async () => {
+    const res = await ApiService.getDispatcherCards();
+    const cards = res?.data?.data ?? res?.data ?? {};
+
+    return {
+        data: {
+            success: res?.data?.success === 1 || res?.data?.success === true,
+            data: cards,
+        },
+    };
+};
 
 export async function apiGetAllPlot(data) {
     const isFormData = data instanceof FormData;
@@ -61,22 +130,17 @@ export async function apiGetCancelledBooking(params) {
     }
 }
 
-export const getBookings = ({
-    page = 1,
-    limit = 10,
-    search,
-    status,
-    sub_company,
-    filter,
-}) => {
-    const params = { page, limit };
+export const getBookings = async (bookingParams) => {
+    const params = buildBookingParams(bookingParams);
 
-    if (search) params.search = search;
-    if (status) params.status = status;
-    if (sub_company) params.sub_company = sub_company;
-    if (filter) params.filter = filter;
-
-    return socketApi.get("/bookings", { params });
+    try {
+        const res = await socketApi.get("/bookings", { params });
+        if (res?.data?.success) return res;
+        throw new Error("Socket bookings API returned unsuccessful response");
+    } catch (err) {
+        console.warn("Socket bookings API failed, falling back to Laravel:", err.message);
+        return fetchBookingsFromLaravel(bookingParams);
+    }
 };
 
 export const sendConfirmationEmail = (bookingId, dispatcherName) => {
@@ -85,8 +149,15 @@ export const sendConfirmationEmail = (bookingId, dispatcherName) => {
     });
 };
 
-export const getDashboardCards = () => {
-    return socketApi.get("/bookings/dashboard-cards");
+export const getDashboardCards = async () => {
+    try {
+        const res = await socketApi.get("/bookings/dashboard-cards");
+        if (res?.data?.success) return res;
+        throw new Error("Socket dashboard cards API returned unsuccessful response");
+    } catch (err) {
+        console.warn("Socket dashboard cards failed, falling back to Laravel:", err.message);
+        return fetchDashboardCardsFromLaravel();
+    }
 };
 
 const updateDriverRankViaSocket = (socket, payload) =>

@@ -15,7 +15,7 @@ import CancelledIcon from "../../../../components/svg/CancelledIcon";
 import { useAppSelector } from "../../../../store";
 import { apiGetCompanyApiKeys } from "../../../../services/SettingsConfigurationServices";
 import { getDashboardCards, apiGetAllPlot, apiUpdateDriverRank } from "../../../../services/AddBookingServices";
-import { apiLogoutDriver } from "../../../../services/DriverManagementService";
+import { apiLogoutDriver, apiGetDriverManagement } from "../../../../services/DriverManagementService";
 import toast from "react-hot-toast";
 import { apiGetPlot } from "../../../../services/PlotService";
 import CallQueueModel from "./components/CallQueueModel/CallQueueModel";
@@ -863,6 +863,110 @@ const Overview = () => {
 
   useEffect(() => { fetchDashboardCards(); }, [fetchDashboardCards]);
 
+  const handleBookingCreated = useCallback((meta) => {
+    setRefreshTrigger((prev) => prev + 1);
+    fetchDashboardCards();
+
+    if (meta?.isMultiBooking) {
+      setActiveBookingFilter(meta.includesToday ? "todays_booking" : "pre_bookings");
+    } else {
+      setActiveBookingFilter("todays_booking");
+    }
+  }, [fetchDashboardCards]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const resolveDriverPosition = (driver) => {
+      let lat = driver.latitude ?? driver.lat;
+      let lng = driver.longitude ?? driver.lng;
+
+      if ((lat == null || lng == null) && (driver.plot_id || driver.plot)) {
+        const plot = plotsDataRef.current.find(
+          (p) => p.id == (driver.plot_id || driver.plot) || p.plot_id == (driver.plot_id || driver.plot)
+        );
+        if (plot) {
+          const coords = parseCoordinates(plot);
+          if (coords.length > 0) {
+            lat = coords.reduce((s, c) => s + c.lat, 0) / coords.length;
+            lng = coords.reduce((s, c) => s + c.lng, 0) / coords.length;
+          }
+        }
+      }
+
+      return (lat != null && lng != null) ? { lat: Number(lat), lng: Number(lng) } : null;
+    };
+
+    const formatDriver = (driver) => ({
+      ...driver,
+      id: driver.id || driver.driver_id,
+      name: driver.name || driver.driver_name || driver.driverName,
+      plot_id: driver.plot_id ?? driver.plot,
+      plot: driver.plot_name || driver.plot || "N/A",
+      rank: driver.rank || driver.ranking || 1,
+      updatedAt: Date.now(),
+    });
+
+    const fetchInitialDrivers = async () => {
+      try {
+        const response = await apiGetDriverManagement({ page: 1, perPage: 500 });
+        if (cancelled || response?.data?.success !== 1) return;
+
+        const driversList = (response.data.list?.data || []).filter((driver) => {
+          const onlineStatus = (driver.online_status || driver.status || "").toLowerCase();
+          return onlineStatus !== "offline";
+        });
+
+        if (!driversList.length) return;
+
+        const idle = [];
+        const busy = [];
+
+        driversList.forEach((driver) => {
+          const formatted = formatDriver(driver);
+          const position = resolveDriverPosition(formatted);
+          const withPosition = position ? { ...formatted, position } : formatted;
+          if ((driver.driving_status || "").toLowerCase() === "busy") {
+            busy.push(withPosition);
+          } else {
+            idle.push(withPosition);
+          }
+        });
+
+        if (idle.length) {
+          setWaitingDrivers((prev) => (prev.length ? prev : sortWaitingDrivers(idle)));
+        }
+        if (busy.length) {
+          setOnJobDrivers((prev) => (prev.length ? prev : busy));
+        }
+
+        setDriverData((prev) => {
+          const updated = { ...prev };
+          [...idle, ...busy].forEach((driver) => {
+            const driverId = String(driver.id || driver.driver_id || "");
+            if (!driverId) return;
+            const position = driver.position || resolveDriverPosition(driver);
+            const isBusy = (driver.driving_status || "").toLowerCase() === "busy";
+            updated[driverId] = {
+              ...updated[driverId],
+              ...driver,
+              ...(position ? { position } : {}),
+              status: isBusy ? "busy" : "idle",
+              driving_status: isBusy ? "busy" : "idle",
+            };
+          });
+          saveToStorage(DRIVER_DATA_STORAGE_KEY, updated);
+          return updated;
+        });
+      } catch (err) {
+        console.error("Initial drivers fetch error:", err);
+      }
+    };
+
+    fetchInitialDrivers();
+    return () => { cancelled = true; };
+  }, [allPlots, setWaitingDrivers, setOnJobDrivers, setDriverData]);
+
   useEffect(() => {
     if (!socket) return;
 
@@ -1381,7 +1485,7 @@ const Overview = () => {
       </div>
 
       <div className="px-4 sm:p-6">
-        <OverViewDetails filter={activeBookingFilter} />
+        <OverViewDetails filter={activeBookingFilter} externalRefreshTrigger={refreshTrigger} />
       </div>
 
       <div className="sticky bottom-0 left-0 right-0 z-30 bg-white shadow-lg">
@@ -1403,7 +1507,7 @@ const Overview = () => {
       </div>
 
       <Modal isOpen={isBookingModelOpen.isOpen} className="p-4 sm:p-6 lg:p-10">
-        <AddBooking setIsOpen={setIsBookingModelOpen} />
+        <AddBooking setIsOpen={setIsBookingModelOpen} onBookingCreated={handleBookingCreated} />
       </Modal>
 
       <Modal isOpen={isMessageModelOpen.isOpen}>

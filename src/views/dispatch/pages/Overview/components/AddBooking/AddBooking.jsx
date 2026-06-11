@@ -22,6 +22,15 @@ import toast from 'react-hot-toast';
 import { getDispatcherId } from "../../../../../../utils/auth";
 import { apiGetRideHistory, apiGetUser } from "../../../../../../services/UserService";
 import { debounce } from "lodash";
+import {
+    formatDateForInput,
+    getMultiBookingCreatedCount,
+    getTodayWeekdayLabel,
+    multiBookingIncludesToday,
+    MULTI_BOOKING_WEEKDAYS,
+    resolveMultiBookingSubmitDate,
+    syncMultiBookingReferenceDate,
+} from "../../../../../../utils/functions/bookingDateFilter";
 import History from "./components/History";
 import successSound from "../../../../../../assets/audio/meldix-success-340660.mp3";
 
@@ -184,7 +193,8 @@ const fetchRouteDistance = async (pickup, destination, viaCoords, mapsApi, apiKe
     return distance;
 };
 
-const AddBooking = ({ setIsOpen }) => {
+const AddBooking = ({ setIsOpen, onBookingCreated }) => {
+    const todayWeekday = getTodayWeekdayLabel();
     const rawTenant = getTenantData();
     const tenant = rawTenant?.data || rawTenant || {};
     const SEARCH_API = tenant?.search_api || rawTenant?.search_api;
@@ -270,6 +280,7 @@ const AddBooking = ({ setIsOpen }) => {
         ac_parking_charges: "", waiting_charges: "", extra_charges: "",
         congestion_toll: "", ac_waiting_charges: "", total_charges: "",
         distance: "", user_id: "",
+        multi_days: [], multi_start_at: "", multi_end_at: "", week_pattern: "",
     });
 
     const chargeFields = [
@@ -645,7 +656,7 @@ const AddBooking = ({ setIsOpen }) => {
         if (!values.vehicle) errors.vehicle = "Vehicle type is required";
         if (!values.journey_type) errors.journey_type = "Journey type is required";
         if (!values.booking_type || values.booking_type === "outstation") errors.booking_type = "Please select a booking type";
-        if (!values.booking_date) errors.booking_date = "Booking date is required";
+        if (!isMultiBooking && !values.booking_date) errors.booking_date = "Booking date is required";
         if (values.pickup_time_type === "time" && !values.pickup_time) errors.pickup_time = "Pickup time is required";
         if (!values.name?.trim()) errors.name = "Passenger name is required";
         if (!values.phone_no?.trim()) errors.phone_no = "Mobile number is required";
@@ -656,6 +667,14 @@ const AddBooking = ({ setIsOpen }) => {
             if (!values.multi_end_at) errors.multi_end_at = "End date is required";
             if (values.multi_start_at && values.multi_end_at && new Date(values.multi_start_at) > new Date(values.multi_end_at))
                 errors.multi_end_at = "End date cannot be before start date";
+            if (
+                values.multi_days?.includes(todayWeekday) &&
+                values.multi_start_at &&
+                values.multi_end_at &&
+                !multiBookingIncludesToday(values.multi_days, values.multi_start_at, values.multi_end_at)
+            ) {
+                errors.multi_days = `${todayWeekday} is selected but the date range does not include today`;
+            }
         }
         if (!fareCalculated) errors.fare = "Please calculate fares before creating booking";
         return errors;
@@ -806,6 +825,18 @@ const AddBooking = ({ setIsOpen }) => {
         invalidateFare();
     };
 
+    const applyMultiBookingDateSync = (values, setFieldValue, overrides = {}) => {
+        const multiDays = overrides.multi_days ?? values.multi_days;
+        const multiStartAt = overrides.multi_start_at ?? values.multi_start_at;
+        const multiEndAt = overrides.multi_end_at ?? values.multi_end_at;
+        const nextDate = syncMultiBookingReferenceDate({
+            multiDays,
+            multiStartAt,
+            multiEndAt,
+        });
+        if (nextDate) setFieldValue("booking_date", nextDate);
+    };
+
     const handleCreateBooking = async (values) => {
         const errors = validateCreateBooking(values);
         if (Object.keys(errors).length > 0) { setBookingErrors(errors); return; }
@@ -815,11 +846,17 @@ const AddBooking = ({ setIsOpen }) => {
             const formData = new FormData();
             formData.append('sub_company', values.sub_company || '');
             formData.append('multi_booking', isMultiBooking ? 'yes' : 'no');
+            const includesToday = isMultiBooking
+                ? multiBookingIncludesToday(values.multi_days, values.multi_start_at, values.multi_end_at)
+                : false;
+
             if (isMultiBooking) {
-                formData.append('multi_days', values.multi_days || '');
+                (values.multi_days || []).forEach((day) => formData.append("multi_days[]", day));
                 formData.append('start_at', values.multi_start_at || '');
                 formData.append('end_at', values.multi_end_at || '');
                 formData.append('week', values.week_pattern || '');
+                formData.append('includes_today', includesToday ? 'yes' : 'no');
+                formData.append('today_weekday', todayWeekday);
             }
             if (values.pickup_time_type === "asap") {
                 const now = new Date();
@@ -828,7 +865,14 @@ const AddBooking = ({ setIsOpen }) => {
                 const tv = values.pickup_time || '';
                 formData.append('pickup_time', tv ? `${tv}:00` : '');
             }
-            formData.append('booking_date', values.booking_date || '');
+            const bookingDate = isMultiBooking
+                ? resolveMultiBookingSubmitDate({
+                    includesToday,
+                    multiStartAt: values.multi_start_at,
+                    bookingDate: values.booking_date,
+                })
+                : (values.booking_date || "");
+            formData.append('booking_date', bookingDate);
             formData.append('booking_type', values.booking_type || '');
             formData.append("dispatcher_id", dispatcherId);
             const pickupCoords = await getCoordinatesFromAddress(values.pickup_point);
@@ -917,12 +961,27 @@ const AddBooking = ({ setIsOpen }) => {
             formData.append('distance', fareData?.distance?.toString() || '');
             const response = await apiCreateBooking(formData);
             if (response?.data?.success === 1) {
-                toast.success(response?.data?.message || "Booking created successfully");
+                const createdCount = getMultiBookingCreatedCount(response.data);
+                const successMessage = isMultiBooking
+                    ? (
+                        createdCount
+                            ? `${createdCount} bookings created. Check Today's Booking for today and Pre Bookings for future dates.`
+                            : (response?.data?.message || "Multi-bookings created successfully")
+                    )
+                    : (response?.data?.message || "Booking created successfully");
+                toast.success(successMessage);
                 playSuccessSound();
+                const bookingCreatedMeta = {
+                    isMultiBooking,
+                    includesToday,
+                    createdCount,
+                };
                 if (response?.data?.alertMessage) {
                     setAlertModal({ isOpen: true, message: response.data.alertMessage });
+                    onBookingCreated?.(bookingCreatedMeta);
                     return;
                 }
+                onBookingCreated?.(bookingCreatedMeta);
                 unlockBodyScroll();
                 setIsOpen({ type: "new", isOpen: false });
             } else {
@@ -1055,7 +1114,20 @@ const AddBooking = ({ setIsOpen }) => {
                                         <div className="flex items-center rounded-[8px] px-3 py-2 border-[1.5px] shadow-lg border-[#8D8D8D]">
                                             <span className="text-sm mr-2">Single Booking</span>
                                             <label className="relative inline-flex items-center cursor-pointer">
-                                                <input type="checkbox" className="sr-only peer" checked={isMultiBooking} onChange={(e) => setIsMultiBooking(e.target.checked)} />
+                                                <input type="checkbox" className="sr-only peer" checked={isMultiBooking} onChange={(e) => {
+                                                    const checked = e.target.checked;
+                                                    setIsMultiBooking(checked);
+                                                    if (checked) {
+                                                        const today = formatDateForInput(new Date());
+                                                        if (!values.multi_start_at) setFieldValue("multi_start_at", today);
+                                                        if (!values.booking_date) setFieldValue("booking_date", today);
+                                                        applyMultiBookingDateSync(
+                                                            { ...values, multi_start_at: values.multi_start_at || today },
+                                                            setFieldValue,
+                                                            { multi_start_at: values.multi_start_at || today }
+                                                        );
+                                                    }
+                                                }} />
                                                 <div className="w-10 h-5 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:bg-green-400 transition-all"></div>
                                                 <div className="absolute left-0.5 top-0.5 w-4 h-4 bg-white rounded-full shadow peer-checked:translate-x-5 transition-all"></div>
                                             </label>
@@ -1070,21 +1142,31 @@ const AddBooking = ({ setIsOpen }) => {
                                             <div className="w-full mb-3">
                                                 <div className="flex flex-col gap-2">
                                                     <span className="font-semibold text-sm">Select day of the week</span>
+                                                    <p className="text-xs text-gray-500">
+                                                        If {todayWeekday} (today) is selected and falls within the date range,
+                                                        that ride appears under Today&apos;s Booking. Other dates appear under Pre Bookings.
+                                                    </p>
                                                     <div className="flex flex-wrap gap-3 pb-2">
-                                                        {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((day) => {
+                                                        {MULTI_BOOKING_WEEKDAYS.map((day) => {
                                                             const value = day;
                                                             const checked = values.multi_days?.includes(value);
+                                                            const isToday = day === todayWeekday;
                                                             return (
-                                                                <label key={day} className="flex items-center gap-2 cursor-pointer text-sm">
+                                                                <label
+                                                                    key={day}
+                                                                    className={`flex items-center gap-2 cursor-pointer text-sm ${isToday ? "font-semibold text-[#1F41BB]" : ""}`}
+                                                                >
                                                                     <input type="checkbox" checked={checked}
                                                                         onChange={(e) => {
                                                                             const days = new Set(values.multi_days || []);
                                                                             e.target.checked ? days.add(value) : days.delete(value);
-                                                                            setFieldValue("multi_days", [...days]);
+                                                                            const nextDays = [...days];
+                                                                            setFieldValue("multi_days", nextDays);
+                                                                            applyMultiBookingDateSync(values, setFieldValue, { multi_days: nextDays });
                                                                             clearBookingError("multi_days");
                                                                         }}
                                                                         className="w-4 h-4" />
-                                                                    {day}
+                                                                    {day}{isToday ? " (Today)" : ""}
                                                                 </label>
                                                             );
                                                         })}
@@ -1098,7 +1180,12 @@ const AddBooking = ({ setIsOpen }) => {
                                                             <input type="date"
                                                                 className={`border-[1.5px] shadow-lg rounded-[8px] px-3 py-2 text-sm w-full ${bookingErrors.multi_start_at ? 'border-red-500' : 'border-[#8D8D8D]'}`}
                                                                 value={values.multi_start_at || ""}
-                                                                onChange={(e) => { setFieldValue("multi_start_at", e.target.value); clearBookingError("multi_start_at"); }} />
+                                                                onChange={(e) => {
+                                                                    const value = e.target.value;
+                                                                    setFieldValue("multi_start_at", value);
+                                                                    applyMultiBookingDateSync(values, setFieldValue, { multi_start_at: value });
+                                                                    clearBookingError("multi_start_at");
+                                                                }} />
                                                             <FieldError message={bookingErrors.multi_start_at} />
                                                         </div>
                                                     </div>
@@ -1108,7 +1195,12 @@ const AddBooking = ({ setIsOpen }) => {
                                                             <input type="date"
                                                                 className={`border-[1.5px] shadow-lg rounded-[8px] px-3 py-2 text-sm w-full ${bookingErrors.multi_end_at ? 'border-red-500' : 'border-[#8D8D8D]'}`}
                                                                 value={values.multi_end_at || ""}
-                                                                onChange={(e) => { setFieldValue("multi_end_at", e.target.value); clearBookingError("multi_end_at"); }} />
+                                                                onChange={(e) => {
+                                                                    const value = e.target.value;
+                                                                    setFieldValue("multi_end_at", value);
+                                                                    applyMultiBookingDateSync(values, setFieldValue, { multi_end_at: value });
+                                                                    clearBookingError("multi_end_at");
+                                                                }} />
                                                             <FieldError message={bookingErrors.multi_end_at} />
                                                         </div>
                                                     </div>
@@ -1149,12 +1241,20 @@ const AddBooking = ({ setIsOpen }) => {
                                                             </div>
                                                         </div>
                                                         <div className="flex w-full items-start gap-2">
-                                                            <label className="text-sm font-semibold mb-1 w-20 pt-2">Date</label>
+                                                            <label className="text-sm font-semibold mb-1 w-20 pt-2">
+                                                                {isMultiBooking ? "Ref. Date" : "Date"}
+                                                            </label>
                                                             <div className="w-full">
                                                                 <input type="date"
                                                                     className={`border-[1.5px] shadow-lg rounded-[8px] px-3 py-2 text-sm w-full ${bookingErrors.booking_date ? 'border-red-500' : 'border-[#8D8D8D]'}`}
                                                                     value={values.booking_date || ""}
+                                                                    disabled={isMultiBooking}
                                                                     onChange={(e) => { setFieldValue("booking_date", e.target.value); clearBookingError("booking_date"); }} />
+                                                                {isMultiBooking && (
+                                                                    <p className="text-xs text-gray-500 mt-1">
+                                                                        Auto-set from today or start date for multi-booking.
+                                                                    </p>
+                                                                )}
                                                                 <FieldError message={bookingErrors.booking_date} />
                                                             </div>
                                                         </div>

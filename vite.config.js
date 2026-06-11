@@ -12,6 +12,11 @@ export default defineConfig({
         changeOrigin: true,
         secure: false,
       },
+      '/socket-api': {
+        target: 'https://backend.cabifyit.com',
+        changeOrigin: true,
+        secure: false,
+      },
     },
   },
 })
