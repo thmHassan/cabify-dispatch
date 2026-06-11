@@ -110,6 +110,13 @@ const reorderDriversByRank = (drivers, driverKey, newRank) => {
 const isDriverOnlineFromApi = (driver) =>
   (driver?.online_status || "").toLowerCase() === "online";
 
+// Waiting list = online + idle only (not busy/active on-job)
+const isWaitingListDriver = (driver) => {
+  const drivingStatus = (driver?.driving_status || "idle").toLowerCase();
+  const status = (driver?.status || "").toLowerCase();
+  return drivingStatus !== "busy" && status !== "busy" && status !== "active";
+};
+
 const formatWaitingDriverFromSocket = (d) => {
   const formatted = {
     ...d,
@@ -1040,7 +1047,7 @@ const Overview = () => {
 
         if ((driver.driving_status || "").toLowerCase() === "busy") {
           busy.push(withPosition);
-        } else {
+        } else if (isWaitingListDriver(driver)) {
           idle.push(withPosition);
         }
       });
@@ -1128,7 +1135,7 @@ const Overview = () => {
           const withPosition = position ? { ...formatted, position } : formatted;
           if ((driver.driving_status || "").toLowerCase() === "busy") {
             busy.push(withPosition);
-          } else {
+          } else if (isWaitingListDriver(driver)) {
             idle.push(withPosition);
           }
         });
@@ -1176,15 +1183,7 @@ const Overview = () => {
   useEffect(() => {
     if (!socket) return;
 
-    const removeDriverFromWaitingAndMap = (driverId) => {
-      const driverKey = String(driverId);
-      if (!driverKey) return;
-
-      setWaitingDrivers((prev) => prev.filter((d) => getDriverKey(d) !== driverKey));
-      setDriverData((prev) => removeDriverFromDriverData(prev, driverKey));
-    };
-
-    const pruneDriverDataForWaiting = (waitingList) => {
+    const pruneMapForWaitingList = (waitingList, updatePositions = false) => {
       const waitingIds = new Set(waitingList.map((d) => getDriverKey(d)).filter(Boolean));
       const onJobIds = new Set(
         (onJobDriversRef.current || []).map((d) => getDriverKey(d)).filter(Boolean)
@@ -1195,15 +1194,27 @@ const Overview = () => {
         Object.keys(updated).forEach((id) => {
           if (!waitingIds.has(id) && !onJobIds.has(id)) delete updated[id];
         });
+        if (updatePositions && waitingList.length) {
+          return applyWaitingDriversToDriverData(updated, waitingList, plotsDataRef.current);
+        }
         saveToStorage(DRIVER_DATA_STORAGE_KEY, updated);
         return updated;
       });
     };
 
-    const applyWaitingListUpdate = (getNext) => {
+    const syncWaitingListAndMap = (nextList, updatePositions = true) => {
+      const sorted = sortWaitingDrivers(nextList);
+      setWaitingDrivers(sorted);
+      pruneMapForWaitingList(sorted, updatePositions);
+    };
+
+    const removeDriverFromWaitingAndMap = (driverId) => {
+      const driverKey = String(driverId);
+      if (!driverKey) return;
+
       setWaitingDrivers((prev) => {
-        const next = getNext(prev);
-        setTimeout(() => pruneDriverDataForWaiting(next), 0);
+        const next = prev.filter((d) => getDriverKey(d) !== driverKey);
+        pruneMapForWaitingList(next, false);
         return next;
       });
     };
@@ -1234,29 +1245,24 @@ const Overview = () => {
           return;
         }
         if (plotId != null) {
-          applyWaitingListUpdate((prev) => mergeWaitingDriversByPlot(prev, plotId, []));
+          setWaitingDrivers((prev) => {
+            const next = mergeWaitingDriversByPlot(prev, plotId, []);
+            pruneMapForWaitingList(next, false);
+            return next;
+          });
           return;
         }
-        // Empty queue: clear if sole waiting driver; else wait for drivers[] with remaining online drivers
-        applyWaitingListUpdate((prev) => (prev.length <= 1 ? [] : prev));
+        // Authoritative empty queue from socket — clear waiting list and map markers
+        syncWaitingListAndMap([], false);
         return;
       }
 
       const formattedDrivers = driversList
         .map(formatWaitingDriverFromSocket)
-        .filter((d) => (d.driving_status || "idle").toLowerCase() !== "busy");
+        .filter(isWaitingListDriver);
 
-      const effectivePlotId = plotId ?? getDriverPlotId(formattedDrivers[0]);
-
-      if (effectivePlotId != null) {
-        applyWaitingListUpdate((prev) => mergeWaitingDriversByPlot(prev, effectivePlotId, formattedDrivers));
-      } else {
-        applyWaitingListUpdate(() => sortWaitingDrivers(formattedDrivers));
-      }
-
-      if (formattedDrivers.length) {
-        setDriverData((prev) => applyWaitingDriversToDriverData(prev, formattedDrivers, plotsDataRef.current));
-      }
+      // Socket drivers[] is authoritative for who is online + waiting
+      syncWaitingListAndMap(formattedDrivers);
     };
 
     const handleWaitingDriverOnline = (rawData) => {
@@ -1267,12 +1273,14 @@ const Overview = () => {
         data = rawData;
       }
 
-      if ((data?.driving_status || "").toLowerCase() === "busy") return;
+      if (!isWaitingListDriver(data)) return;
 
       const formatted = formatWaitingDriverFromSocket(data);
-
-      setWaitingDrivers((prev) => upsertWaitingDriver(prev, formatted));
-      setDriverData((prev) => applyWaitingDriversToDriverData(prev, [formatted], plotsDataRef.current));
+      setWaitingDrivers((prev) => {
+        const next = upsertWaitingDriver(prev, formatted);
+        pruneMapForWaitingList(next, true);
+        return next;
+      });
     };
 
     const handleOnJobDriver = (rawData) => {
