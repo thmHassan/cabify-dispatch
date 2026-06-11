@@ -3,6 +3,7 @@ import ApiService from "./ApiService";
 import { CALCULATE_FARES, CANCELLED_BOOKING, CREATE_BOOKING, GET_ALL_PLOT, GET_RIDE_MANAGEMENT } from "../constants/api.route.constant";
 import socketApi from "./SocketApiService";
 import { getDispatcherId } from "../utils/auth";
+import { getTenantId } from "../utils/functions/tokenEncryption";
 
 const buildBookingParams = ({
     page = 1,
@@ -175,7 +176,7 @@ const updateDriverRankViaSocket = (socket, payload) =>
         function onResponse(response) {
             clearTimeout(timeout);
             socket.off("update-driver-rank-response", onResponse);
-            if (response?.success) {
+            if (response?.success === 1 || response?.success === true) {
                 resolve({ data: response });
                 return;
             }
@@ -186,7 +187,11 @@ const updateDriverRankViaSocket = (socket, payload) =>
             );
         }
 
-        socket.emit("update-driver-rank", payload);
+        const tenantId = getTenantId();
+        socket.emit("update-driver-rank", {
+            ...payload,
+            ...(tenantId ? { database: tenantId } : {}),
+        });
         socket.once("update-driver-rank-response", onResponse);
     });
 

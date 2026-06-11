@@ -46,10 +46,31 @@ const saveToStorage = (key, value) => {
 const getDriverKey = (driver) => String(driver?.id || driver?.driver_id || "");
 
 const getDriverPlotId = (driver) => {
-  const plotId = driver?.plot_id ?? driver?.plot;
+  const plotId = driver?.plot_id ?? driver?.assigned_plot_id ?? driver?.default_plot_id;
   if (plotId == null || plotId === "" || plotId === "Unassigned" || plotId === "N/A") return null;
   if (Number.isNaN(Number(plotId))) return null;
   return plotId;
+};
+
+const assignDefaultRanks = (drivers) => {
+  const byPlot = new Map();
+  drivers.forEach((driver) => {
+    const plotKey = String(getDriverPlotId(driver) ?? "__all__");
+    if (!byPlot.has(plotKey)) byPlot.set(plotKey, []);
+    byPlot.get(plotKey).push(driver);
+  });
+
+  const ranked = [];
+  byPlot.forEach((plotDrivers) => {
+    plotDrivers.forEach((driver, index) => {
+      ranked.push({
+        ...driver,
+        rank: driver.rank || driver.ranking || index + 1,
+        ranking: driver.rank || driver.ranking || index + 1,
+      });
+    });
+  });
+  return sortWaitingDrivers(ranked);
 };
 
 const sortWaitingDrivers = (drivers) =>
@@ -84,6 +105,10 @@ const reorderDriversByRank = (drivers, driverKey, newRank) => {
 
   return sortWaitingDrivers([...others, ...updatedPlotDrivers]);
 };
+
+// Plot-queue backend helpers (not used — waiting list comes from online drivers API)
+// const formatWaitingDriverFromSocket = (d) => ({ ... });
+// const mergeWaitingDriversByPlot = (prev, plotId, incomingDrivers) => { ... };
 
 const notifListeners = new Set();
 const showRideNotification = (data) => notifListeners.forEach((fn) => fn(data));
@@ -839,6 +864,14 @@ const Overview = () => {
 
   useEffect(() => { socketRef.current = socket; }, [socket]);
 
+  // Plot-queue backend: not needed for online drivers waiting list
+  // useEffect(() => {
+  //   if (!socket || !isSocketConnected) return;
+  //   const tenantId = getTenantId();
+  //   if (!tenantId) return;
+  //   socket.emit("get-my-rank", { database: tenantId });
+  // }, [socket, isSocketConnected]);
+
   const driverCounts = React.useMemo(() => ({
     busy: onJobDrivers.length, idle: waitingDrivers.length, total: onJobDrivers.length + waitingDrivers.length,
   }), [onJobDrivers, waitingDrivers]);
@@ -901,7 +934,7 @@ const Overview = () => {
       ...driver,
       id: driver.id || driver.driver_id,
       name: driver.name || driver.driver_name || driver.driverName,
-      plot_id: driver.plot_id ?? driver.plot,
+      plot_id: getDriverPlotId(driver),
       plot: driver.plot_name || driver.plot || "N/A",
       rank: driver.rank || driver.ranking || 1,
       updatedAt: Date.now(),
@@ -914,7 +947,7 @@ const Overview = () => {
 
         const driversList = (response.data.list?.data || []).filter((driver) => {
           const onlineStatus = (driver.online_status || driver.status || "").toLowerCase();
-          return onlineStatus !== "offline";
+          return onlineStatus === "online";
         });
 
         if (!driversList.length) return;
@@ -934,7 +967,7 @@ const Overview = () => {
         });
 
         if (idle.length) {
-          setWaitingDrivers((prev) => (prev.length ? prev : sortWaitingDrivers(idle)));
+          setWaitingDrivers((prev) => (prev.length ? prev : assignDefaultRanks(idle)));
         }
         if (busy.length) {
           setOnJobDrivers((prev) => (prev.length ? prev : busy));
@@ -945,12 +978,11 @@ const Overview = () => {
           [...idle, ...busy].forEach((driver) => {
             const driverId = String(driver.id || driver.driver_id || "");
             if (!driverId) return;
-            const position = driver.position || resolveDriverPosition(driver);
             const isBusy = (driver.driving_status || "").toLowerCase() === "busy";
             updated[driverId] = {
               ...updated[driverId],
               ...driver,
-              ...(position ? { position } : {}),
+              ...(driver.position ? { position: driver.position } : {}),
               status: isBusy ? "busy" : "idle",
               driving_status: isBusy ? "busy" : "idle",
             };
@@ -976,76 +1008,8 @@ const Overview = () => {
       showRideNotification(data);
     };
 
-    const handleWaitingDriver = (rawData) => {
-    let data;
-    try {
-        data = typeof rawData === "string" ? JSON.parse(rawData) : rawData;
-    } catch {
-        data = rawData;
-    }
- 
-    console.log("Socket Event 'my-rank-update' Response Received:", data);
- 
-    const driversList = data?.drivers || (Array.isArray(data) ? data : []);
- 
-    if (!Array.isArray(driversList)) return;
- 
-    const formattedDrivers = driversList.map(d => ({
-        ...d,
-        id: d.driver_id || d.id,
-        name: d.driver_name || d.name || d.driverName,
-        plot_id: d.plot_id ?? d.plot,
-        plot: d.plot_name || d.plot || "N/A",
-        rank: d.rank || d.ranking || 1,
-        updatedAt: Date.now(),
-        is_reconnecting: d.is_reconnecting === true,
-        display_name: d.is_reconnecting === true
-            ? `Reconnecting... ${d.driver_name || d.name || d.driverName || "Driver"} - Rank ${d.rank || 1}`
-            : (d.display_name || d.driver_name || d.name || d.driverName || "Driver")
-    }));
- 
-    setWaitingDrivers(sortWaitingDrivers(formattedDrivers));
- 
-    const waitingIds = new Set(formattedDrivers.map(d => String(d.id)).filter(Boolean));
-    setOnJobDrivers((prev) => prev.filter((d) => {
-        const id = String(d.id || d.driver_id || d.dispatcher_id || "");
-        return !waitingIds.has(id);
-    }));
- 
-    setDriverData(prev => {
-        let updated = { ...prev };
-        formattedDrivers.forEach(d => {
-            const sId = String(d.id);
-            if (!sId) return;
- 
-            let lat = d.latitude || d.lat;
-            let lng = d.longitude || d.lng;
- 
-            if ((lat == null || lng == null) && (d.plot_id || d.plot)) {
-                const plot = plotsDataRef.current.find(
-                    p => p.id == (d.plot_id || d.plot) || p.plot_id == (d.plot_id || d.plot)
-                );
-                if (plot) {
-                    const coords = parseCoordinates(plot);
-                    if (coords.length > 0) {
-                        lat = coords.reduce((s, c) => s + c.lat, 0) / coords.length;
-                        lng = coords.reduce((s, c) => s + c.lng, 0) / coords.length;
-                    }
-                }
-            }
- 
-            updated[sId] = {
-                ...updated[sId],
-                ...d,
-                position: (lat && lng) ? { lat: Number(lat), lng: Number(lng) } : updated[sId]?.position,
-                status: "idle",
-                driving_status: "idle"
-            };
-        });
-        saveToStorage(DRIVER_DATA_STORAGE_KEY, updated);
-        return updated;
-    });
-};
+    // Plot-queue backend: my-rank-update not used — waiting list is online drivers from API
+    // const handleWaitingDriver = (rawData) => { ... };
 
     const handleOnJobDriver = (rawData) => {
       let data; try { data = typeof rawData === "string" ? JSON.parse(rawData) : rawData; } catch { data = rawData; }
@@ -1149,7 +1113,7 @@ const Overview = () => {
     };
 
     socket.on("dashboard-cards-update", handleDashboardUpdate);
-    socket.on("my-rank-update", handleWaitingDriver);
+    // socket.on("my-rank-update", handleWaitingDriver);
     socket.on("on-job-driver-event", handleOnJobDriver);
     socket.on("notification-ride", handleNotificationRide);
     socket.on("nearest-dispatch-failed", handleNearestDispatchFailed);
@@ -1163,7 +1127,7 @@ const Overview = () => {
 
     return () => {
       socket.off("dashboard-cards-update", handleDashboardUpdate);
-      socket.off("my-rank-update", handleWaitingDriver);
+      // socket.off("my-rank-update", handleWaitingDriver);
       socket.off("on-job-driver-event", handleOnJobDriver);
       socket.off("notification-ride", handleNotificationRide);
       socket.off("nearest-dispatch-failed", handleNearestDispatchFailed);
@@ -1240,8 +1204,8 @@ const Overview = () => {
       clearEditingRank(driverId);
     };
 
-    if (!driverId || plotId == null) {
-      toast.error("Cannot update rank: plot is missing for this driver.");
+    if (!driverId) {
+      toast.error("Cannot update rank: driver is missing.");
       finishEditing();
       return;
     }
@@ -1252,12 +1216,17 @@ const Overview = () => {
       return;
     }
 
-    const samePlotCount = waitingDrivers.filter(
-      (d) => String(getDriverPlotId(d)) === String(plotId)
-    ).length;
+    const sameGroup = plotId != null
+      ? waitingDrivers.filter((d) => String(getDriverPlotId(d)) === String(plotId))
+      : waitingDrivers;
+    const sameGroupCount = sameGroup.length;
 
-    if (newRank > samePlotCount) {
-      toast.error(`Rank cannot be higher than ${samePlotCount} for this plot.`);
+    if (newRank > sameGroupCount) {
+      toast.error(
+        plotId != null
+          ? `Rank cannot be higher than ${sameGroupCount} for this plot.`
+          : `Rank cannot be higher than ${sameGroupCount}.`
+      );
       finishEditing();
       return;
     }
@@ -1271,20 +1240,20 @@ const Overview = () => {
     setUpdatingRankId(driverKey);
 
     try {
-      const response = await apiUpdateDriverRank(
-        {
-          driver_id: driverId,
-          plot_id: plotId,
-          rank: newRank,
-        },
-        socket
-      );
+      const payload = { driver_id: driverId, rank: newRank };
+      if (plotId != null) payload.plot_id = plotId;
 
-      if (response?.data?.success === 1 || response?.data?.success === true) {
+      const response = await apiUpdateDriverRank(payload, socket);
+      const responseData = response?.data ?? response;
+      const isSuccess =
+        responseData?.success === 1 ||
+        responseData?.success === true;
+
+      if (isSuccess) {
         setWaitingDrivers((prev) => reorderDriversByRank(prev, driverKey, newRank));
         toast.success("Driver rank updated.");
       } else {
-        toast.error(response?.data?.message || "Failed to update driver rank.");
+        toast.error(responseData?.message || "Failed to update driver rank.");
       }
     } catch (err) {
       console.error("Error updating driver rank:", err);
@@ -1376,8 +1345,9 @@ const Overview = () => {
                 {waitingDrivers.length > 0 ? waitingDrivers.map((driver, i) => {
                   const driverKey = getDriverKey(driver);
                   const plotId = getDriverPlotId(driver);
-                  const maxRank = waitingDrivers.filter(
-                    (d) => String(getDriverPlotId(d)) === String(plotId)
+                  const maxRank = (plotId != null
+                    ? waitingDrivers.filter((d) => String(getDriverPlotId(d)) === String(plotId))
+                    : waitingDrivers
                   ).length;
 
                   return (
