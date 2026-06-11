@@ -106,9 +106,79 @@ const reorderDriversByRank = (drivers, driverKey, newRank) => {
   return sortWaitingDrivers([...others, ...updatedPlotDrivers]);
 };
 
-// Plot-queue backend helpers (not used — waiting list comes from online drivers API)
-// const formatWaitingDriverFromSocket = (d) => ({ ... });
-// const mergeWaitingDriversByPlot = (prev, plotId, incomingDrivers) => { ... };
+const isDriverOnline = (driver) => {
+  const status = (driver?.online_status || driver?.status || "online").toLowerCase();
+  return status !== "offline";
+};
+
+const formatWaitingDriverFromSocket = (d) => ({
+  ...d,
+  id: d.driver_id || d.id,
+  name: d.driver_name || d.name || d.driverName,
+  plot_id: d.plot_id ?? d.plot,
+  plot: d.plot_name || d.plot || "N/A",
+  rank: d.rank || d.ranking || 1,
+  online_status: d.online_status || d.status || "online",
+  updatedAt: Date.now(),
+  is_reconnecting: d.is_reconnecting === true,
+  display_name: d.is_reconnecting === true
+    ? `Reconnecting... ${d.driver_name || d.name || d.driverName || "Driver"} - Rank ${d.rank || 1}`
+    : (d.display_name || d.driver_name || d.name || d.driverName || "Driver"),
+});
+
+const mergeWaitingDriversByPlot = (prev, plotId, incomingDrivers) => {
+  if (plotId == null || plotId === "") {
+    return sortWaitingDrivers(incomingDrivers);
+  }
+  const plotKey = String(plotId);
+  const others = prev.filter((d) => String(getDriverPlotId(d) ?? "") !== plotKey);
+  return sortWaitingDrivers([...others, ...incomingDrivers]);
+};
+
+const upsertWaitingDriver = (prev, driver) => {
+  const key = getDriverKey(driver);
+  if (!key) return prev;
+  const exists = prev.some((d) => getDriverKey(d) === key);
+  const next = exists
+    ? prev.map((d) => (getDriverKey(d) === key ? { ...d, ...driver, updatedAt: Date.now() } : d))
+    : [...prev, driver];
+  return sortWaitingDrivers(next);
+};
+
+const applyWaitingDriversToDriverData = (prev, formattedDrivers, plots) => {
+  const updated = { ...prev };
+  formattedDrivers.forEach((d) => {
+    const sId = String(d.id);
+    if (!sId) return;
+
+    let lat = d.latitude || d.lat;
+    let lng = d.longitude || d.lng;
+
+    if ((lat == null || lng == null) && (d.plot_id || d.plot)) {
+      const plot = plots.find(
+        (p) => p.id == (d.plot_id || d.plot) || p.plot_id == (d.plot_id || d.plot)
+      );
+      if (plot) {
+        const coords = parseCoordinates(plot);
+        if (coords.length > 0) {
+          lat = coords.reduce((s, c) => s + c.lat, 0) / coords.length;
+          lng = coords.reduce((s, c) => s + c.lng, 0) / coords.length;
+        }
+      }
+    }
+
+    updated[sId] = {
+      ...updated[sId],
+      ...d,
+      position: lat != null && lng != null ? { lat: Number(lat), lng: Number(lng) } : updated[sId]?.position,
+      status: "idle",
+      driving_status: "idle",
+      online_status: "online",
+    };
+  });
+  saveToStorage(DRIVER_DATA_STORAGE_KEY, updated);
+  return updated;
+};
 
 const notifListeners = new Set();
 const showRideNotification = (data) => notifListeners.forEach((fn) => fn(data));
@@ -945,10 +1015,7 @@ const Overview = () => {
         const response = await apiGetDriverManagement({ page: 1, perPage: 500 });
         if (cancelled || response?.data?.success !== 1) return;
 
-        const driversList = (response.data.list?.data || []).filter((driver) => {
-          const onlineStatus = (driver.online_status || driver.status || "").toLowerCase();
-          return onlineStatus === "online";
-        });
+        const driversList = (response.data.list?.data || []).filter((driver) => isDriverOnline(driver));
 
         if (!driversList.length) return;
 
@@ -1008,8 +1075,56 @@ const Overview = () => {
       showRideNotification(data);
     };
 
-    // Plot-queue backend: my-rank-update not used — waiting list is online drivers from API
-    // const handleWaitingDriver = (rawData) => { ... };
+    const handleMyRankUpdate = (rawData) => {
+      let data;
+      try {
+        data = typeof rawData === "string" ? JSON.parse(rawData) : rawData;
+      } catch {
+        data = rawData;
+      }
+
+      const driversList = data?.drivers;
+      if (!Array.isArray(driversList)) return;
+
+      const plotId = data?.plot_id;
+
+      // Empty drivers[] must not wipe the whole waiting table (offline toggle from mobile)
+      if (driversList.length === 0) {
+        if (plotId != null) {
+          setWaitingDrivers((prev) => mergeWaitingDriversByPlot(prev, plotId, []));
+        }
+        return;
+      }
+
+      const formattedDrivers = driversList
+        .map(formatWaitingDriverFromSocket)
+        .filter((d) => isDriverOnline(d) && (d.driving_status || "idle").toLowerCase() !== "busy");
+
+      if (!formattedDrivers.length) return;
+
+      const effectivePlotId = plotId ?? getDriverPlotId(formattedDrivers[0]);
+
+      setWaitingDrivers((prev) => mergeWaitingDriversByPlot(prev, effectivePlotId, formattedDrivers));
+
+      setDriverData((prev) => applyWaitingDriversToDriverData(prev, formattedDrivers, plotsDataRef.current));
+    };
+
+    const handleWaitingDriverOnline = (rawData) => {
+      let data;
+      try {
+        data = typeof rawData === "string" ? JSON.parse(rawData) : rawData;
+      } catch {
+        data = rawData;
+      }
+
+      if ((data?.driving_status || "").toLowerCase() === "busy") return;
+
+      const formatted = formatWaitingDriverFromSocket(data);
+      if (!isDriverOnline(formatted)) return;
+
+      setWaitingDrivers((prev) => upsertWaitingDriver(prev, formatted));
+      setDriverData((prev) => applyWaitingDriversToDriverData(prev, [formatted], plotsDataRef.current));
+    };
 
     const handleOnJobDriver = (rawData) => {
       let data; try { data = typeof rawData === "string" ? JSON.parse(rawData) : rawData; } catch { data = rawData; }
@@ -1099,21 +1214,16 @@ const Overview = () => {
       setWaitingDrivers((prev) => prev.filter((d) => getDriverKey(d) !== driverKey));
       setDriverData((prev) => {
         if (!prev[driverKey]) return prev;
-        const updated = {
-          ...prev,
-          [driverKey]: {
-            ...prev[driverKey],
-            online_status: "offline",
-            status: "offline",
-          },
-        };
+        const updated = { ...prev };
+        delete updated[driverKey];
         saveToStorage(DRIVER_DATA_STORAGE_KEY, updated);
         return updated;
       });
     };
 
     socket.on("dashboard-cards-update", handleDashboardUpdate);
-    // socket.on("my-rank-update", handleWaitingDriver);
+    socket.on("my-rank-update", handleMyRankUpdate);
+    socket.on("waiting-driver-event", handleWaitingDriverOnline);
     socket.on("on-job-driver-event", handleOnJobDriver);
     socket.on("notification-ride", handleNotificationRide);
     socket.on("nearest-dispatch-failed", handleNearestDispatchFailed);
@@ -1127,7 +1237,8 @@ const Overview = () => {
 
     return () => {
       socket.off("dashboard-cards-update", handleDashboardUpdate);
-      // socket.off("my-rank-update", handleWaitingDriver);
+      socket.off("my-rank-update", handleMyRankUpdate);
+      socket.off("waiting-driver-event", handleWaitingDriverOnline);
       socket.off("on-job-driver-event", handleOnJobDriver);
       socket.off("notification-ride", handleNotificationRide);
       socket.off("nearest-dispatch-failed", handleNearestDispatchFailed);
