@@ -94,3 +94,16 @@ textarea,
 .gm-ui-hover-effect {
   display: none !important;
 }
+
+/* React Hot Toast — stack below navbar, away from bottom ride alerts */
+.toast-stack-container {
+  width: auto !important;
+  max-width: calc(100vw - 32px);
+}
+
+@media (max-width: 639px) {
+  .toast-stack-container {
+    top: 72px !important;
+    right: 12px !important;
+  }
+}

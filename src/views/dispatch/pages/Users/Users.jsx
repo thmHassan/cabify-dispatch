@@ -38,18 +38,14 @@ const Users = () => {
   );
   const [totalItems, setTotalItems] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
-  const [isUserLoadnig, setIsUserLoadnig] = useState(false);
-  const [userListRaw, setUserListRaw] = useState([]);
-  const [userListDisplay, setUserListDisplay] = useState([]);
+  const [isUserLoading, setIsUserLoading] = useState(false);
+  const [userList, setUserList] = useState([]);
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
   const [refreshTrigger, setRefreshTrigger] = useState(0);
-  const hasCalledInitial = useRef(false);
-  const prevCurrentPageRef = useRef(currentPage);
-  const prevSearchRef = useRef(debouncedSearchQuery);
-  const prevItemsPerPageRef = useRef(itemsPerPage);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [userToDelete, setUserToDelete] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const isFirstSearchEffect = useRef(true);
 
   const handlePageChange = (pageNumber) => {
     setCurrentPage(pageNumber);
@@ -69,15 +65,15 @@ const Users = () => {
     setSearchQuery(value);
   };
 
-  const getUser = useCallback(async () => {
+  const fetchUsers = useCallback(async () => {
+    setIsUserLoading(true);
     try {
-      setIsUserLoadnig(true);
       const params = {
         page: currentPage,
         perPage: itemsPerPage,
         dispatcher_id: dispatcherId,
       };
-      if (debouncedSearchQuery && debouncedSearchQuery.trim()) {
+      if (debouncedSearchQuery?.trim()) {
         params.search = debouncedSearchQuery.trim();
       }
 
@@ -89,58 +85,39 @@ const Users = () => {
 
         setTotalItems(result?.data?.users?.total || 0);
         setTotalPages(result?.data?.users?.last_page || 1);
-        setUserListRaw(rows);
-        setUserListDisplay(rows);
+        setUserList(rows);
+      } else {
+        setUserList([]);
       }
     } catch (errors) {
       console.log(errors, "err---");
-      setUserListRaw([]);
-      setUserListDisplay([]);
+      setUserList([]);
     } finally {
-      setIsUserLoadnig(false);
+      setIsUserLoading(false);
     }
   }, [currentPage, itemsPerPage, debouncedSearchQuery, dispatcherId]);
 
   useEffect(() => {
     const handler = setTimeout(() => {
       setDebouncedSearchQuery(_searchQuery);
-      setCurrentPage(1); // Reset to first page on search
+      if (!isFirstSearchEffect.current) {
+        setCurrentPage(1);
+      }
+      isFirstSearchEffect.current = false;
     }, 500);
 
-    return () => {
-      clearTimeout(handler);
-    };
+    return () => clearTimeout(handler);
   }, [_searchQuery]);
 
   useEffect(() => {
-    if (!hasCalledInitial.current) {
-      hasCalledInitial.current = true;
-      getUser();
-      return;
-    }
-    getUser();
-  }, [refreshTrigger, getUser]);
+    fetchUsers();
+  }, [fetchUsers, refreshTrigger]);
 
-  useEffect(() => {
-    if (!hasCalledInitial.current) {
-      return;
-    }
-    const pageChanged = prevCurrentPageRef.current !== currentPage;
-    const searchChanged = prevSearchRef.current !== debouncedSearchQuery;
-    const itemsPerPageChanged = prevItemsPerPageRef.current !== itemsPerPage;
-
-    if (pageChanged || searchChanged || itemsPerPageChanged) {
-      getUser();
-      prevCurrentPageRef.current = currentPage;
-      prevSearchRef.current = debouncedSearchQuery;
-      prevItemsPerPageRef.current = itemsPerPage;
-    }
-  }, [currentPage, itemsPerPage, debouncedSearchQuery, getUser]);
-
-  // Filter users based on selected status
   const filteredUsers = _selectedStatus.value === "all"
-    ? userListDisplay
-    : userListDisplay.filter(user => user.status === _selectedStatus.value);
+    ? userList
+    : userList.filter((user) => user.status === _selectedStatus.value);
+
+  const showInitialLoader = isUserLoading && userList.length === 0;
 
   const handleDeleteClick = (user) => {
     setUserToDelete(user);
@@ -241,21 +218,28 @@ const Users = () => {
           </div> */}
         </div>
 
-        <div className="flex flex-col gap-4 pt-4">
-          {isUserLoadnig ? (
+        <div className="relative flex flex-col gap-4 pt-4">
+          {showInitialLoader ? (
             <div className="flex justify-center py-10">
               <AppLogoLoader />
             </div>
           ) : filteredUsers.length > 0 ? (
-            filteredUsers.map((user) => (
-              <UserDetails
-                key={user.id}
-                user={user}
-                onEdit={handleEdit}
-                onDelete={handleDeleteClick}
-                onStatusChange={handleStatusChange}
-              />
-            ))
+            <>
+              {isUserLoading && (
+                <div className="absolute inset-0 z-10 flex items-start justify-center bg-[#F5F5F5]/60 pt-10">
+                  <AppLogoLoader />
+                </div>
+              )}
+              {filteredUsers.map((user) => (
+                <UserDetails
+                  key={user.id}
+                  user={user}
+                  onEdit={handleEdit}
+                  onDelete={handleDeleteClick}
+                  onStatusChange={handleStatusChange}
+                />
+              ))}
+            </>
           ) : (
             <div className="text-center py-8 text-gray-500">
               No users found

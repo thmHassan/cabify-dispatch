@@ -28,35 +28,38 @@ function App() {
           </Suspense>
         </ScrollToTop>
         <Toaster
-          position="bottom-right"
+          position="top-right"
+          reverseOrder={false}
+          gutter={12}
+          containerClassName="toast-stack-container"
+          containerStyle={{
+            top: 88,
+            right: 16,
+            zIndex: 10050,
+          }}
           toastOptions={{
             duration: 3000,
             style: {
               background: "#fff",
               color: "#363636",
-              fontSize: "16px",
-              padding: "16px 20px",
-              minWidth: "300px",
+              fontSize: "14px",
+              padding: "12px 16px",
+              minWidth: "280px",
+              maxWidth: "min(420px, calc(100vw - 32px))",
+              margin: 0,
+              borderRadius: "12px",
+              boxShadow: "0 10px 30px rgba(17, 24, 39, 0.12)",
+              border: "1px solid rgba(0, 0, 0, 0.06)",
             },
             success: {
               duration: 3000,
-              style: {
-                fontSize: "16px",
-                padding: "16px 20px",
-                minWidth: "300px",
-              },
               iconTheme: {
                 primary: "#4ade80",
                 secondary: "#fff",
               },
             },
             error: {
-              duration: 3000,
-              style: {
-                fontSize: "16px",
-                padding: "16px 20px",
-                minWidth: "300px",
-              },
+              duration: 4000,
               iconTheme: {
                 primary: "#ef4444",
                 secondary: "#fff",
