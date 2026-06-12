@@ -528,6 +528,56 @@ const parseCoordinates = (plot) => {
   return [];
 };
 
+const getDriverCoordinates = (driver, driverData = {}) => {
+  const merged = { ...driverData[getDriverKey(driver)], ...driver };
+  const lat = merged.position?.lat ?? merged.latitude ?? merged.lat;
+  const lng = merged.position?.lng ?? merged.longitude ?? merged.lng;
+  if (lat == null || lng == null || Number.isNaN(Number(lat)) || Number.isNaN(Number(lng))) return null;
+  return { lat: Number(lat), lng: Number(lng) };
+};
+
+const isPointInPolygon = (point, polygon) => {
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const yi = polygon[i].lat;
+    const xi = polygon[i].lng;
+    const yj = polygon[j].lat;
+    const xj = polygon[j].lng;
+    const intersects = ((yi > point.lat) !== (yj > point.lat))
+      && (point.lng < ((xj - xi) * (point.lat - yi)) / (yj - yi) + xi);
+    if (intersects) inside = !inside;
+  }
+  return inside;
+};
+
+const isDriverOutsideAssignedPlot = (driver, plots, driverData = {}) => {
+  if (driver?.is_outside_plot === true || driver?.outside_plot === true || driver?.outside_the_plot === true) {
+    return true;
+  }
+  if (driver?.is_outside_plot === false || driver?.outside_plot === false || driver?.is_inside_plot === true) {
+    return false;
+  }
+
+  const plotId = getDriverPlotId(driver);
+  if (plotId == null) return false;
+
+  const position = getDriverCoordinates(driver, driverData);
+  if (!position) return false;
+
+  const plot = plots.find((p) => p.id == plotId || p.plot_id == plotId);
+  if (!plot) return false;
+
+  const coords = parseCoordinates(plot);
+  if (coords.length < 3) return false;
+
+  return !isPointInPolygon(position, coords);
+};
+
+const getDriverPlotLabel = (driver) =>
+  driver.plot_name && driver.plot_id && driver.plot_name !== driver.plot_id.toString()
+    ? `${driver.plot_name} (${driver.plot_id})`
+    : (driver.plot_name || driver.plot || "N/A");
+
 const buildPopupHTML = (data) => {
   const name = data.name || data.driver_name || data.driverName || "Unknown Driver";
   const phone = data.phone_no || data.phone || "N/A";
@@ -1623,6 +1673,7 @@ const Overview = () => {
                     ? waitingDrivers.filter((d) => String(getDriverPlotId(d)) === String(plotId))
                     : waitingDrivers
                   ).length;
+                  const isOutsidePlot = isDriverOutsideAssignedPlot(driver, allPlots, driverData);
 
                   return (
                   <tr key={driver.id || driver.driver_id || i} className="border-t">
@@ -1636,7 +1687,13 @@ const Overview = () => {
                         driver.display_name || driver.name || driver.driver_name || "Unknown"
                       )}
                     </td>
-                    <td>{driver.plot_name && driver.plot_id && driver.plot_name !== driver.plot_id.toString() ? `${driver.plot_name} (${driver.plot_id})` : (driver.plot_name || driver.plot || "N/A")}</td>
+                    <td>
+                      {isOutsidePlot ? (
+                        <span className="text-red-600 font-medium">Outside the plot</span>
+                      ) : (
+                        getDriverPlotLabel(driver)
+                      )}
+                    </td>
                     <td className="text-right">
                       <input
                         type="number"

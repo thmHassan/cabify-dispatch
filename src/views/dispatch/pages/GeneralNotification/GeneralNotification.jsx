@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import PageTitle from "../../../../components/ui/PageTitle/PageTitle";
 import CardContainer from "../../../../components/shared/CardContainer/CardContainer";
 import { ErrorMessage, Field, Form, Formik } from "formik";
@@ -7,6 +7,9 @@ import FormSelection from "../../../../components/ui/FormSelection/FormSelection
 import Button from "../../../../components/ui/Button/Button";
 import { apiSendNotifiction } from "../../../../services/GeneralNotificationService";
 import { apiGetAllVehicleType } from "../../../../services/VehicleTypeServices";
+import { apiGetUser } from "../../../../services/UserService";
+import { apiGetDriverManagement } from "../../../../services/DriverManagementService";
+import { getDispatcherId } from "../../../../utils/auth";
 import toast from "react-hot-toast";
 import { NOTIFICATION_VALIDATION_SCHEMA } from "../../validators/pages/generalNotification.validation";
 
@@ -18,10 +21,21 @@ const userOptions = [
   { value: "rejected_drivers", label: "Rejected Drivers" },
 ];
 
+const DRIVER_STATUS_BY_TYPE = {
+  pending_drivers: "pending",
+  approved_drivers: "accepted",
+  rejected_drivers: "rejected",
+};
+
+const RECIPIENT_FETCH_PAGE_SIZE = 500;
+
 const GeneralNotification = () => {
   const [vehicleList, setVehicleList] = useState([]);
   const [loadingVehicleType, setLoadingVehicleType] = useState(false);
+  const [recipientOptions, setRecipientOptions] = useState([]);
+  const [loadingRecipients, setLoadingRecipients] = useState(false);
   const [sending, setSending] = useState(false);
+  const dispatcherId = getDispatcherId();
 
   useEffect(() => {
     const fetchVehicle = async () => {
@@ -45,11 +59,68 @@ const GeneralNotification = () => {
     fetchVehicle();
   }, []);
 
+  const fetchRecipients = useCallback(async (userType) => {
+    if (!userType) {
+      setRecipientOptions([]);
+      return;
+    }
+
+    setLoadingRecipients(true);
+    try {
+      if (userType === "all_users") {
+        const response = await apiGetUser({
+          page: 1,
+          perPage: RECIPIENT_FETCH_PAGE_SIZE,
+          dispatcher_id: dispatcherId,
+        });
+
+        const users = response?.data?.users?.data || [];
+        setRecipientOptions(
+          users.map((user) => ({
+            value: String(user.id),
+            label: user.email ? `${user.name} (${user.email})` : user.name,
+          }))
+        );
+        return;
+      }
+
+      const params = {
+        page: 1,
+        perPage: RECIPIENT_FETCH_PAGE_SIZE,
+        dispatcher_id: dispatcherId,
+      };
+
+      const driverStatus = DRIVER_STATUS_BY_TYPE[userType];
+      if (driverStatus) {
+        params.status = driverStatus;
+      }
+
+      const response = await apiGetDriverManagement(params);
+      const drivers = response?.data?.list?.data || [];
+      setRecipientOptions(
+        drivers.map((driver) => ({
+          value: String(driver.id),
+          label: driver.email ? `${driver.name} (${driver.email})` : driver.name,
+        }))
+      );
+    } catch (error) {
+      console.error("Error fetching recipients:", error);
+      setRecipientOptions([]);
+      toast.error("Failed to load recipients");
+    } finally {
+      setLoadingRecipients(false);
+    }
+  }, [dispatcherId]);
+
+  const handleClearForm = (resetForm) => {
+    resetForm();
+    setRecipientOptions([]);
+  };
+
   return (
     <div className="px-4 py-5 sm:p-6 lg:p-10 min-h-[calc(100vh-85px)]">
       <div className="flex flex-col gap-2.5 sm:mb-[30px] mb-6">
         <PageTitle title="General Notification" />
-        {/* <PageSubTitle title="Need content here" /> */}
       </div>
 
       <CardContainer className="!p-3 sm:!p-4 lg:!px-5 lg:!pt-[30px] lg:!pb-5 2xl:!p-10">
@@ -58,6 +129,7 @@ const GeneralNotification = () => {
             title: "",
             body: "",
             type: "",
+            recipients: [],
             vehicleType: "",
           }}
           validationSchema={NOTIFICATION_VALIDATION_SCHEMA}
@@ -65,32 +137,58 @@ const GeneralNotification = () => {
             try {
               setSending(true);
 
-              console.log("FORM SUBMITTED:", values);
+              const payload = {
+                user_type: values.type?.value || values.type,
+                title: values.title,
+                body: values.body,
+                recipient_ids: values.recipients.map(Number),
+              };
 
-              const formData = new FormData();
-              formData.append(
-                "user_type",
-                values.type?.value || values.type
-              );
-              formData.append("title", values.title);
-              formData.append("body", values.body);
-
-              // vehicle_id OPTIONAL
               if (values.vehicleType) {
-                formData.append(
-                  "vehicle_id",
+                payload.vehicle_id = Number(
                   values.vehicleType?.value || values.vehicleType
                 );
               }
 
-              const response = await apiSendNotifiction(formData);
+              const response = await apiSendNotifiction(payload);
+              const responseData = response?.data;
 
-              if (response?.data?.success === 1) {
-                resetForm();
+              if (responseData?.success === 1) {
+                handleClearForm(resetForm);
+                toast.success(
+                  responseData.message ||
+                    `Notification sent to ${responseData.recipient_count ?? values.recipients.length} recipient(s)`
+                );
+                return;
               }
-              toast.success("Notification send successfully")
+
+              if (responseData?.error === 1) {
+                const invalidIds = responseData.invalid_recipient_ids;
+                const errorMessage =
+                  responseData.message || "Notification send failed";
+                toast.error(
+                  invalidIds?.length
+                    ? `${errorMessage} (Invalid IDs: ${invalidIds.join(", ")})`
+                    : errorMessage
+                );
+                return;
+              }
+
+              toast.error(responseData?.message || "Notification send failed");
             } catch (error) {
-              toast.error("Notification send failed:", error)
+              const errorData = error?.response?.data;
+              if (errorData?.error === 1) {
+                const invalidIds = errorData.invalid_recipient_ids;
+                const errorMessage =
+                  errorData.message || "Notification send failed";
+                toast.error(
+                  invalidIds?.length
+                    ? `${errorMessage} (Invalid IDs: ${invalidIds.join(", ")})`
+                    : errorMessage
+                );
+              } else {
+                toast.error(errorData?.message || "Notification send failed");
+              }
               console.error("Notification send failed:", error);
             } finally {
               setSending(false);
@@ -133,13 +231,40 @@ const GeneralNotification = () => {
                     <FormSelection
                       name="type"
                       value={values.type}
-                      onChange={(val) => setFieldValue("type", val)}
+                      onChange={(val) => {
+                        setFieldValue("type", val);
+                        setFieldValue("recipients", []);
+                        fetchRecipients(val);
+                      }}
                       placeholder="Select Type"
                       options={userOptions}
                     />
                   </div>
                   <ErrorMessage name="type" component="div" className="text-red-500 text-sm mt-1" />
                 </div>
+
+                {values.type && (
+                  <div>
+                    <FormLabel>Recipients</FormLabel>
+                    <FormSelection
+                      name="recipients"
+                      value={values.recipients}
+                      onChange={(val) => setFieldValue("recipients", val)}
+                      placeholder={
+                        loadingRecipients
+                          ? "Loading recipients..."
+                          : recipientOptions.length
+                            ? "Select one or more recipients"
+                            : "No recipients found"
+                      }
+                      options={recipientOptions}
+                      isMulti
+                      isDisabled={loadingRecipients || recipientOptions.length === 0}
+                      menuPlacement="top"
+                    />
+                    <ErrorMessage name="recipients" component="div" className="text-red-500 text-sm mt-1" />
+                  </div>
+                )}
 
                 <div>
                   <FormLabel>Vehicle Type </FormLabel>
@@ -168,7 +293,7 @@ const GeneralNotification = () => {
                   </Button>
                   <Button
                     type="button"
-                    onClick={() => resetForm()}
+                    onClick={() => handleClearForm(resetForm)}
                     className="border border-[#1F41BB] sm:h-14 h-12 px-10 rounded-lg font-semibold text-[#1F41BB]"
                   >
                     Clear
