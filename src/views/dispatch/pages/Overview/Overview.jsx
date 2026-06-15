@@ -1505,6 +1505,7 @@ const Overview = () => {
 
       if (response?.data?.success === 1) {
         setWaitingDrivers((prev) => prev.filter((d) => getDriverKey(d) !== driverKey));
+        setDriverData((prev) => removeDriverFromDriverData(prev, driverKey));
         toast.success(`${driverName} logged out.`);
       } else {
         toast.error(response?.data?.message || "Failed to logout driver.");
