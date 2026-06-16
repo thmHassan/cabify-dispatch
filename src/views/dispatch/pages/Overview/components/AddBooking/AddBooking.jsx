@@ -1,5 +1,5 @@
 import { Form, Formik } from "formik";
-import { useEffect, useLayoutEffect, useState, useMemo, useCallback } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import Maps from "./components/maps";
 import { getTenantData } from "../../../../../../utils/functions/tokenEncryption";
 import {
@@ -15,7 +15,15 @@ import { apiGetAccount } from "../../../../../../services/AccountServices";
 import { apiGetDriverManagement } from "../../../../../../services/DriverManagementService";
 import { apiGetAllVehicleType } from "../../../../../../services/VehicleTypeServices";
 import Button from "../../../../../../components/ui/Button/Button";
-import { apiGetAllPlot, apiCreateCalculateFares, apiCreateBooking, updateBooking, isApiSuccess } from "../../../../../../services/AddBookingServices";
+import {
+    apiGetAllPlot,
+    apiCreateCalculateFares,
+    apiCreateBooking,
+    apiGetEditBooking,
+    apiUpdateBooking,
+    getApiErrorMessage,
+    isApiSuccess,
+} from "../../../../../../services/AddBookingServices";
 import { apiGetDispatchSystem, apiGetCompanyApiKeys } from "../../../../../../services/SettingsConfigurationServices";
 import { unlockBodyScroll } from "../../../../../../utils/functions/common.function";
 import toast from 'react-hot-toast';
@@ -313,6 +321,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
     const [fareError, setFareError] = useState(null);
     const [fareCalculated, setFareCalculated] = useState(false);
     const [isBookingLoading, setIsBookingLoading] = useState(false);
+    const [editBookingLoading, setEditBookingLoading] = useState(false);
     const [isMultiBooking, setIsMultiBooking] = useState(false);
     const [isManualDispatchOnly, setIsManualDispatchOnly] = useState(false);
     const [loadingDispatchSystem, setLoadingDispatchSystem] = useState(true);
@@ -565,10 +574,10 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
         }
     }, []);
 
-    useLayoutEffect(() => {
-        if (!editBooking?.id) return;
+    const populateFormFromBooking = useCallback((booking) => {
+        if (!booking?.id) return;
 
-        const formValues = mapBookingToFormValues(editBooking, { mode: "edit" });
+        const formValues = mapBookingToFormValues(booking, { mode: "edit" });
         if (!formValues) return;
 
         setInitialFormValues(formValues);
@@ -625,7 +634,40 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
             setFareCalculated(false);
             setFareData(null);
         }
-    }, [editBooking?.id]);
+    }, []);
+
+    useEffect(() => {
+        if (!editBooking?.id) return;
+
+        let cancelled = false;
+        populateFormFromBooking(editBooking);
+
+        const loadEditBooking = async () => {
+            setEditBookingLoading(true);
+            try {
+                const response = await apiGetEditBooking(editBooking.id);
+                if (cancelled) return;
+
+                if (isApiSuccess(response?.data)) {
+                    const booking = extractUpdatedBookingFromResponse(response.data, editBooking);
+                    populateFormFromBooking(booking);
+                } else {
+                    toast.error(response?.data?.message || "Failed to load booking for edit");
+                }
+            } catch (error) {
+                if (!cancelled) {
+                    toast.error(getApiErrorMessage(error, "Failed to load booking for edit"));
+                }
+            } finally {
+                if (!cancelled) setEditBookingLoading(false);
+            }
+        };
+
+        loadEditBooking();
+        return () => {
+            cancelled = true;
+        };
+    }, [editBooking?.id, populateFormFromBooking]);
 
     const searchLocation = async (query, type, index = null) => {
         if (!query || query.trim().length < 2) return;
@@ -1189,6 +1231,26 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
         setBookingErrors({});
         setIsBookingLoading(true);
         try {
+            const formData = new FormData();
+            formData.append("id", String(editBooking.id));
+            formData.append("sub_company", values.sub_company || "");
+            formData.append("pickup_time_type", values.pickup_time_type === "time" ? "time" : "asap");
+
+            if (values.pickup_time_type === "asap") {
+                const now = new Date();
+                formData.append("pickup_time", `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}:00`);
+            } else {
+                const tv = values.pickup_time || "";
+                formData.append("pickup_time", tv ? `${tv}:00` : "");
+                if (values.reminder_minutes) {
+                    formData.append("reminder_minutes", String(values.reminder_minutes));
+                }
+            }
+
+            formData.append("booking_date", values.booking_date || "");
+            formData.append("booking_type", values.booking_type || "");
+            formData.append("dispatcher_id", dispatcherId);
+
             const pickupCoords = await resolveLocationCoords(
                 values.pickup_point,
                 values.pickup_latitude,
@@ -1200,105 +1262,92 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
                 values.destination_longitude
             );
 
-            const data = {
-                sub_company: values.sub_company || "",
-                pickup_time_type: values.pickup_time_type === "time" ? "time" : "asap",
-                booking_date: values.booking_date || "",
-                booking_type: values.booking_type || "",
-                pickup_location: values.pickup_point || "",
-                destination_location: values.destination || "",
-                user_id: values.user_id || "",
-                name: values.name || "",
-                email: values.email || "",
-                phone_no: values.phone_no || "",
-                tel_no: values.tel_no || "",
-                journey_type: values.journey_type || "",
-                account: values.account || "",
-                account_id: values.account || "",
-                vehicle: values.request_for_vehicle ? (values.vehicle || "") : "",
-                driver: values.auto_dispatch ? (values.driver || "") : "",
-                request_for_vehicle: values.request_for_vehicle ? "yes" : "no",
-                passenger: values.passenger || "0",
-                luggage: values.luggage || "0",
-                hand_luggage: values.hand_luggage || "0",
-                special_request: values.special_request || "",
-                payment_reference: values.payment_reference || "",
-                booking_system: values.booking_system || "auto_dispatch",
-                payment_method: values.payment_method || "",
-                parking_charge: values.parking_charges || "",
-                waiting_charge: values.waiting_charges || "",
-                ac_fares: values.ac_fares || "",
-                return_ac_fares: values.return_ac_fares || "",
-                ac_parking_charge: values.ac_parking_charges || "",
-                ac_waiting_charge: values.ac_waiting_charges || "",
-                extra_charge: values.extra_charges || "",
-                toll: values.congestion_toll || "",
-                booking_amount: values.total_charges?.toString() || "0",
-                distance: values.distance?.toString() || fareData?.distance?.toString() || "",
-            };
-
-            if (values.pickup_time_type === "asap") {
-                const now = new Date();
-                data.pickup_time = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}:00`;
-            } else {
-                const tv = values.pickup_time || "";
-                data.pickup_time = tv ? `${tv}:00` : "";
-                if (values.reminder_minutes) {
-                    data.reminder_minutes = String(values.reminder_minutes);
-                }
-            }
-
             if (pickupCoords) {
-                data.pickup_point = `${pickupCoords.latitude}, ${pickupCoords.longitude}`;
+                formData.append("pickup_point", `${pickupCoords.latitude}, ${pickupCoords.longitude}`);
+                formData.append("pickup_location", values.pickup_point || "");
+
                 let pickupPlotId = values.pickup_plot_id;
                 const plotRes = await fetchPlotName(pickupCoords.latitude, pickupCoords.longitude);
                 if (plotRes?.found && plotRes.id) pickupPlotId = plotRes.id;
                 if (pickupPlotId) {
-                    data.pickup_point_id = pickupPlotId;
-                    data.pickup_plot_id = pickupPlotId;
+                    formData.append("pickup_point_id", pickupPlotId);
+                    formData.append("pickup_plot_id", pickupPlotId);
                 }
             }
 
             if (destinationCoords) {
-                data.destination_point = `${destinationCoords.latitude}, ${destinationCoords.longitude}`;
+                formData.append("destination_point", `${destinationCoords.latitude}, ${destinationCoords.longitude}`);
+                formData.append("destination_location", values.destination || "");
+
                 let destinationPlotId = values.destination_plot_id;
                 const plotRes = await fetchPlotName(destinationCoords.latitude, destinationCoords.longitude);
                 if (plotRes?.found && plotRes.id) destinationPlotId = plotRes.id;
                 if (destinationPlotId) {
-                    data.destination_point_id = destinationPlotId;
-                    data.destination_plot_id = destinationPlotId;
+                    formData.append("destination_point_id", destinationPlotId);
+                    formData.append("destination_plot_id", destinationPlotId);
                 }
             }
 
             if (values.via_points?.length > 0) {
-                const viaLocations = [];
-                const viaPoints = [];
                 let vi = 0;
                 for (let i = 0; i < values.via_points.length; i++) {
                     const viaPoint = values.via_points[i];
                     if (!viaPoint?.trim()) continue;
+
                     const viaCoords = await resolveLocationCoords(
                         viaPoint,
                         values.via_latitude?.[i],
                         values.via_longitude?.[i]
                     );
                     if (!viaCoords) continue;
-                    viaPoints.push({
-                        latitude: viaCoords.latitude,
-                        longitude: viaCoords.longitude,
-                    });
-                    viaLocations.push(viaPoint);
+
+                    formData.append(`via_point[${vi}][latitude]`, viaCoords.latitude.toString());
+                    formData.append(`via_point[${vi}][longitude]`, viaCoords.longitude.toString());
+                    formData.append(`via_location[${vi}]`, viaPoint);
+
                     let viaPlotId = values.via_plot_id?.[i];
                     const plotRes = await fetchPlotName(viaCoords.latitude, viaCoords.longitude);
                     if (plotRes?.found && plotRes.id) viaPlotId = plotRes.id;
-                    if (viaPlotId) data[`via_point_id[${vi}]`] = viaPlotId;
+                    if (viaPlotId) {
+                        formData.append(`via_point_id[${vi}]`, viaPlotId);
+                        formData.append(`via_plot_id[${vi}]`, viaPlotId);
+                    }
                     vi++;
                 }
-                if (viaLocations.length) data.via_location = JSON.stringify(viaLocations);
-                if (viaPoints.length) data.via_point = JSON.stringify(viaPoints);
             }
 
-            const response = await updateBooking(editBooking.id, data, getDispatcherName());
+            formData.append("user_id", values.user_id || "");
+            formData.append("name", values.name || "");
+            formData.append("email", values.email || "");
+            formData.append("phone_no", values.phone_no || "");
+            formData.append("tel_no", values.tel_no || "");
+            formData.append("journey_type", values.journey_type || "");
+            appendAccountFields(formData, values.account);
+            formData.append("vehicle", values.request_for_vehicle ? (values.vehicle || "") : "");
+            formData.append("driver", values.auto_dispatch ? (values.driver || "") : "");
+            formData.append("request_for_vehicle", values.request_for_vehicle ? "yes" : "no");
+            formData.append("passenger", values.passenger || "0");
+            formData.append("luggage", values.luggage || "0");
+            formData.append("hand_luggage", values.hand_luggage || "0");
+            formData.append("special_request", values.special_request || "");
+            formData.append("payment_reference", values.payment_reference || "");
+            formData.append("booking_system", values.booking_system || "auto_dispatch");
+            formData.append("payment_method", values.payment_method || "");
+            formData.append("parking_charge", values.parking_charges || "");
+            formData.append("waiting_charge", values.waiting_charges || "");
+            formData.append("ac_fares", values.ac_fares || "");
+            formData.append("return_ac_fares", values.return_ac_fares || "");
+            formData.append("ac_parking_charge", values.ac_parking_charges || "");
+            formData.append("ac_waiting_charge", values.ac_waiting_charges || "");
+            formData.append("extra_charge", values.extra_charges || "");
+            formData.append("toll", values.congestion_toll || "");
+            formData.append("booking_amount", values.total_charges?.toString() || "0");
+            formData.append("distance", fareData?.distance?.toString() || values.distance?.toString() || "");
+
+            const dispatcherName = getDispatcherName();
+            if (dispatcherName) formData.append("dispatcher_name", dispatcherName);
+
+            const response = await apiUpdateBooking(formData);
             if (isApiSuccess(response?.data)) {
                 toast.success(response?.data?.message || "Booking updated successfully");
                 onBookingCreated?.({
@@ -1312,7 +1361,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
             }
         } catch (error) {
             console.error("Update booking error:", error);
-            toast.error(error?.response?.data?.message || "An error occurred while updating booking");
+            toast.error(getApiErrorMessage(error, "An error occurred while updating booking"));
         } finally {
             setIsBookingLoading(false);
         }
@@ -1417,6 +1466,11 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
 
                     return (
                         <Form>
+                            {isEditMode && editBookingLoading && (
+                                <div className="mb-2 rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] px-3 py-2 text-xs text-[#6B7280]">
+                                    Loading booking details...
+                                </div>
+                            )}
                             <div className="w-full flex flex-col gap-2 lg:gap-2">
                                 {/* Header */}
                                 <div className="rounded-xl border border-[#E5E7EB] bg-white px-3 py-2 lg:px-3 shadow-sm">

@@ -231,34 +231,22 @@ export const updateBookingStatus = (bookingId, data, dispatcherName) => {
     });
 };
 
-export const updateBooking = async (bookingId, data, dispatcherName) => {
-    const formData = new FormData();
-    formData.append("id", String(bookingId));
-    Object.entries(data).forEach(([key, value]) => {
-        if (value !== undefined && value !== null) {
-            formData.append(key, String(value));
-        }
+export async function apiGetEditBooking(bookingId) {
+    return ApiService.fetchData({
+        url: EDIT_BOOKING,
+        method: METHOD_GET,
+        params: { id: bookingId },
     });
-    if (dispatcherName) formData.append("dispatcher_name", dispatcherName);
-    const dispatcherId = getDispatcherId();
-    if (dispatcherId) formData.append("dispatcher_id", String(dispatcherId));
+}
 
-    try {
-        const res = await ApiService.fetchData({
-            url: EDIT_BOOKING,
-            method: METHOD_POST,
-            data: formData,
-            headers: { "Content-Type": "multipart/form-data" },
-        });
-        if (isApiSuccess(res?.data)) return res;
-        throw new Error(res?.data?.message || "Laravel booking update unsuccessful");
-    } catch (err) {
-        console.warn("Laravel booking update failed, falling back to socket API:", err.message);
-    }
-
-    const payload = { ...data, dispatcher_name: dispatcherName };
-    return socketApi.put(`/bookings/${bookingId}`, payload);
-};
+export async function apiUpdateBooking(formData) {
+    return ApiService.fetchData({
+        url: EDIT_BOOKING,
+        method: METHOD_POST,
+        data: formData,
+        headers: { "Content-Type": "multipart/form-data" },
+    });
+}
 
 // export const followDriverTracking = (bookingId) => {
 //     return socketApi.post(`/bookings/${bookingId}/follow-driver`);
