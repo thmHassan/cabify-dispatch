@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { getTenantCountryIso } from "../../../../../../../utils/functions/tenantSettings";
+import { MAP_PROVIDER_DEFAULT, MAP_PROVIDER_GOOGLE } from "../../../../../../../services/mapConfigurationService";
+import AppLogoIcon from "../../../../../../../components/svg/AppLogoIcon";
 
 const MAP_MIN_HEIGHT = "280px";
 
@@ -34,12 +36,10 @@ const getCountryCenter = () => {
     return COUNTRY_CENTERS[code] || COUNTRY_CENTERS.DEFAULT;
 };
 
-const getApiKeys = (apiKeys) => {
-    return {
-        googleKey: apiKeys?.googleKey || null,
-        barikoiKey: apiKeys?.barikoiKey || null,
-    };
-};
+const getApiKeys = (apiKeys) => ({
+    googleKey: apiKeys?.googleKey || null,
+    mapifyStyle: apiKeys?.mapifyStyle || null,
+});
 
 const waitForGoogleMapsApi = (maxAttempts = 150) =>
     new Promise((resolve, reject) => {
@@ -133,32 +133,6 @@ const loadMaplibre = () => {
     return maplibrePromise;
 };
 
-const buildBarikoiStyle = (barikoiKey) => ({
-    version: 8,
-    name: "Barikoi",
-    glyphs: "https://fonts.openmaptiles.org/{fontstack}/{range}.pbf",
-    sources: {
-        "osm-tiles": {
-            type: "raster",
-            tiles: [
-                `https://tile.barikoi.com/styles/barikoi/tiles/{z}/{x}/{y}.png?key=${barikoiKey}`,
-            ],
-            tileSize: 256,
-            attribution: "© Barikoi | © OpenStreetMap contributors",
-            maxzoom: 19,
-        },
-    },
-    layers: [
-        {
-            id: "osm-tiles",
-            type: "raster",
-            source: "osm-tiles",
-            minzoom: 0,
-            maxzoom: 22,
-        },
-    ],
-});
-
 const buildOsmFallbackStyle = () => ({
     version: 8,
     name: "OSM",
@@ -190,6 +164,16 @@ const parseCoordinates = (plot) => {
         return coords.map((c) => ({ lat: Number(c.lat), lng: Number(c.lng) }));
     } catch { return []; }
 };
+
+const MapConfigError = ({ message }) => (
+    <div style={{
+        display: "flex", alignItems: "center", justifyContent: "center",
+        height: "100%", minHeight: MAP_MIN_HEIGHT, background: "#fef2f2",
+        borderRadius: "8px", padding: "16px", textAlign: "center",
+    }}>
+        <p style={{ color: "#dc2626", fontSize: "14px" }}>{message}</p>
+    </div>
+);
 
 const LoadingPlaceholder = () => (
     <div style={{
@@ -445,14 +429,14 @@ const BarikoiMap = ({
     apiKeys,
     plotsData,
 }) => {
-    const { barikoiKey } = getApiKeys(apiKeys);
+    const { mapifyStyle } = getApiKeys(apiKeys);
     const containerRef = useRef(null);
     const wrapperRef = useRef(null);
     const mapRef = useRef(null);
     const markersRef = useRef([]);
     const [isLoaded, setIsLoaded] = useState(false);
     const [loadError, setLoadError] = useState(false);
-    const [mapType, setMapType] = useState("map");
+    const [styleConfig, setStyleConfig] = useState(mapifyStyle || null);
     const [isFullscreen, setIsFullscreen] = useState(false);
     const clickCountRef = useRef(0);
     const mountedRef = useRef(true);
@@ -465,22 +449,17 @@ const BarikoiMap = ({
 
     useEffect(() => {
         mountedRef.current = true;
-        if (!barikoiKey) return;
+        if (!mapifyStyle) {
+            setLoadError(true);
+            return;
+        }
+        setStyleConfig(mapifyStyle);
         setLoadError(false);
         loadMaplibre()
             .then(() => { if (mountedRef.current) setIsLoaded(true); })
             .catch(() => { if (mountedRef.current) setLoadError(true); });
         return () => { mountedRef.current = false; };
-    }, [barikoiKey]);
-
-    useEffect(() => {
-        if (!mapRef.current || !isLoaded || !barikoiKey) return;
-        if (mapType === "satellite") {
-            mapRef.current.setStyle(`https://map.barikoi.com/styles/satellite/style.json?key=${barikoiKey}`);
-        } else {
-            mapRef.current.setStyle(buildBarikoiStyle(barikoiKey));
-        }
-    }, [mapType, isLoaded, barikoiKey]);
+    }, [mapifyStyle]);
 
     const toggleFullscreen = () => {
         if (!wrapperRef.current) return;
@@ -530,10 +509,10 @@ const BarikoiMap = ({
         if (isLoaded && mapRef.current && plotsData?.length > 0) {
             renderPlots(mapRef.current);
         }
-    }, [isLoaded, plotsData, mapType]);
+    }, [isLoaded, plotsData]);
 
     useEffect(() => {
-        if (!isLoaded || !containerRef.current || mapRef.current || !barikoiKey) return;
+        if (!isLoaded || !containerRef.current || mapRef.current || !styleConfig) return;
 
         let cancelled = false;
         const initMap = async () => {
@@ -546,7 +525,7 @@ const BarikoiMap = ({
                 containerRef.current.style.minHeight = MAP_MIN_HEIGHT;
                 mapRef.current = new window.maplibregl.Map({
                     container: containerRef.current,
-                    style: buildBarikoiStyle(barikoiKey),
+                    style: styleConfig,
                     center: [center.lng, center.lat],
                     zoom: 12,
                     attributionControl: false,
@@ -564,8 +543,11 @@ const BarikoiMap = ({
                 mapRef.current.addControl(new window.maplibregl.NavigationControl({ showCompass: true }), "bottom-right");
                 mapRef.current.on("error", (e) => {
                     const msg = e?.error?.message || String(e);
-                    if (msg.includes("403") || msg.includes("401") || (msg.includes("Failed to fetch") && !mapRef.current._usedFallback)) {
-                        console.warn("Barikoi tiles unavailable, switching to OSM fallback");
+                    const isAuthError = msg.includes("403") || msg.includes("401");
+                    const isNetworkError = msg.includes("Failed to fetch");
+                    const isTimeoutError = /timeout|timed out|cURL error 28|SSL connection timeout/i.test(msg);
+                    if ((isAuthError || isNetworkError || isTimeoutError) && !mapRef.current._usedFallback) {
+                        console.warn("Mapify tiles unavailable, switching to OSM fallback");
                         mapRef.current._usedFallback = true;
                         try { mapRef.current.setStyle(buildOsmFallbackStyle()); } catch { }
                     }
@@ -607,7 +589,7 @@ const BarikoiMap = ({
                 mapRef.current = null;
             }
         };
-    }, [isLoaded, barikoiKey]);
+    }, [isLoaded, styleConfig]);
 
     const mkEl = (color, text) => {
         const el = document.createElement("div");
@@ -706,11 +688,11 @@ const BarikoiMap = ({
         fontWeight: "500", color: "#666", padding: "6px 12px", lineHeight: "1", outline: "none",
     };
 
-    if (!barikoiKey || loadError) {
+    if (!styleConfig || loadError) {
         return (
             <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", minHeight: MAP_MIN_HEIGHT, background: "#fef2f2", borderRadius: "8px" }}>
                 <p style={{ color: "#dc2626", fontSize: "14px" }}>
-                    {!barikoiKey ? "Barikoi API key is not configured." : "Barikoi map failed to load. Please check your API key."}
+                    {!styleConfig ? "Map style is not configured." : "Default map failed to load."}
                 </p>
             </div>
         );
@@ -727,9 +709,10 @@ const BarikoiMap = ({
                     display: "flex", background: "#fff",
                     borderRadius: "2px", boxShadow: "0 1px 4px rgba(0,0,0,0.3)", overflow: "hidden",
                 }}>
-                    <button style={{ ...btnBase, color: mapType === "map" ? "#1a73e8" : "#666", borderBottom: mapType === "map" ? "2px solid #1a73e8" : "2px solid transparent" }} onClick={() => setMapType("map")}>Map</button>
-                    <div style={{ width: "1px", background: "#e0e0e0" }} />
-                    <button style={{ ...btnBase, color: mapType === "satellite" ? "#1a73e8" : "#666", borderBottom: mapType === "satellite" ? "2px solid #1a73e8" : "2px solid transparent" }} onClick={() => setMapType("satellite")}>Satellite</button>
+                    <div style={{ ...btnBase, color: "#1a73e8", borderBottom: "2px solid #1a73e8", display: "flex", alignItems: "center", gap: "6px" }}>
+                        <AppLogoIcon width={14} height={14} />
+                        Mapifyit
+                    </div>
                 </div>
             )}
 
@@ -759,6 +742,7 @@ const BarikoiMap = ({
 
 export default function Maps({
     mapsApi,
+    mapError = null,
     pickupCoords,
     destinationCoords,
     viaCoords = [],
@@ -772,6 +756,15 @@ export default function Maps({
     apiKeys,
     plotsData,
 }) {
+    if (mapError) return <MapConfigError message={mapError} />;
+    if (!mapsApi) {
+        return (
+            <div style={{ position: "relative", width: "100%", height: "100%", minHeight: MAP_MIN_HEIGHT }}>
+                <LoadingPlaceholder />
+            </div>
+        );
+    }
+
     const sharedProps = {
         pickupCoords, destinationCoords, viaCoords,
         setFieldValue, fetchPlotName,
@@ -779,6 +772,6 @@ export default function Maps({
         onPickupConfirmed, onDestinationConfirmed,
         apiKeys, plotsData,
     };
-    if (mapsApi === "barikoi") return <BarikoiMap {...sharedProps} />;
+    if (mapsApi === MAP_PROVIDER_DEFAULT || mapsApi === "barikoi") return <BarikoiMap {...sharedProps} />;
     return <GoogleMap {...sharedProps} SEARCH_API={SEARCH_API} />;
 }

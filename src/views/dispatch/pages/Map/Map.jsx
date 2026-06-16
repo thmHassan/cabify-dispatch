@@ -8,12 +8,15 @@ import { MAP_STATUS_OPTIONS } from "../../../../constants/selectOptions";
 import { renderToString } from "react-dom/server";
 import RedCarIcon from "../../../../components/svg/RedCarIcon";
 import GreenCarIcon from "../../../../components/svg/GreenCarIcon";
+import AppLogoIcon from "../../../../components/svg/AppLogoIcon";
 import { getTenantData } from "../../../../utils/functions/tokenEncryption";
 import { apiGetCompanyApiKeys } from "../../../../services/SettingsConfigurationServices";
+import { fetchMapConfiguration, MAP_PROVIDER_DEFAULT, MAP_PROVIDER_GOOGLE } from "../../../../services/mapConfigurationService";
 import { apiGetPlot } from "../../../../services/PlotService";
+import { apiMapifySearch, normalizeMapifyFeatures } from "../../../../services/MapSearchService";
+import MapSearchBox from "./components/MapSearchBox";
 
-const GOOGLE_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "AIzaSyDTlV1tPVuaRbtvBQu4-kjDhTV54tR4cDU";
-const BARIKOI_KEY = import.meta.env.VITE_BARIKOI_API_KEY || "bkoi_a468389d0211910bd6723de348e0de79559c435f07a17a5419cbe55ab55a890a";
+const GOOGLE_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "";
 
 const svgToDataUrl = (SvgComponent, width = 40, height = 40) => {
   const svgString = renderToString(<SvgComponent width={width} height={height} />);
@@ -102,7 +105,7 @@ const loadGoogleMaps = (apiKey) => {
     }
     const script = document.createElement("script");
     script.id = "google-maps-script";
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey || GOOGLE_KEY}&libraries=places&loading=async`;
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places&loading=async`;
     script.async = true;
     script.defer = true;
     script.onload = () => {
@@ -149,32 +152,6 @@ const loadMapLibre = () => {
     document.head.appendChild(script);
   });
 };
-
-const buildBarikoiRasterStyle = (barikoiKey) => ({
-  version: 8,
-  name: "Barikoi",
-  glyphs: "https://fonts.openmaptiles.org/{fontstack}/{range}.pbf",
-  sources: {
-    "barikoi-tiles": {
-      type: "raster",
-      tiles: [
-        `https://tile.barikoi.com/styles/barikoi/tiles/{z}/{x}/{y}.png?key=${barikoiKey}`,
-      ],
-      tileSize: 256,
-      attribution: "© Barikoi | © OpenStreetMap contributors",
-      maxzoom: 19,
-    },
-  },
-  layers: [
-    {
-      id: "barikoi-tiles",
-      type: "raster",
-      source: "barikoi-tiles",
-      minzoom: 0,
-      maxzoom: 22,
-    },
-  ],
-});
 
 const buildOsmFallbackStyle = () => ({
   version: 8,
@@ -384,7 +361,7 @@ const GoogleMapView = ({ mapRef, mapInstance, markers, driverData, setDriverData
   return <div ref={mapRef} className="w-full h-[550px] rounded-xl border border-gray-300 shadow-sm" />;
 };
 
-const BarikoiMapView = ({ mapRef, mapInstance, markers, driverData, setDriverData, selectedStatus, searchQuery, socket, apiKeys, plotsData }) => {
+const DefaultMapView = ({ mapRef, mapInstance, markers, driverData, setDriverData, selectedStatus, searchQuery, socket, apiKeys, plotsData }) => {
   const [isLoaded, setIsLoaded] = useState(false);
   const socketRef = useRef(socket);
   useEffect(() => { socketRef.current = socket; }, [socket]);
@@ -435,7 +412,7 @@ const BarikoiMapView = ({ mapRef, mapInstance, markers, driverData, setDriverDat
   }, [isLoaded, plotsData]);
 
   useEffect(() => {
-    if (!apiKeys.barikoiKey) return;
+    if (!apiKeys.mapifyStyle) return;
     let mounted = true;
 
     const init = async () => {
@@ -479,10 +456,13 @@ const BarikoiMapView = ({ mapRef, mapInstance, markers, driverData, setDriverDat
 
           map.on("error", (e) => {
             const msg = e?.error?.message || String(e);
-            if (!isFallback && (msg.includes("403") || msg.includes("401") || msg.includes("Failed to fetch"))) {
+            const isAuthError = msg.includes("403") || msg.includes("401");
+            const isNetworkError = msg.includes("Failed to fetch");
+            const isTimeoutError = /timeout|timed out|cURL error 28|SSL connection timeout/i.test(msg);
+            if (!isFallback && (isAuthError || isNetworkError || isTimeoutError)) {
               if (!map._usingFallback) {
                 map._usingFallback = true;
-                console.warn("Barikoi tiles unavailable, switching to OSM fallback");
+                console.warn("Mapify tiles unavailable, switching to OSM fallback");
                 map.setStyle(buildOsmFallbackStyle());
               }
             }
@@ -498,7 +478,7 @@ const BarikoiMapView = ({ mapRef, mapInstance, markers, driverData, setDriverDat
         }
       };
 
-      tryInit(buildBarikoiRasterStyle(apiKeys.barikoiKey));
+      tryInit(apiKeys.mapifyStyle);
     };
 
     init();
@@ -515,7 +495,7 @@ const BarikoiMapView = ({ mapRef, mapInstance, markers, driverData, setDriverDat
         setIsLoaded(false);
       }
     };
-  }, [apiKeys.barikoiKey]);
+  }, [apiKeys.mapifyStyle]);
 
   useEffect(() => {
     if (isLoaded && mapInstance.current) {
@@ -616,29 +596,36 @@ const BarikoiMapView = ({ mapRef, mapInstance, markers, driverData, setDriverDat
       ref={mapRef}
       className="w-full h-[550px] rounded-xl border border-gray-300 shadow-sm"
       style={{ position: "relative" }}
-    />
+    >
+      {isLoaded && (
+        <div className="absolute left-2 top-2 z-10 flex items-center gap-1 rounded bg-white px-2 py-1 text-xs font-semibold text-[#1a73e8] shadow">
+          <AppLogoIcon width={12} height={12} />
+          <span>Mapifyit</span>
+        </div>
+      )}
+    </div>
   );
 };
 
 const Map = () => {
   const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [searchResults, setSearchResults] = useState([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchError, setSearchError] = useState("");
+  const [showSearchResults, setShowSearchResults] = useState(false);
   const [selectedStatus, setSelectedStatus] = useState(MAP_STATUS_OPTIONS[0]);
   const [driverData, setDriverData] = useState(() => {
     try { const saved = localStorage.getItem("driverDataCache"); return saved ? JSON.parse(saved) : {}; }
     catch { return {}; }
   });
 
-  const getInitialMapType = () => {
-    const tenant = getTenantData();
-    const data = tenant?.data || {};
-    if (data?.maps_api?.toLowerCase() === "barikoi" || data?.country_of_use === "BD") return "barikoi";
-    return "google";
-  };
 
-  const [mapType, setMapType] = useState(() => getInitialMapType());
+  const [mapType, setMapType] = useState(null);
+  const [mapError, setMapError] = useState(null);
   const [apiKeys, setApiKeys] = useState({
-    googleKey: GOOGLE_KEY,
-    barikoiKey: BARIKOI_KEY,
+    googleKey: null,
+    mapifyStyle: null,
     countryOfUse: getTenantData()?.data?.country_of_use || "IN",
   });
   const [plotsData, setPlotsData] = useState([]);
@@ -646,20 +633,39 @@ const Map = () => {
   useEffect(() => { plotsDataRef.current = plotsData; }, [plotsData]);
 
   useEffect(() => {
-    const fetchApiKeys = async () => {
+    const loadMapConfig = async () => {
       try {
-        const res = await apiGetCompanyApiKeys();
-        if (res.data?.success) {
-          const data = res.data.data;
-          const gKey = data.google_api_key?.startsWith("AIza") ? data.google_api_key : GOOGLE_KEY;
-          const bKey = data.barikoi_api_key?.startsWith("bkoi_") ? data.barikoi_api_key : BARIKOI_KEY;
-          setApiKeys({ googleKey: gKey, barikoiKey: bKey, countryOfUse: data.country_of_use || "IN" });
-          if (data.maps_api) setMapType(data.maps_api.toLowerCase());
-          else if (data.country_of_use === "BD") setMapType("barikoi");
+        const [keysRes, mapConfig] = await Promise.all([
+          apiGetCompanyApiKeys(),
+          fetchMapConfiguration(),
+        ]);
+
+        if (keysRes.data?.success) {
+          const data = keysRes.data.data;
+          setApiKeys((prev) => ({ ...prev, countryOfUse: data.country_of_use || "IN" }));
         }
-      } catch (err) { console.error("Fetch API keys error:", err); }
+
+        if (!mapConfig.ok) {
+          setMapError(mapConfig.message);
+          setMapType(null);
+          return;
+        }
+
+        setMapError(null);
+        setMapType(mapConfig.provider);
+        setApiKeys((prev) => ({
+          ...prev,
+          googleKey: mapConfig.provider === MAP_PROVIDER_GOOGLE ? mapConfig.googleKey : null,
+          mapifyStyle: mapConfig.provider === MAP_PROVIDER_DEFAULT ? mapConfig.mapifyStyle : null,
+        }));
+      } catch (err) {
+        console.error("Fetch map configuration error:", err);
+        setMapError("Unable to load map configuration");
+        setMapType(null);
+      }
     };
-    fetchApiKeys();
+
+    loadMapConfig();
   }, []);
 
   useEffect(() => {
@@ -681,6 +687,9 @@ const Map = () => {
   const mapRef = useRef(null);
   const mapInstance = useRef(null);
   const markers = useRef({});
+  const searchMarkerRef = useRef(null);
+  const searchPopupRef = useRef(null);
+  const searchAbortRef = useRef(null);
 
   useEffect(() => {
     if (!socket) return;
@@ -720,6 +729,127 @@ const Map = () => {
     };
   }, [socket]);
 
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedQuery(searchQuery.trim());
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  const clearSearchMarker = useCallback(() => {
+    if (searchPopupRef.current) {
+      try { searchPopupRef.current.remove(); } catch { }
+      searchPopupRef.current = null;
+    }
+    if (searchMarkerRef.current) {
+      try { searchMarkerRef.current.remove(); } catch { }
+      searchMarkerRef.current = null;
+    }
+  }, []);
+
+  const getMapSearchOrigin = useCallback(() => {
+    if (mapType !== MAP_PROVIDER_DEFAULT || !mapInstance.current) {
+      const fallback = getCountryCenter(apiKeys.countryOfUse);
+      return { lat: fallback.lat, lon: fallback.lng };
+    }
+    const center = mapInstance.current.getCenter?.();
+    if (center && Number.isFinite(center.lat) && Number.isFinite(center.lng)) {
+      return { lat: center.lat, lon: center.lng };
+    }
+    const fallback = getCountryCenter(apiKeys.countryOfUse);
+    return { lat: fallback.lat, lon: fallback.lng };
+  }, [mapType, apiKeys.countryOfUse]);
+
+  useEffect(() => {
+    if (mapType !== MAP_PROVIDER_DEFAULT) return;
+    if (!debouncedQuery) {
+      if (searchAbortRef.current) searchAbortRef.current.abort();
+      setSearchLoading(false);
+      setSearchError("");
+      setSearchResults([]);
+      return;
+    }
+
+    if (searchAbortRef.current) searchAbortRef.current.abort();
+    const controller = new AbortController();
+    searchAbortRef.current = controller;
+
+    const run = async () => {
+      setSearchLoading(true);
+      setSearchError("");
+      try {
+        const origin = getMapSearchOrigin();
+        const res = await apiMapifySearch({
+          query: debouncedQuery,
+          lat: origin.lat,
+          lon: origin.lon,
+          size: 8,
+          signal: controller.signal,
+        });
+        const results = normalizeMapifyFeatures(res?.data);
+        setSearchResults(results);
+        setShowSearchResults(true);
+      } catch (error) {
+        if (error?.name === "AbortError" || error?.code === "ERR_CANCELED") return;
+        setSearchResults([]);
+        setSearchError(error?.response?.data?.message || "Failed to search locations");
+        setShowSearchResults(true);
+      } finally {
+        if (!controller.signal.aborted) setSearchLoading(false);
+      }
+    };
+    run();
+
+    return () => controller.abort();
+  }, [debouncedQuery, mapType, getMapSearchOrigin]);
+
+  const handleSelectSearchResult = useCallback((item) => {
+    setSearchQuery(item.name || "");
+    setShowSearchResults(false);
+    clearSearchMarker();
+
+    if (mapType !== MAP_PROVIDER_DEFAULT || !mapInstance.current || !window.maplibregl) return;
+
+    const lngLat = [item.lon, item.lat];
+    mapInstance.current.flyTo({
+      center: lngLat,
+      zoom: Math.max(mapInstance.current.getZoom?.() || 8, 14),
+      speed: 1.2,
+      curve: 1.25,
+      essential: true,
+    });
+
+    const marker = new window.maplibregl.Marker({ color: "#2563eb" })
+      .setLngLat(lngLat)
+      .addTo(mapInstance.current);
+
+    const popup = new window.maplibregl.Popup({ offset: 20, closeOnClick: false })
+      .setLngLat(lngLat)
+      .setHTML(`<div style="font-size:12px;"><strong>${item.name}</strong><br/>${item.label || ""}</div>`)
+      .addTo(mapInstance.current);
+
+    searchMarkerRef.current = marker;
+    searchPopupRef.current = popup;
+  }, [mapType, clearSearchMarker]);
+
+  const handleClearSearch = useCallback(() => {
+    setSearchQuery("");
+    setDebouncedQuery("");
+    setSearchResults([]);
+    setSearchError("");
+    setSearchLoading(false);
+    setShowSearchResults(false);
+    if (searchAbortRef.current) searchAbortRef.current.abort();
+    clearSearchMarker();
+  }, [clearSearchMarker]);
+
+  useEffect(() => {
+    return () => {
+      if (searchAbortRef.current) searchAbortRef.current.abort();
+      clearSearchMarker();
+    };
+  }, [clearSearchMarker]);
+
   const sharedProps = { mapRef, mapInstance, markers, driverData, setDriverData, selectedStatus, searchQuery, socket, apiKeys, plotsData };
 
   return (
@@ -729,7 +859,22 @@ const Map = () => {
         <PageSubTitle title="Driver Location & Aerial View" />
       </div>
       <CardContainer className="p-4 bg-[#F5F5F5]">
-        <div className="flex flex-row items-center gap-3 sm:gap-5 justify-end mb-4 pb-4">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-5 justify-between mb-4 pb-4">
+          {mapType === MAP_PROVIDER_DEFAULT && (
+            <MapSearchBox
+              value={searchQuery}
+              onChange={(value) => {
+                setSearchQuery(value);
+                setShowSearchResults(Boolean(value.trim()));
+              }}
+              results={searchResults}
+              loading={searchLoading}
+              error={searchError}
+              showResults={showSearchResults && Boolean(searchQuery.trim())}
+              onSelect={handleSelectSearchResult}
+              onClear={handleClearSearch}
+            />
+          )}
           <CustomSelect
             variant={2}
             options={MAP_STATUS_OPTIONS}
@@ -739,10 +884,19 @@ const Map = () => {
           />
         </div>
 
-        {mapType === "barikoi"
-          ? <BarikoiMapView {...sharedProps} />
-          : <GoogleMapView {...sharedProps} />
-        }
+        {mapError ? (
+          <div className="w-full h-[550px] rounded-xl border border-gray-300 shadow-sm flex items-center justify-center bg-gray-50 px-4 text-center">
+            <p className="text-sm text-red-600">{mapError}</p>
+          </div>
+        ) : mapType === MAP_PROVIDER_DEFAULT ? (
+          <DefaultMapView {...sharedProps} />
+        ) : mapType === MAP_PROVIDER_GOOGLE ? (
+          <GoogleMapView {...sharedProps} />
+        ) : (
+          <div className="w-full h-[550px] rounded-xl border border-gray-300 shadow-sm flex items-center justify-center bg-gray-50">
+            <p className="text-sm text-gray-500">Loading map...</p>
+          </div>
+        )}
 
         <div className="flex justify-center gap-10 flex-wrap py-4 mt-3 border-t">
           <div className="flex items-center gap-2">

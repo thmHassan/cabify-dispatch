@@ -13,7 +13,10 @@ import PreBookingIcon from "../../../../components/svg/PreBookingIcon";
 import NoShowIcon from "../../../../components/svg/NoShowIcon";
 import CancelledIcon from "../../../../components/svg/CancelledIcon";
 import { useAppSelector } from "../../../../store";
-import { apiGetCompanyApiKeys } from "../../../../services/SettingsConfigurationServices";
+import {
+  apiGetCompanyApiKeys,
+} from "../../../../services/SettingsConfigurationServices";
+import { fetchMapConfiguration, MAP_PROVIDER_DEFAULT, MAP_PROVIDER_GOOGLE } from "../../../../services/mapConfigurationService";
 import { getDashboardCards, apiGetAllPlot, apiUpdateDriverRank } from "../../../../services/AddBookingServices";
 import { apiLogoutDriver, apiGetDriverManagement } from "../../../../services/DriverManagementService";
 import toast from "react-hot-toast";
@@ -22,11 +25,11 @@ import CallQueueModel from "./components/CallQueueModel/CallQueueModel";
 import SendDriverMessageModal from "./components/SendDriverMessageModal";
 import RedCarIcon from "../../../../components/svg/RedCarIcon";
 import GreenCarIcon from "../../../../components/svg/GreenCarIcon";
+import AppLogoIcon from "../../../../components/svg/AppLogoIcon";
 import { renderToString } from "react-dom/server";
 import { formatCurrency } from "../../../../utils/functions/formatters";
 
 const GOOGLE_KEY = "AIzaSyDTlV1tPVuaRbtvBQu4-kjDhTV54tR4cDU";
-const BARIKOI_KEY = "bkoi_a468389d0211910bd6723de348e0de79559c435f07a17a5419cbe55ab55a890a";
 
 const ON_JOB_STORAGE_KEY = "onJobDrivers_persistent";
 const DRIVER_DATA_STORAGE_KEY = "driverData_persistent";
@@ -377,15 +380,16 @@ const getMapType = (data) => {
   if (!data) return "google";
   const mapsApi = data?.maps_api?.trim().toLowerCase();
   const countryOfUse = data?.country_of_use?.trim().toUpperCase();
-  if (mapsApi === "barikoi") return "barikoi";
+  if (mapsApi === "default") return "default";
+  if (mapsApi === "barikoi") return "default";
   if (mapsApi === "google") return "google";
-  if (countryOfUse === "BD") return "barikoi";
+  if (countryOfUse === "BD") return "default";
   return "google";
 };
 
 const getApiKeys = (stateApiKeys) => ({
-  googleKey: stateApiKeys?.googleKey || GOOGLE_KEY,
-  barikoiKey: stateApiKeys?.barikoiKey || BARIKOI_KEY,
+  googleKey: stateApiKeys?.googleKey || null,
+  mapifyStyle: stateApiKeys?.mapifyStyle || null,
 });
 
 const getCountryCenter = (code) => {
@@ -403,7 +407,7 @@ const loadGoogleMaps = (apiKey) => {
     }
     const script = document.createElement("script");
     script.id = "google-maps-script";
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey || GOOGLE_KEY}&libraries=places&loading=async`;
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places&loading=async`;
     script.async = true; script.defer = true;
     script.onload = () => { const check = setInterval(() => { if (window.google?.maps?.Map) { clearInterval(check); resolve(); } }, 50); };
     script.onerror = reject;
@@ -411,7 +415,7 @@ const loadGoogleMaps = (apiKey) => {
   });
 };
 
-const loadBarikoiMaps = () => {
+const loadDefaultMapLibre = () => {
   return new Promise((resolve, reject) => {
     if (window.maplibregl) return resolve();
     if (!document.getElementById("maplibre-css")) {
@@ -434,13 +438,6 @@ const loadBarikoiMaps = () => {
     document.head.appendChild(script);
   });
 };
-
-const buildBarikoiStyle = (barikoiKey) => ({
-  version: 8, name: "Barikoi",
-  glyphs: "https://fonts.openmaptiles.org/{fontstack}/{range}.pbf",
-  sources: { "osm-tiles": { type: "raster", tiles: [`https://tile.barikoi.com/styles/barikoi/tiles/{z}/{x}/{y}.png?key=${barikoiKey}`], tileSize: 256, attribution: "© Barikoi | © OpenStreetMap contributors", maxzoom: 19 } },
-  layers: [{ id: "osm-tiles", type: "raster", source: "osm-tiles", minzoom: 0, maxzoom: 22 }],
-});
 
 const buildOsmFallbackStyle = () => ({
   version: 8, name: "OSM",
@@ -714,12 +711,36 @@ const GoogleMapSection = ({ mapRef, mapInstance, markers, driverData, setDriverD
     }
   }, [driverData]);
 
-  return <div ref={mapRef} style={{ width: "100%", height: "100%", minHeight: "400px" }} />;
+  return (
+    <div ref={mapRef} style={{ width: "100%", height: "100%", minHeight: "400px", position: "relative" }}>
+      {mapReady && (
+        <div style={{
+          position: "absolute",
+          left: "8px",
+          top: "8px",
+          zIndex: 10,
+          display: "flex",
+          alignItems: "center",
+          gap: "6px",
+          background: "#fff",
+          padding: "4px 8px",
+          borderRadius: "4px",
+          boxShadow: "0 1px 4px rgba(0,0,0,0.2)",
+          color: "#1a73e8",
+          fontSize: "11px",
+          fontWeight: 600,
+        }}>
+          <AppLogoIcon width={12} height={12} />
+      
+        </div>
+      )}
+    </div>
+  );
 };
 
-const BarikoiMapSection = ({ mapRef, mapInstance, markers, driverData, setDriverData, socket, countryCenter, plotsData, apiKeys, waitingDrivers, onJobDrivers }) => {
+const DefaultMapSection = ({ mapRef, mapInstance, markers, driverData, setDriverData, socket, countryCenter, plotsData, apiKeys, waitingDrivers, onJobDrivers }) => {
   const [mapReady, setMapReady] = useState(false);
-  const { barikoiKey } = getApiKeys(apiKeys);
+  const { mapifyStyle } = getApiKeys(apiKeys);
   const plotsRendered = useRef(false);
 
   const renderPlots = (map) => {
@@ -746,10 +767,10 @@ const BarikoiMapSection = ({ mapRef, mapInstance, markers, driverData, setDriver
   useEffect(() => { if (mapReady && mapInstance.current && plotsData?.length > 0) renderPlots(mapInstance.current); }, [mapReady, plotsData]);
 
   useEffect(() => {
-    if (!barikoiKey) return;
+    if (!mapifyStyle) return;
     let mounted = true;
     const init = async () => {
-      try { await loadBarikoiMaps(); } catch (err) { console.error("Barikoi/MapLibre load failed:", err); return; }
+      try { await loadDefaultMapLibre(); } catch (err) { console.error("MapLibre load failed:", err); return; }
       if (!mounted || !mapRef.current || mapInstance.current) return;
       const container = mapRef.current;
       container.style.width = "100%"; container.style.height = "100%"; container.style.minHeight = "400px"; container.style.position = "relative";
@@ -763,7 +784,10 @@ const BarikoiMapSection = ({ mapRef, mapInstance, markers, driverData, setDriver
           map.on("load", () => { if (!mounted) return; map.resize(); setTimeout(() => { if (mounted && map) { map.resize(); setMapReady(true); } }, 150); });
           map.on("error", (e) => {
             const msg = e?.error?.message || String(e);
-            if (msg.includes("403") || msg.includes("401") || (msg.includes("Failed to fetch") && !map._usedFallback)) {
+            const isAuthError = msg.includes("403") || msg.includes("401");
+            const isNetworkError = msg.includes("Failed to fetch");
+            const isTimeoutError = /timeout|timed out|cURL error 28|SSL connection timeout/i.test(msg);
+            if ((isAuthError || isNetworkError || isTimeoutError) && !map._usedFallback) {
               map._usedFallback = true;
               try { map.setStyle(buildOsmFallbackStyle()); } catch { }
             }
@@ -778,7 +802,7 @@ const BarikoiMapSection = ({ mapRef, mapInstance, markers, driverData, setDriver
           } catch { }
         }
       };
-      initMap(buildBarikoiStyle(barikoiKey));
+      initMap(mapifyStyle);
     };
     init();
     return () => {
@@ -788,7 +812,7 @@ const BarikoiMapSection = ({ mapRef, mapInstance, markers, driverData, setDriver
         mapInstance.current = null;
       }
     };
-  }, [barikoiKey]);
+  }, [mapifyStyle]);
 
   useEffect(() => {
     if (!mapRef.current) return;
@@ -959,7 +983,8 @@ const Overview = () => {
   const [activeBookingFilter, setActiveBookingFilter] = useState("todays_booking");
   const [seedBookings, setSeedBookings] = useState([]);
   const [mapType, setMapType] = useState(null);
-  const [apiKeys, setApiKeys] = useState({ googleKey: GOOGLE_KEY, barikoiKey: BARIKOI_KEY, searchApi: "google", countryOfUse: null });
+  const [mapError, setMapError] = useState(null);
+  const [apiKeys, setApiKeys] = useState({ googleKey: null, mapifyStyle: null, searchApi: "google", countryOfUse: null });
   const countryCenter = React.useMemo(() => getCountryCenter(apiKeys.countryOfUse), [apiKeys.countryOfUse]);
   const [plotsData, setPlotsData] = useState([]);
   const [listPlots, setListPlots] = useState([]);
@@ -985,19 +1010,42 @@ const Overview = () => {
   const [loggingOutDriverId, setLoggingOutDriverId] = useState(null);
 
   useEffect(() => {
-    const fetchApiKeys = async () => {
+    const fetchMapConfig = async () => {
       try {
-        const res = await apiGetCompanyApiKeys();
-        if (res.data?.success) {
-          const data = res.data.data;
-          const googleKey = data.google_api_key?.startsWith("AIza") ? data.google_api_key : GOOGLE_KEY;
-          const barikoiKey = data.barikoi_api_key?.startsWith("bkoi_") ? data.barikoi_api_key : BARIKOI_KEY;
-          setApiKeys({ googleKey, barikoiKey, searchApi: data.search_api || "google", countryOfUse: data.country_of_use || null });
-          setMapType(data.maps_api ? data.maps_api.toLowerCase() : getMapType(data));
+        const [keysRes, mapConfig] = await Promise.all([
+          apiGetCompanyApiKeys(),
+          fetchMapConfiguration(),
+        ]);
+
+        if (keysRes.data?.success) {
+          const data = keysRes.data.data;
+          setApiKeys((prev) => ({
+            ...prev,
+            searchApi: data.search_api || "google",
+            countryOfUse: data.country_of_use || null,
+          }));
         }
-      } catch (err) { console.error("Fetch API keys error:", err); setMapType("google"); }
+
+        if (!mapConfig.ok) {
+          setMapError(mapConfig.message);
+          setMapType(null);
+          return;
+        }
+
+        setMapError(null);
+        setMapType(mapConfig.provider);
+        setApiKeys((prev) => ({
+          ...prev,
+          googleKey: mapConfig.provider === MAP_PROVIDER_GOOGLE ? mapConfig.googleKey : null,
+          mapifyStyle: mapConfig.provider === MAP_PROVIDER_DEFAULT ? mapConfig.mapifyStyle : null,
+        }));
+      } catch (err) {
+        console.error("Fetch map configuration error:", err);
+        setMapError("Unable to load map configuration");
+        setMapType(null);
+      }
     };
-    fetchApiKeys();
+    fetchMapConfig();
   }, []);
 
   useEffect(() => {
@@ -1652,13 +1700,18 @@ const Overview = () => {
               </div>
             </div>
             <div className="flex-1 rounded-xl overflow-hidden" style={{ minHeight: 0, position: "relative" }}>
-              {mapType === "barikoi" && apiKeys.barikoiKey && (
-                <BarikoiMapSection key={`barikoi-${apiKeys.barikoiKey}-${apiKeys.countryOfUse}`} {...mapProps} />
+              {mapError && (
+                <div className="w-full h-full flex items-center justify-center bg-gray-100 rounded-xl px-4 text-center">
+                  <p className="text-sm text-red-600">{mapError}</p>
+                </div>
               )}
-              {mapType === "google" && apiKeys.googleKey && (
+              {!mapError && mapType === MAP_PROVIDER_DEFAULT && apiKeys.mapifyStyle && (
+                <DefaultMapSection key={`default-${apiKeys.countryOfUse || "na"}`} {...mapProps} />
+              )}
+              {!mapError && mapType === MAP_PROVIDER_GOOGLE && apiKeys.googleKey && (
                 <GoogleMapSection key={`google-${apiKeys.googleKey}-${apiKeys.countryOfUse}`} {...mapProps} />
               )}
-              {!mapType && (
+              {!mapError && !mapType && (
                 <div className="w-full h-full flex items-center justify-center bg-gray-100 rounded-xl">
                   <div className="text-gray-400 text-sm">Loading map…</div>
                 </div>

@@ -60,6 +60,10 @@ export const SEND_NOTIFICATION = "/company/send-notification"
 
 export const GATE_DISPATCH_SYSTEM = "/company/get-dispatch-system"
 export const GET_COMPANY_API_KEYS = "/company/get-api-keys"
+export const GET_THIRD_PARTY_INFORMATION = "/company/third-party-information"
+export const GET_MAP_INFORMATION = "/company/map-information"
+export const GET_MAPIFY_TILES_BRIGHT = "/company/mapify-tiles/bright"
+export const GET_MAPIFY_SEARCH = "/company/mapify-search"
 
 export const GET_PLOTS = "/company/list-plot";
 export const CREATE_PLOT = "/company/create-plot";

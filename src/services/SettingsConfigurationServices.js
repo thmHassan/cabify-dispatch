@@ -1,4 +1,10 @@
-import { GATE_DISPATCH_SYSTEM, GET_COMPANY_API_KEYS } from "../constants/api.route.constant";
+import {
+    GATE_DISPATCH_SYSTEM,
+    GET_COMPANY_API_KEYS,
+    GET_MAP_INFORMATION,
+    GET_MAPIFY_TILES_BRIGHT,
+    GET_THIRD_PARTY_INFORMATION,
+} from "../constants/api.route.constant";
 import { METHOD_GET } from "../constants/method.constant";
 import ApiService from "./ApiService";
 
@@ -23,6 +29,42 @@ export async function apiGetCompanyApiKeys() {
         });
     } catch (error) {
         console.log("Error in apiGetCompanyApiKeys API call:", error);
+        throw error;
+    }
+}
+
+export async function apiGetThirdPartyInformation() {
+    try {
+        return ApiService.fetchData({
+            url: GET_THIRD_PARTY_INFORMATION,
+            method: METHOD_GET,
+        });
+    } catch (error) {
+        console.log("Error in apiGetThirdPartyInformation API call:", error);
+        throw error;
+    }
+}
+
+export async function apiGetMapInformation() {
+    try {
+        return ApiService.fetchData({
+            url: GET_MAP_INFORMATION,
+            method: METHOD_GET,
+        });
+    } catch (error) {
+        console.log("Error in apiGetMapInformation API call:", error);
+        throw error;
+    }
+}
+
+export async function apiGetMapifyBrightStyle() {
+    try {
+        return ApiService.fetchData({
+            url: GET_MAPIFY_TILES_BRIGHT,
+            method: METHOD_GET,
+        });
+    } catch (error) {
+        console.log("Error in apiGetMapifyBrightStyle API call:", error);
         throw error;
     }
 }

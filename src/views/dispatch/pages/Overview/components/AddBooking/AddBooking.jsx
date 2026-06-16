@@ -24,11 +24,20 @@ import {
     getApiErrorMessage,
     isApiSuccess,
 } from "../../../../../../services/AddBookingServices";
-import { apiGetDispatchSystem, apiGetCompanyApiKeys } from "../../../../../../services/SettingsConfigurationServices";
+import {
+    apiGetDispatchSystem,
+    apiGetCompanyApiKeys,
+} from "../../../../../../services/SettingsConfigurationServices";
+import {
+    fetchMapConfiguration,
+    MAP_PROVIDER_DEFAULT,
+    MAP_PROVIDER_GOOGLE,
+} from "../../../../../../services/mapConfigurationService";
 import { unlockBodyScroll } from "../../../../../../utils/functions/common.function";
 import toast from 'react-hot-toast';
 import { getDispatcherId, getDispatcherName } from "../../../../../../utils/auth";
 import { apiGetRideHistory, apiGetUser } from "../../../../../../services/UserService";
+import { apiMapifySearch, normalizeMapifyFeatures } from "../../../../../../services/MapSearchService";
 import { debounce } from "lodash";
 import {
     extractCreatedBookings,
@@ -47,6 +56,7 @@ import successSound from "../../../../../../assets/audio/meldix-success-340660.m
 
 const DEFAULT_GOOGLE_KEY = "AIzaSyDTlV1tPVuaRbtvBQu4-kjDhTV54tR4cDU";
 const DEFAULT_BARIKOI_KEY = "bkoi_a468389d0211910bd6723de348e0de79559c435f07a17a5419cbe55ab55a890a";
+const FALLBACK_SEARCH_ORIGIN = { lat: 23.8103, lon: 90.4125 };
 
 const GOOGLE_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || DEFAULT_GOOGLE_KEY;
 const BARIKOI_KEY = import.meta.env.VITE_BARIKOI_API_KEY || DEFAULT_BARIKOI_KEY;
@@ -241,7 +251,7 @@ const fetchRouteDistance = async (pickup, destination, viaCoords, mapsApi, apiKe
 
     if (mapsApi === "google") {
         distance = await fetchGoogleRouteDistance(pickup, destination, viaCoords);
-    } else if (mapsApi === "barikoi" && !hasVia) {
+    } else if ((mapsApi === "barikoi" || mapsApi === "default") && !hasVia) {
         distance = await fetchBarikoiRouteDistance(pickup, destination, apiKeys?.barikoiKey);
     }
 
@@ -284,6 +294,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
 
     const getInitialMapType = () => {
         const mapsApi = (tenant?.maps_api || rawTenant?.maps_api)?.trim().toLowerCase();
+        if (mapsApi === "default") return "default";
         if (mapsApi === "barikoi") return "barikoi";
         if (mapsApi === "google") return "google";
         if (tenantCountryIso === "BD") return "barikoi";
@@ -299,7 +310,8 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
     const [driverList, setDriverList] = useState([]);
     const [accountList, setAccountList] = useState([]);
     const [loadingSubCompanies, setLoadingSubCompanies] = useState(false);
-    const [mapsApi, setMapsApi] = useState(MAPS_API);
+    const [mapsApi, setMapsApi] = useState(null);
+    const [mapError, setMapError] = useState(null);
     const [searchApi, setSearchApi] = useState(SEARCH_API);
     const [googleService, setGoogleService] = useState(null);
     const [pickupSuggestions, setPickupSuggestions] = useState([]);
@@ -327,7 +339,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
     const [loadingDispatchSystem, setLoadingDispatchSystem] = useState(true);
     const dispatcherId = getDispatcherId();
     const [alertModal, setAlertModal] = useState({ isOpen: false, message: '' });
-    const [apiKeys, setApiKeys] = useState({ googleKey: GOOGLE_KEY, barikoiKey: BARIKOI_KEY });
+    const [apiKeys, setApiKeys] = useState({ googleKey: null, mapifyStyle: null });
     const [userSuggestions, setUserSuggestions] = useState([]);
     const [showUserSuggestions, setShowUserSuggestions] = useState(false);
     const [loadingUsers, setLoadingUsers] = useState(false);
@@ -339,6 +351,8 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
     const [driverRawList, setDriverRawList] = useState([]);
     const [filteredVehicleList, setFilteredVehicleList] = useState([]);
     const [plotsData, setPlotsData] = useState([]);
+    const searchAbortRef = useState({ pickup: null, destination: null, via: {} })[0];
+    const searchDebounceRef = useState({ pickup: null, destination: null, via: {} })[0];
 
     const clearCalcError = (key) => setCalculateErrors(prev => ({ ...prev, [key]: undefined }));
     const clearBookingError = (key) => setBookingErrors(prev => ({ ...prev, [key]: undefined }));
@@ -390,28 +404,15 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
     };
 
     useEffect(() => {
-        const fetchApiKeys = async () => {
+        const loadMapAndSettings = async () => {
             try {
-                const res = await apiGetCompanyApiKeys();
-                if (res.data?.success) {
-                    const data = res.data.data;
+                const [keysRes, mapConfig] = await Promise.all([
+                    apiGetCompanyApiKeys(),
+                    fetchMapConfiguration(),
+                ]);
 
-                    // Validate keys - fall back to defaults if they look like placeholders (e.g. "divonyx")
-                    const googleKey = (data.google_api_key && data.google_api_key.startsWith("AIza"))
-                        ? data.google_api_key
-                        : (GOOGLE_KEY.startsWith("AIza") ? GOOGLE_KEY : DEFAULT_GOOGLE_KEY);
-
-                    const barikoiKey = (data.barikoi_api_key && data.barikoi_api_key.startsWith("bkoi_"))
-                        ? data.barikoi_api_key
-                        : (BARIKOI_KEY.startsWith("bkoi_") ? BARIKOI_KEY : DEFAULT_BARIKOI_KEY);
-
-                    setApiKeys({
-                        googleKey,
-                        barikoiKey,
-                    });
-                    if (data.maps_api) {
-                        setMapsApi(data.maps_api.toLowerCase());
-                    }
+                if (keysRes.data?.success) {
+                    const data = keysRes.data.data;
                     if (data.search_api) {
                         setSearchApi(data.search_api.toLowerCase());
                     }
@@ -422,11 +423,26 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
                         setCachedDistanceUnit(data.units);
                     }
                 }
+
+                if (!mapConfig.ok) {
+                    setMapError(mapConfig.message);
+                    setMapsApi(null);
+                    return;
+                }
+
+                setMapError(null);
+                setMapsApi(mapConfig.provider);
+                setApiKeys({
+                    googleKey: mapConfig.provider === MAP_PROVIDER_GOOGLE ? mapConfig.googleKey : null,
+                    mapifyStyle: mapConfig.provider === MAP_PROVIDER_DEFAULT ? mapConfig.mapifyStyle : null,
+                });
             } catch (err) {
-                console.error("Fetch API keys error:", err);
+                console.error("Fetch map configuration error:", err);
+                setMapError("Unable to load map configuration");
+                setMapsApi(null);
             }
         };
-        fetchApiKeys();
+        loadMapAndSettings();
 
         const fetchPlots = async () => {
             try {
@@ -669,14 +685,80 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
         };
     }, [editBooking?.id, populateFormFromBooking]);
 
+    const getSearchOrigin = () => {
+        const coords =
+            stablePickupCoords ||
+            stableDestinationCoords ||
+            stableViaCoords?.find(Boolean);
+
+        if (coords?.lat != null && coords?.lng != null) {
+            return { lat: Number(coords.lat), lon: Number(coords.lng) };
+        }
+        return FALLBACK_SEARCH_ORIGIN;
+    };
+
+    const cancelPendingSearch = (type, index = null) => {
+        if (type === "via") {
+            const key = String(index);
+            searchDebounceRef.via[key] && clearTimeout(searchDebounceRef.via[key]);
+            searchDebounceRef.via[key] = null;
+            searchAbortRef.via[key]?.abort?.();
+            searchAbortRef.via[key] = null;
+            return;
+        }
+        searchDebounceRef[type] && clearTimeout(searchDebounceRef[type]);
+        searchDebounceRef[type] = null;
+        searchAbortRef[type]?.abort?.();
+        searchAbortRef[type] = null;
+    };
+
     const searchLocation = async (query, type, index = null) => {
         if (!query || query.trim().length < 2) return;
+        const cleanedQuery = query.trim();
         let list = [];
+
+        cancelPendingSearch(type, index);
+
+        if (mapsApi === "default") {
+            const runSearch = async () => {
+                const controller = new AbortController();
+                if (type === "via") searchAbortRef.via[String(index)] = controller;
+                else searchAbortRef[type] = controller;
+
+                try {
+                    const origin = getSearchOrigin();
+                    const response = await apiMapifySearch({
+                        query: cleanedQuery,
+                        lat: origin.lat,
+                        lon: origin.lon,
+                        size: 8,
+                        signal: controller.signal,
+                    });
+                    const normalized = normalizeMapifyFeatures(response?.data).map((item) => ({
+                        label: item.name,
+                        subtitle: item.label,
+                        lat: item.lat,
+                        lng: item.lon,
+                        source: "mapify",
+                    }));
+                    updateSuggestions(normalized, type, index);
+                } catch (err) {
+                    if (err?.name === "AbortError" || err?.code === "ERR_CANCELED") return;
+                    console.error("Mapify search error:", err);
+                    updateSuggestions([], type, index);
+                }
+            };
+
+            const timer = setTimeout(runSearch, 400);
+            if (type === "via") searchDebounceRef.via[String(index)] = timer;
+            else searchDebounceRef[type] = timer;
+            return;
+        }
 
         if ((searchApi === "google" || searchApi === "both") && googleService) {
             googleService.getPlacePredictions(
                 {
-                    input: query,
+                    input: cleanedQuery,
                     componentRestrictions: { country: countryCode },
                 },
                 (predictions, status) => {
@@ -695,7 +777,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
         if (searchApi === "barikoi" || searchApi === "both") {
             try {
                 const res = await fetch(
-                    `https://barikoi.xyz/v1/api/search/autocomplete/${apiKeys.barikoiKey || BARIKOI_KEY}/place?q=${encodeURIComponent(query)}`
+                    `https://barikoi.xyz/v1/api/search/autocomplete/${apiKeys.barikoiKey || BARIKOI_KEY}/place?q=${encodeURIComponent(cleanedQuery)}`
                 );
                 const json = await res.json();
                 const barikoiList = (json.places || []).map(p => ({
@@ -748,6 +830,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
         let latLng = null;
         if (item.source === "google") latLng = await getLatLngFromPlaceId(item.place_id);
         else if (item.source === "barikoi") latLng = { lat: item.lat, lng: item.lng };
+        else if (item.source === "mapify") latLng = { lat: item.lat, lng: item.lng };
 
         let plotData = { found: false, id: null, name: "Plot Not Found" };
         if (latLng) {
@@ -793,6 +876,19 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
                         } else resolve(null);
                     });
                 });
+            }
+            if (mapsApi === "default") {
+                const origin = getSearchOrigin();
+                const response = await apiMapifySearch({
+                    query: address,
+                    lat: origin.lat,
+                    lon: origin.lon,
+                    size: 1,
+                });
+                const [first] = normalizeMapifyFeatures(response?.data);
+                if (first) {
+                    return { latitude: first.lat, longitude: first.lon };
+                }
             }
             if (searchApi === "barikoi" || searchApi === "both") {
                 const res = await fetch(`https://barikoi.xyz/v1/api/search/autocomplete/${apiKeys.barikoiKey || BARIKOI_KEY}/place?q=${encodeURIComponent(address)}`);
@@ -1407,9 +1503,16 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
         setShowHistoryModal(true);
     };
 
+    useEffect(() => () => {
+        cancelPendingSearch("pickup");
+        cancelPendingSearch("destination");
+        Object.keys(searchAbortRef.via || {}).forEach((key) => cancelPendingSearch("via", key));
+    }, []);
+
     const memoizedMap = useMemo(() => (
         <Maps
             mapsApi={mapsApi}
+            mapError={mapError}
             apiKeys={apiKeys}
             plotsData={plotsData}
             pickupCoords={stablePickupCoords}
@@ -1423,7 +1526,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
             onDestinationConfirmed={handleDestinationConfirmed}
             SEARCH_API={searchApi}
         />
-    ), [mapsApi, apiKeys, stablePickupCoords, stableDestinationCoords, stableViaCoords, searchApi, plotsData, formikSetFieldValue]);
+    ), [mapsApi, mapError, apiKeys, stablePickupCoords, stableDestinationCoords, stableViaCoords, searchApi, plotsData, formikSetFieldValue]);
 
     return (
         <>
@@ -1932,7 +2035,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
                                     <div className="lg:col-span-2 lg:row-start-2 min-w-0 space-y-1.5">
                                         <div className="overflow-hidden rounded-xl border border-[#E5E7EB] bg-white shadow-sm">
                                             <div className="border-b border-[#F3F4F6] px-2 py-1.5 flex items-center justify-between">
-                                                <h3 className="text-xs font-semibold text-[#111827]">Route Map</h3>
+                                                <h3 className="text-xs font-semibold text-[#111827]">Routes & Maps</h3>
                                                 <span className="text-[10px] text-[#6B7280]">{formatDistanceWithUnit(values.distance) || "—"}</span>
                                             </div>
                                             <div className="h-[200px] lg:h-[280px] w-full">
