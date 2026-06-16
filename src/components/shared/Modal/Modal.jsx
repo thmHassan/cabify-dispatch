@@ -5,10 +5,12 @@ import { useAppSelector } from "../../../store";
 import Base from "../../animations/Base";
 
 const SIZE_CONFIG = {
-  sm: "max-w-[95%] sm:max-w-[520px]",
-  md: "max-w-[95%] sm:max-w-[720px]",
-  xl: "max-w-[95%] sm:max-w-[1130px]",
-  "2xl": "max-w-[95%] sm:max-w-[1200px]",
+  sm: "w-full max-w-[95%] sm:max-w-[520px]",
+  md: "w-full max-w-[95%] sm:max-w-[720px]",
+  lg: "w-full max-w-[95%] lg:max-w-[1280px]",
+  xl: "w-full max-w-[95%] sm:max-w-[1130px]",
+  "2xl": "w-full max-w-[95%] sm:max-w-[1200px]",
+  "3xl": "w-full max-w-[95%] lg:max-w-[95vw] xl:max-w-[1800px]",
 };
 
 const ModalComponent = ({ size = "xl", children, className }) => {
@@ -34,9 +36,9 @@ const ModalComponent = ({ size = "xl", children, className }) => {
       ref={parentRef}
       className={classNames(
         "fixed z-[2000] top-0 left-0 w-full h-full overflow-y-auto bg-[#00000050] flex justify-center",
-        isChildGreater 
-          ? "py-4 sm:py-8 md:py-[60px] lg:py-[140px]" 
-          : "items-start sm:items-center py-4 sm:py-8"
+        isChildGreater
+          ? "py-2 sm:py-4 lg:py-6 items-start"
+          : "items-start sm:items-center py-2 sm:py-4"
       )}
     >
       <Base
@@ -46,7 +48,7 @@ const ModalComponent = ({ size = "xl", children, className }) => {
         exit={{ opacity: 0, scale: 0.9, y: 30 }}
         transition={{ duration: 0.2, ease: "easeOut" }}
         className={classNames(
-          "w-auto bg-white rounded-[15px] sm:rounded-[25px] relative h-fit shadow-xl sm:mx-6 my-4 sm:my-0",
+          "w-full bg-white rounded-[15px] sm:rounded-[25px] relative h-fit shadow-xl sm:mx-4 lg:mx-6 my-2 sm:my-0 overflow-hidden",
           SIZE_CONFIG[size],
           className
         )}

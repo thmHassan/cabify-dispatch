@@ -7,12 +7,18 @@ import { useSocket } from "../../../../../../components/routes/SocketProvider";
 import { getBookings } from "../../../../../../services/AddBookingServices";
 import { apiGetSubCompany } from "../../../../../../services/SubCompanyServices";
 import { OVERVIEW_STATUS_OPTIONS } from "../../../../../../constants/selectOptions";
-import { filterBookingsForOverviewTab } from "../../../../../../utils/functions/bookingDateFilter";
+import {
+    filterBookingsForOverviewTab,
+    mergeBookingsById,
+    shouldShowBookingInOverviewTab,
+} from "../../../../../../utils/functions/bookingDateFilter";
+import { formatBookingDate, formatCurrency, formatPickupTime, formatReminderLabel } from "../../../../../../utils/functions/formatters";
 import { useNavigate } from "react-router-dom";
 import StatusMenu from "./StatusMenu";
 import AllocateDriverModal from "./AllocateDriverModal";
 import AppLogoLoader from "../../../../../../components/shared/AppLogoLoader";
 import DriverAssignmentModal from "./DriverAssignmentModal";
+import EditableBookingRow, { isEditableOverviewTab } from "./EditableBookingRow";
 import FollowOnJobModal from "./Followonjobmodal";
 
 const statusColor = {
@@ -30,7 +36,7 @@ const Col = ({ w, children, className = "" }) => (
     <div className={`px-4 py-3 flex-shrink-0 ${w} ${className}`}>{children}</div>
 );
 
-const OverViewDetails = ({ filter, externalRefreshTrigger = 0 }) => {
+const OverViewDetails = ({ filter, externalRefreshTrigger = 0, seedBookings = [], onSeedConsumed, onOpenEditBooking }) => {
     const navigate = useNavigate();
     const applyTabFilter = useCallback(
         (bookings) => filterBookingsForOverviewTab((bookings || []).filter(Boolean), filter),
@@ -56,6 +62,13 @@ const OverViewDetails = ({ filter, externalRefreshTrigger = 0 }) => {
     const [assignmentNotification, setAssignmentNotification] = useState(null);
     const assignmentNotificationRef = useRef(null);
     const [refreshTrigger, setRefreshTrigger] = useState(0);
+    const pendingSeedBookingsRef = useRef([]);
+
+    useEffect(() => {
+        if (seedBookings?.length) {
+            pendingSeedBookingsRef.current = seedBookings;
+        }
+    }, [seedBookings]);
 
     const showNotification = useCallback((data) => {
         assignmentNotificationRef.current = data;
@@ -89,6 +102,15 @@ const OverViewDetails = ({ filter, externalRefreshTrigger = 0 }) => {
         fetchSubCompanies();
     }, []);
 
+    const onSeedConsumedRef = useRef(onSeedConsumed);
+    useEffect(() => {
+        onSeedConsumedRef.current = onSeedConsumed;
+    }, [onSeedConsumed]);
+
+    useEffect(() => {
+        setPage(1);
+    }, [filter]);
+
     useEffect(() => {
         setTableLoading(true);
         const fetchBookings = async () => {
@@ -99,21 +121,36 @@ const OverViewDetails = ({ filter, externalRefreshTrigger = 0 }) => {
                 if (selectedSubCompany) params.sub_company = selectedSubCompany;
                 if (filter) params.filter = filter;
 
-                const res = await getBookings(params);
-                if (res?.data?.success) {
-                    const fetchedBookings = (res.data.data || []).filter(Boolean);
-                    setBookings(applyTabFilter(fetchedBookings));
-                    setTotalPages(res.data.pagination?.total_pages || 1);
+                let res = await getBookings(params);
+                const fetchedBookings = res?.data?.success ? (res.data.data || []).filter(Boolean) : [];
+
+                const pendingSeeds = pendingSeedBookingsRef.current || [];
+                const relevantSeeds = pendingSeeds.filter((booking) =>
+                    shouldShowBookingInOverviewTab(booking, filter)
+                );
+                setBookings(mergeBookingsById(fetchedBookings, relevantSeeds));
+                setTotalPages(res?.data?.pagination?.total_pages || 1);
+                if (relevantSeeds.length > 0) {
+                    pendingSeedBookingsRef.current = [];
+                    onSeedConsumedRef.current?.();
                 }
             } catch (error) {
                 console.error("Error fetching booking:", error);
-                setBookings([]);
+                const pendingSeeds = pendingSeedBookingsRef.current || [];
+                const relevantSeeds = pendingSeeds.filter((booking) =>
+                    shouldShowBookingInOverviewTab(booking, filter)
+                );
+                setBookings(relevantSeeds);
+                if (relevantSeeds.length > 0) {
+                    pendingSeedBookingsRef.current = [];
+                    onSeedConsumedRef.current?.();
+                }
             } finally {
                 setTableLoading(false);
             }
         };
         fetchBookings();
-    }, [page, search, selectedStatus, selectedSubCompany, filter, refreshTrigger, externalRefreshTrigger, applyTabFilter]);
+    }, [page, search, selectedStatus, selectedSubCompany, filter, refreshTrigger, externalRefreshTrigger]);
 
     useEffect(() => {
         if (!socket) return;
@@ -125,11 +162,12 @@ const OverViewDetails = ({ filter, externalRefreshTrigger = 0 }) => {
         const handleNewBooking = (booking) => {
             console.log("new-booking-event:", booking);
             if (!booking || booking.id == null) return;
+            if (!shouldShowBookingInOverviewTab(booking, filter)) return;
+
             setBookings((prev) => {
                 const safe = prev.filter(Boolean);
                 if (safe.find((b) => b.id === booking.id)) return safe;
-                const next = [booking, ...safe];
-                return applyTabFilter(next);
+                return [booking, ...safe];
             });
         };
 
@@ -291,6 +329,58 @@ const OverViewDetails = ({ filter, externalRefreshTrigger = 0 }) => {
             );
         };
 
+        const handleSendReminder = (rawData) => {
+            let data;
+            try {
+                data = typeof rawData === "string" ? JSON.parse(rawData) : rawData;
+            } catch {
+                data = rawData;
+            }
+            if (!data) return;
+
+            console.log("send-reminder:", data);
+            showNotification({
+                type: "reminder",
+                title: data.title || "Booking Reminder",
+                message: data.description || data.message || data.body || "",
+                booking_id: data.booking_id,
+                booking_reference: data.booking_reference,
+                pickup_location: data.pickup_location,
+                pickup_time: data.pickup_time,
+                booking_date: data.booking_date,
+                reminder_minutes: data.reminder_minutes,
+            });
+        };
+
+        const handleBookingUpdated = (rawData) => {
+            let data;
+            try {
+                data = typeof rawData === "string" ? JSON.parse(rawData) : rawData;
+            } catch {
+                data = rawData;
+            }
+
+            const booking = data?.booking ?? data;
+            if (!booking?.id) return;
+
+            console.log("booking-updated-event:", booking);
+            setBookings((prev) => {
+                const safe = prev.filter(Boolean);
+                const exists = safe.some((b) => b.id === booking.id);
+
+                if (!exists) {
+                    return shouldShowBookingInOverviewTab(booking, filter)
+                        ? [booking, ...safe]
+                        : safe;
+                }
+
+                return safe
+                    .map((b) => (b.id === booking.id ? { ...b, ...booking } : b))
+                    .filter((b) => shouldShowBookingInOverviewTab(b, filter));
+            });
+            setRefreshTrigger((prev) => prev + 1);
+        };
+
         socket.onAny((event, ...args) => {
             console.log(`${event}:`, args);
         });
@@ -312,6 +402,8 @@ const OverViewDetails = ({ filter, externalRefreshTrigger = 0 }) => {
         socket.on("follow-on-job-sent-to-driver", handleFollowOnSentToDriver);
         socket.on("follow-on-job-timeout", handleFollowOnTimeout);
         socket.on("follow-on-job-removed", handleFollowOnRemoved);
+        socket.on("send-reminder", handleSendReminder);
+        socket.on("booking-updated-event", handleBookingUpdated);
 
         return () => {
             socket.offAny();
@@ -329,6 +421,8 @@ const OverViewDetails = ({ filter, externalRefreshTrigger = 0 }) => {
             socket.off("follow-on-job-sent-to-driver", handleFollowOnSentToDriver);
             socket.off("follow-on-job-timeout", handleFollowOnTimeout);
             socket.off("follow-on-job-removed", handleFollowOnRemoved);
+            socket.off("send-reminder", handleSendReminder);
+            socket.off("booking-updated-event", handleBookingUpdated);
         };
 
     }, [socket, showNotification, filter, applyTabFilter]);
@@ -353,9 +447,11 @@ const OverViewDetails = ({ filter, externalRefreshTrigger = 0 }) => {
     const handleBookingUpdate = (updated) => {
         if (!updated || updated.id == null) return;
         setBookings((prev) =>
-            applyTabFilter(prev.map((b) => b.id === updated.id ? { ...b, ...updated } : b))
+            prev
+                .map((b) => (b.id === updated.id ? { ...b, ...updated } : b))
+                .filter((b) => shouldShowBookingInOverviewTab(b, filter))
         );
-        setRefreshTrigger(prev => prev + 1);
+        setRefreshTrigger((prev) => prev + 1);
     };
 
     const handleOpenAllocateModal = (booking, assignmentType = "allocate_driver") => {
@@ -457,6 +553,7 @@ const OverViewDetails = ({ filter, externalRefreshTrigger = 0 }) => {
                                     <Col w="w-[80px]">ID</Col>
                                     <Col w="w-[120px]">Pickup Date</Col>
                                     <Col w="w-[100px]">Time</Col>
+                                    <Col w="w-[90px]">Reminder</Col>
                                     <Col w="w-[100px]">Passenger</Col>
                                     <Col w="w-[180px]">Mobile No.</Col>
                                     <Col w="w-[220px]">Pickup</Col>
@@ -473,6 +570,27 @@ const OverViewDetails = ({ filter, externalRefreshTrigger = 0 }) => {
                                     if (!b || b.id == null) return null;
                                     const btnRef = getButtonRef(b.id);
 
+                                    if (isEditableOverviewTab(filter)) {
+                                        return (
+                                            <EditableBookingRow
+                                                key={b.id}
+                                                booking={b}
+                                                index={index}
+                                                filter={filter}
+                                                statusColor={statusColor}
+                                                formatStatus={formatStatus}
+                                                openMenu={openMenu}
+                                                setOpenMenu={setOpenMenu}
+                                                btnRef={btnRef}
+                                                navigate={navigate}
+                                                onBookingUpdate={handleBookingUpdate}
+                                                onOpenAllocateModal={handleOpenAllocateModal}
+                                                onOpenFollowOnModal={handleOpenFollowOnModal}
+                                                onOpenEditBooking={onOpenEditBooking}
+                                            />
+                                        );
+                                    }
+
                                     return (
                                         <div
                                             key={b.id}
@@ -481,13 +599,15 @@ const OverViewDetails = ({ filter, externalRefreshTrigger = 0 }) => {
                                             <Col w="w-[80px]">{index + 1}</Col>
 
                                             <Col w="w-[120px]">
-                                                {b.booking_date
-                                                    ? new Date(b.booking_date).toLocaleDateString("en-GB")
-                                                    : "—"}
+                                                {formatBookingDate(b.booking_date)}
                                             </Col>
 
                                             <Col w="w-[100px]">
-                                                {b.pickup_time === "asap" ? "ASAP" : b.pickup_time}
+                                                {formatPickupTime(b)}
+                                            </Col>
+
+                                            <Col w="w-[90px]">
+                                                {formatReminderLabel(b.reminder_minutes)}
                                             </Col>
 
                                             <Col w="w-[100px]">{b.passenger ?? 1}</Col>
@@ -503,7 +623,7 @@ const OverViewDetails = ({ filter, externalRefreshTrigger = 0 }) => {
 
                                             <Col w="w-[130px]">
                                                 <div className="flex flex-col">
-                                                    <span>{b.booking_amount ?? b.offered_amount ?? "0.00"}</span>
+                                                    <span>{formatCurrency(b.booking_amount ?? b.offered_amount ?? 0)}</span>
                                                     <span className="text-xs text-gray-500">{formatStatus(b.payment_method)}</span>
                                                 </div>
                                             </Col>
@@ -522,12 +642,6 @@ const OverViewDetails = ({ filter, externalRefreshTrigger = 0 }) => {
                                                 </div>
                                             </Col>
 
-                                            {/* <Col w="w-[100px]">
-                                                {b.booking_status && b.otp ? (
-                                                    <span className="text-xs text-gray-500">{b.otp}</span>
-                                                ) : "-"}
-                                            </Col> */}
-
                                             <Col w="w-[170px]">
                                                 <div className="flex flex-col gap-1">
                                                     <button
@@ -541,7 +655,6 @@ const OverViewDetails = ({ filter, externalRefreshTrigger = 0 }) => {
                                                         ▾
                                                     </button>
 
-                                                    {/* Follow-on badge — shows when Job 2 is queued */}
                                                     {b.follow_on_job_id && (
                                                         <span className="text-[10px] bg-green-100 text-green-700 font-semibold px-2 py-0.5 rounded-full text-center">
                                                             🔗 Follow-on queued

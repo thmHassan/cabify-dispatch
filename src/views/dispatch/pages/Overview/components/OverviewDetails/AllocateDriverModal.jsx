@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
 import toast from "react-hot-toast";
 import { apiGetDriverManagement } from "../../../../../../services/DriverManagementService";
-import { assignDriverToBooking } from "../../../../../../services/AddBookingServices";
+import { assignDriverToBooking, isApiSuccess, getApiErrorMessage } from "../../../../../../services/AddBookingServices";
+import { extractUpdatedBookingFromResponse } from "../../../../../../utils/functions/bookingDateFilter";
 import Button from "../../../../../../components/ui/Button/Button";
 import { getDispatcherName } from "../../../../../../utils/auth";
 
@@ -63,13 +64,16 @@ const AllocateDriverModal = ({ bookingData, onClose, onSuccess }) => {
     const assignmentType = bookingData?._assignmentType || "allocate_driver";
     const isPreJob = assignmentType === "pre_job";
 
+    const getDriverId = (driver) => driver?.id ?? driver?.driver_id;
+
     useEffect(() => {
         fetchDrivers();
     }, []);
 
     useEffect(() => {
-        if (bookingData?.driver) {
-            setSelectedDriverId(bookingData.driver.toString());
+        const assignedDriverId = bookingData?.driver ?? bookingData?.pending_driver_id;
+        if (assignedDriverId) {
+            setSelectedDriverId(String(assignedDriverId));
         }
     }, [bookingData]);
 
@@ -93,7 +97,7 @@ const AllocateDriverModal = ({ bookingData, onClose, onSuccess }) => {
     };
 
     const selectedDriver = drivers.find(
-        (d) => d.id.toString() === selectedDriverId.toString()
+        (d) => String(getDriverId(d)) === String(selectedDriverId)
     );
     const isSelectedDriverBusy = selectedDriver?.driving_status === "busy";
 
@@ -111,35 +115,52 @@ const AllocateDriverModal = ({ bookingData, onClose, onSuccess }) => {
 
     const doAssign = async () => {
         setShowBusyAlert(false);
+
+        const bookingId = Number(bookingData?.id);
+        const driverId = Number(selectedDriverId);
+
+        if (!Number.isFinite(bookingId) || bookingId <= 0) {
+            toast.error("Invalid booking. Please refresh the list and try again.");
+            return;
+        }
+
+        if (!Number.isFinite(driverId) || driverId <= 0) {
+            toast.error("Please select a valid driver");
+            return;
+        }
+
         setSaving(true);
         try {
             const dispatcherName = getDispatcherName();
             const response = await assignDriverToBooking(
-                bookingData.id,
-                selectedDriverId,
+                bookingId,
+                driverId,
                 assignmentType,
                 dispatcherName
             );
 
-            if (response?.data?.success) {
+            if (isApiSuccess(response?.data)) {
                 const successMessage = isPreJob
                     ? `Pre-job sent to driver. Waiting for driver response.`
                     : `Driver assigned successfully. Waiting for driver response.`;
 
-                toast.success(successMessage);
+                toast.success(response?.data?.message || successMessage);
+
+                const apiBooking = extractUpdatedBookingFromResponse(response?.data, bookingData);
 
                 onSuccess({
-                    ...bookingData,
-                    driver: selectedDriverId,
+                    ...apiBooking,
+                    driver: driverId,
                     driverDetail: selectedDriver
                         ? {
-                            id: selectedDriver.id,
+                            id: getDriverId(selectedDriver),
                             name: selectedDriver.name,
                             phone_no: selectedDriver.phone_no,
                         }
-                        : null,
+                        : apiBooking.driverDetail || null,
+                    booking_status: apiBooking.booking_status || "pending_acceptance",
                     _assignmentType: assignmentType,
-                    _successMessage: successMessage,
+                    _successMessage: response?.data?.message || successMessage,
                 });
                 onClose();
             } else {
@@ -147,7 +168,7 @@ const AllocateDriverModal = ({ bookingData, onClose, onSuccess }) => {
             }
         } catch (error) {
             console.error("Assign driver error:", error);
-            toast.error(error?.response?.data?.message || "Failed to assign driver");
+            toast.error(getApiErrorMessage(error, "Failed to assign driver"));
         } finally {
             setSaving(false);
         }
@@ -181,7 +202,7 @@ const AllocateDriverModal = ({ bookingData, onClose, onSuccess }) => {
                 <div className="py-3 px-4 bg-gray-100 mx-6 rounded">
                     <div className="flex items-center gap-4 text-sm">
                         <span className="font-medium">Booking ID:</span>
-                        <span>{bookingData.booking_id}</span>
+                        <span>{bookingData.booking_id || bookingData.id}</span>
                     </div>
                     {isPreJob && (
                         <div className="mt-1 text-xs text-blue-600 font-medium">
@@ -209,21 +230,27 @@ const AllocateDriverModal = ({ bookingData, onClose, onSuccess }) => {
 
                             {idleDrivers.length > 0 && (
                                 <optgroup label="Available (Idle)">
-                                    {idleDrivers.map((driver) => (
-                                        <option key={driver.id} value={driver.id}>
-                                            {driver.name} – {driver.phone_no}
-                                        </option>
-                                    ))}
+                                    {idleDrivers.map((driver) => {
+                                        const driverId = getDriverId(driver);
+                                        return (
+                                            <option key={driverId} value={driverId}>
+                                                {driver.name} – {driver.phone_no}
+                                            </option>
+                                        );
+                                    })}
                                 </optgroup>
                             )}
 
                             {busyDrivers.length > 0 && (
                                 <optgroup label="Busy (Active Ride)">
-                                    {busyDrivers.map((driver) => (
-                                        <option key={driver.id} value={driver.id}>
-                                            {driver.name} – {driver.phone_no}
-                                        </option>
-                                    ))}
+                                    {busyDrivers.map((driver) => {
+                                        const driverId = getDriverId(driver);
+                                        return (
+                                            <option key={driverId} value={driverId}>
+                                                {driver.name} – {driver.phone_no}
+                                            </option>
+                                        );
+                                    })}
                                 </optgroup>
                             )}
                         </select>

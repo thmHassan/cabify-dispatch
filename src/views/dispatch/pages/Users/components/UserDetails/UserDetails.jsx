@@ -1,5 +1,6 @@
 import React from "react";
 import { formatPhoneDisplay } from "../../../../../../utils/functions/tenantSettings";
+import { formatDate } from "../../../../../../utils/functions/formatters";
 import UserDropdown from "../../../../../../components/shared/UserDropdown";
 import Button from "../../../../../../components/ui/Button/Button";
 import ThreeDotsIcon from "../../../../../../components/svg/ThreeDotsIcon";
@@ -16,23 +17,11 @@ const UserDetails = ({ user, onEdit, onDelete }) => {
         },
     ];
 
-    const formatDate = (dateString) => {
-        if (!dateString) return "-";
-
-        const date = new Date(dateString);
-
-        return date.toLocaleString("en-GB", {
-            weekday: "short",
-            day: "2-digit",
-            month: "short",
-            year: "numeric",
-        }).replace(",", "");
-    };
-
     const getFirstLetter = (name) => {
         if (!name) return "?";
         return name.charAt(0).toUpperCase();
     };
+
     return (
         <div
             className="flex justify-between bg-white rounded-[15px] p-4 gap-2 flex items-center hover:shadow-md overflow-x-auto"

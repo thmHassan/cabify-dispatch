@@ -1,4 +1,5 @@
 import { io } from "socket.io-client";
+import { resolveSocketIoOrigin } from "../utils/functions/backendUrls";
 import { getDecryptedToken, getTenantId } from "../utils/functions/tokenEncryption";
 import { getDispatcherId } from "../utils/auth";
 
@@ -13,7 +14,6 @@ const initSocket = () => {
 
     console.log("Socket database:", tenantId);
     console.log("Socket dispatcher_id:", dispatcher_id);
-    console.log("token===", token);
 
 
     if (!tenantId) {
@@ -21,13 +21,7 @@ const initSocket = () => {
         return null;
     }
 
-    const socketBaseUrl = (() => {
-        const socketApiUrl = import.meta.env.VITE_BACKEND_SOCKET_URL;
-        if (socketApiUrl) {
-            return socketApiUrl.replace(/\/socket-api\/?$/, "");
-        }
-        return "https://backend.cabifyit.com";
-    })();
+    const socketBaseUrl = resolveSocketIoOrigin();
 
     socket = io(socketBaseUrl, {
         path: "/socket.io",

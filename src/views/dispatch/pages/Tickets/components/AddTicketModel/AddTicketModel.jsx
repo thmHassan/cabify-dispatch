@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import Button from "../../../../../../components/ui/Button/Button";
 import { apiReplyTicket } from "../../../../../../services/TicketServices";
+import { formatDateTime } from "../../../../../../utils/functions/formatters";
 
 const getUserTypeLabel = (userType) => (userType === "driver" ? "Driver" : "Customer");
 
@@ -55,7 +56,7 @@ const AddTicketModel = ({ ticket, onClose, refreshList, onUserClick }) => {
             </button>
 
             <p className="text-gray-400 text-sm mb-5">
-                {new Date(ticket.created_at).toLocaleDateString("en-GB")}
+                {formatDateTime(ticket.created_at)}
             </p>
 
             {/* Chat bubbles */}

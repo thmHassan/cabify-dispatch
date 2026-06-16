@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { formatPhoneDisplay } from "../../../../../../utils/functions/tenantSettings";
+import { formatDateTime } from "../../../../../../utils/functions/formatters";
 
 
 const LostFoundCard = ({ lostfound, onView, onStatusChange }) => {
@@ -21,17 +22,6 @@ const LostFoundCard = ({ lostfound, onView, onStatusChange }) => {
         });
         setShowDropdown((prev) => !prev);
     };
-
-    function formatDateTime(isoString) {
-        const date = new Date(isoString);
-        const day = String(date.getDate()).padStart(2, "0");
-        const month = String(date.getMonth() + 1).padStart(2, "0"); // months are 0-indexed
-        const year = date.getFullYear();
-        const hours = String(date.getHours()).padStart(2, "0");
-        const minutes = String(date.getMinutes()).padStart(2, "0");
-
-        return `${day}-${month}-${year} at ${hours}:${minutes}`;
-    }
 
     const getStatusStyles = (status) => {
         switch (status) {

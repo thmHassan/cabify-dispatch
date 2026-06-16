@@ -1,5 +1,5 @@
 import { Form, Formik } from "formik";
-import { useEffect, useState, useMemo, useCallback } from "react";
+import { useEffect, useLayoutEffect, useState, useMemo, useCallback } from "react";
 import Maps from "./components/maps";
 import { getTenantData } from "../../../../../../utils/functions/tokenEncryption";
 import {
@@ -15,14 +15,16 @@ import { apiGetAccount } from "../../../../../../services/AccountServices";
 import { apiGetDriverManagement } from "../../../../../../services/DriverManagementService";
 import { apiGetAllVehicleType } from "../../../../../../services/VehicleTypeServices";
 import Button from "../../../../../../components/ui/Button/Button";
-import { apiGetAllPlot, apiCreateCalculateFares, apiCreateBooking } from "../../../../../../services/AddBookingServices";
+import { apiGetAllPlot, apiCreateCalculateFares, apiCreateBooking, updateBooking, isApiSuccess } from "../../../../../../services/AddBookingServices";
 import { apiGetDispatchSystem, apiGetCompanyApiKeys } from "../../../../../../services/SettingsConfigurationServices";
 import { unlockBodyScroll } from "../../../../../../utils/functions/common.function";
 import toast from 'react-hot-toast';
-import { getDispatcherId } from "../../../../../../utils/auth";
+import { getDispatcherId, getDispatcherName } from "../../../../../../utils/auth";
 import { apiGetRideHistory, apiGetUser } from "../../../../../../services/UserService";
 import { debounce } from "lodash";
 import {
+    extractCreatedBookings,
+    extractUpdatedBookingFromResponse,
     formatDateForInput,
     getMultiBookingCreatedCount,
     getTodayWeekdayLabel,
@@ -31,6 +33,7 @@ import {
     resolveMultiBookingSubmitDate,
     syncMultiBookingReferenceDate,
 } from "../../../../../../utils/functions/bookingDateFilter";
+import { mapBookingToFormValues } from "../../../../../../utils/functions/bookingFormMapper";
 import History from "./components/History";
 import successSound from "../../../../../../assets/audio/meldix-success-340660.mp3";
 
@@ -42,20 +45,36 @@ const BARIKOI_KEY = import.meta.env.VITE_BARIKOI_API_KEY || DEFAULT_BARIKOI_KEY;
 
 const loadGoogleScript = (apiKey) =>
     new Promise((resolve, reject) => {
-        if (window.google?.maps?.places) return resolve();
+        const isReady = () =>
+            typeof window.google?.maps?.Map === "function"
+            && window.google?.maps?.places?.AutocompleteService;
+
+        if (isReady()) return resolve();
+
         const existing = document.getElementById("google-maps-script");
         if (existing) {
-            if (window.google?.maps?.places) return resolve();
-            existing.addEventListener("load", resolve);
-            existing.addEventListener("error", () => reject(new Error("Google Maps load failed")));
+            const wait = (attempts = 0) => {
+                if (isReady()) return resolve();
+                if (attempts >= 150) return reject(new Error("Google Maps load failed"));
+                setTimeout(() => wait(attempts + 1), 50);
+            };
+            existing.addEventListener("load", () => wait());
+            wait();
             return;
         }
         const script = document.createElement("script");
         script.id = "google-maps-script";
-        script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey || GOOGLE_KEY}&libraries=places&loading=async`;
+        script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey || GOOGLE_KEY}&libraries=places`;
         script.async = true;
         script.defer = true;
-        script.onload = resolve;
+        script.onload = () => {
+            const wait = (attempts = 0) => {
+                if (isReady()) return resolve();
+                if (attempts >= 150) return reject(new Error("Google Maps load failed"));
+                setTimeout(() => wait(attempts + 1), 50);
+            };
+            wait();
+        };
         script.onerror = () => reject(new Error("Google Maps load failed"));
         document.head.appendChild(script);
     });
@@ -73,20 +92,27 @@ const FieldError = ({ message }) => {
 };
 
 const formInputClass =
-    "w-full rounded-lg border border-[#D1D5DB] bg-white px-3 py-2.5 text-sm text-[#111827] shadow-sm outline-none transition focus:border-[#1F41BB] focus:ring-2 focus:ring-[#1F41BB]/20 disabled:bg-[#F9FAFB] disabled:text-[#9CA3AF]";
+    "w-full rounded-lg border border-[#D1D5DB] bg-white px-2.5 py-2 lg:py-1.5 text-sm lg:text-xs text-[#111827] shadow-sm outline-none transition focus:border-[#1F41BB] focus:ring-2 focus:ring-[#1F41BB]/20 disabled:bg-[#F9FAFB] disabled:text-[#9CA3AF]";
 const formSelectClass = formInputClass;
 const formInputErrorClass = "border-red-500 focus:border-red-500 focus:ring-red-500/20";
-const formLabelClass = "mb-1.5 block text-xs font-semibold uppercase tracking-wide text-[#6B7280]";
+const formLabelClass = "mb-1 lg:mb-0.5 block text-xs lg:text-[10px] font-semibold uppercase tracking-wide text-[#6B7280]";
+
+const REMINDER_TIME_OPTIONS = [
+    { value: "5", label: "5 minutes" },
+    { value: "15", label: "15 minutes" },
+    { value: "30", label: "30 minutes" },
+    { value: "50", label: "50 minutes" },
+];
 
 const FormSection = ({ title, description, children, className = "" }) => (
-    <section className={`rounded-xl border border-[#E5E7EB] bg-white p-4 sm:p-5 shadow-sm ${className}`}>
+    <section className={`rounded-xl border border-[#E5E7EB] bg-white p-2.5 lg:p-2 shadow-sm overflow-hidden ${className}`}>
         {title && (
-            <div className="mb-4 border-b border-[#F3F4F6] pb-3">
-                <h3 className="text-base font-semibold text-[#111827]">{title}</h3>
-                {description && <p className="mt-1 text-xs text-[#6B7280]">{description}</p>}
+            <div className="mb-2 lg:mb-1.5 border-b border-[#F3F4F6] pb-1.5">
+                <h3 className="text-sm lg:text-xs font-semibold text-[#111827]">{title}</h3>
+                {description && <p className="mt-0.5 text-xs text-[#6B7280] hidden sm:block lg:hidden">{description}</p>}
             </div>
         )}
-        <div className="space-y-4">{children}</div>
+        <div className="space-y-2 lg:space-y-1.5">{children}</div>
     </section>
 );
 
@@ -218,7 +244,30 @@ const fetchRouteDistance = async (pickup, destination, viaCoords, mapsApi, apiKe
     return distance;
 };
 
-const AddBooking = ({ setIsOpen, onBookingCreated }) => {
+const DEFAULT_FORM_VALUES = {
+    pickup_point: "", destination: "", via_points: [],
+    via_latitude: [], via_longitude: [],
+    pickup_latitude: "", pickup_longitude: "",
+    destination_latitude: "", destination_longitude: "",
+    pickup_plot_id: null, destination_plot_id: null, via_plot_id: [],
+    sub_company: "", account: "", vehicle: "", driver: "",
+    journey_type: "one_way", booking_system: "auto_dispatch",
+    auto_dispatch: true, bidding: false, request_for_vehicle: false,
+    pickup_time_type: "asap", pickup_time: "", reminder_minutes: "",
+    booking_date: "", booking_type: "outstation",
+    name: "", email: "", phone_no: "", tel_no: "",
+    passenger: 1, luggage: 0, hand_luggage: 0,
+    special_request: "", payment_reference: "", payment_method: "cash",
+    base_fare: "", fares: "", return_fares: "", parking_charges: "",
+    booking_fee_charges: "", ac_fares: "", return_ac_fares: "",
+    ac_parking_charges: "", waiting_charges: "", extra_charges: "",
+    congestion_toll: "", ac_waiting_charges: "", total_charges: "",
+    distance: "", user_id: "",
+    multi_days: [], multi_start_at: "", multi_end_at: "", week_pattern: "",
+};
+
+const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
+    const isEditMode = Boolean(editBooking?.id);
     const todayWeekday = getTodayWeekdayLabel();
     const rawTenant = getTenantData();
     const tenant = rawTenant?.data || rawTenant || {};
@@ -286,26 +335,11 @@ const AddBooking = ({ setIsOpen, onBookingCreated }) => {
     const clearBookingError = (key) => setBookingErrors(prev => ({ ...prev, [key]: undefined }));
     const clearFieldErrors = (key) => { clearCalcError(key); clearBookingError(key); };
 
-    const [initialFormValues, setInitialFormValues] = useState({
-        pickup_point: "", destination: "", via_points: [],
-        via_latitude: [], via_longitude: [],
-        pickup_latitude: "", pickup_longitude: "",
-        destination_latitude: "", destination_longitude: "",
-        pickup_plot_id: null, destination_plot_id: null, via_plot_id: [],
-        sub_company: "", account: "", vehicle: "", driver: "",
-        journey_type: "one_way", booking_system: "auto_dispatch",
-        auto_dispatch: true, bidding: false, request_for_vehicle: false,
-        pickup_time_type: "asap", pickup_time: "",
-        booking_date: "", booking_type: "outstation",
-        name: "", email: "", phone_no: "", tel_no: "",
-        passenger: 1, luggage: 0, hand_luggage: 0,
-        special_request: "", payment_reference: "", payment_method: "cash",
-        base_fare: "", fares: "", return_fares: "", parking_charges: "",
-        booking_fee_charges: "", ac_fares: "", return_ac_fares: "",
-        ac_parking_charges: "", waiting_charges: "", extra_charges: "",
-        congestion_toll: "", ac_waiting_charges: "", total_charges: "",
-        distance: "", user_id: "",
-        multi_days: [], multi_start_at: "", multi_end_at: "", week_pattern: "",
+    const [initialFormValues, setInitialFormValues] = useState(() => {
+        if (editBooking?.id) {
+            return mapBookingToFormValues(editBooking, { mode: "edit" }) || DEFAULT_FORM_VALUES;
+        }
+        return DEFAULT_FORM_VALUES;
     });
 
     const chargeFields = [
@@ -531,6 +565,68 @@ const AddBooking = ({ setIsOpen, onBookingCreated }) => {
         }
     }, []);
 
+    useLayoutEffect(() => {
+        if (!editBooking?.id) return;
+
+        const formValues = mapBookingToFormValues(editBooking, { mode: "edit" });
+        if (!formValues) return;
+
+        setInitialFormValues(formValues);
+        setIsMultiBooking(false);
+
+        if (formValues.pickup_latitude && formValues.pickup_longitude) {
+            const c = {
+                lat: parseFloat(formValues.pickup_latitude),
+                lng: parseFloat(formValues.pickup_longitude),
+            };
+            setStablePickupCoords(c);
+            fetchPlotName(formValues.pickup_latitude, formValues.pickup_longitude).then(setPickupPlotData);
+        } else {
+            setStablePickupCoords(null);
+            setPickupPlotData(null);
+        }
+
+        if (formValues.destination_latitude && formValues.destination_longitude) {
+            const c = {
+                lat: parseFloat(formValues.destination_latitude),
+                lng: parseFloat(formValues.destination_longitude),
+            };
+            setStableDestinationCoords(c);
+            fetchPlotName(formValues.destination_latitude, formValues.destination_longitude).then(setDestinationPlotData);
+        } else {
+            setStableDestinationCoords(null);
+            setDestinationPlotData(null);
+        }
+
+        if (formValues.via_latitude?.length > 0) {
+            const viaC = [];
+            formValues.via_latitude.slice(0, 2).forEach((lat, i) => {
+                const lng = formValues.via_longitude[i];
+                if (lat && lng) {
+                    viaC[i] = { lat: parseFloat(lat), lng: parseFloat(lng) };
+                    fetchPlotName(lat, lng).then((pd) => setViaPlotData((prev) => ({ ...prev, [i]: pd })));
+                }
+            });
+            setStableViaCoords(viaC);
+        } else {
+            setStableViaCoords([]);
+            setViaPlotData({});
+        }
+
+        const totalAmount = parseFloat(formValues.total_charges) || 0;
+        const baseFare = parseFloat(formValues.fares) || totalAmount;
+        if (totalAmount || baseFare) {
+            setFareCalculated(true);
+            setFareData({
+                calculate_fare: baseFare,
+                distance: parseFloat(formValues.distance) || null,
+            });
+        } else {
+            setFareCalculated(false);
+            setFareData(null);
+        }
+    }, [editBooking?.id]);
+
     const searchLocation = async (query, type, index = null) => {
         if (!query || query.trim().length < 2) return;
         let list = [];
@@ -691,6 +787,13 @@ const AddBooking = ({ setIsOpen, onBookingCreated }) => {
         if (!values.booking_type || values.booking_type === "outstation") errors.booking_type = "Please select a booking type";
         if (!isMultiBooking && !values.booking_date) errors.booking_date = "Booking date is required";
         if (values.pickup_time_type === "time" && !values.pickup_time) errors.pickup_time = "Pickup time is required";
+        if (
+            values.pickup_time_type === "time" &&
+            values.reminder_minutes &&
+            !REMINDER_TIME_OPTIONS.some((opt) => opt.value === String(values.reminder_minutes))
+        ) {
+            errors.reminder_minutes = "Please select a valid reminder time";
+        }
         if (!values.name?.trim()) errors.name = "Passenger name is required";
         if (!values.phone_no?.trim()) errors.phone_no = "Mobile number is required";
         if (!values.payment_method) errors.payment_method = "Payment method is required";
@@ -718,6 +821,12 @@ const AddBooking = ({ setIsOpen, onBookingCreated }) => {
             return { latitude: parseFloat(latitude), longitude: parseFloat(longitude) };
         }
         return getCoordinatesFromAddress(address);
+    };
+
+    const appendAccountFields = (formData, accountId) => {
+        const value = accountId ? String(accountId) : "";
+        formData.append("account", value);
+        formData.append("account_id", value);
     };
 
     const handleCalculateFares = async (values, setFieldValue) => {
@@ -773,6 +882,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated }) => {
             }
             formData.append('vehicle_id', values.vehicle || '');
             formData.append('journey', values.journey_type);
+            appendAccountFields(formData, values.account);
             const response = await apiCreateCalculateFares(formData);
             if (response?.data?.success === 1) {
                 setFareData(response.data);
@@ -858,6 +968,29 @@ const AddBooking = ({ setIsOpen, onBookingCreated }) => {
         invalidateFare();
     };
 
+    const swapPickupAndDestination = (setFieldValue, values) => {
+        setFieldValue("pickup_point", values.destination);
+        setFieldValue("destination", values.pickup_point);
+        setFieldValue("pickup_latitude", values.destination_latitude);
+        setFieldValue("pickup_longitude", values.destination_longitude);
+        setFieldValue("destination_latitude", values.pickup_latitude);
+        setFieldValue("destination_longitude", values.pickup_longitude);
+        setFieldValue("pickup_plot_id", values.destination_plot_id);
+        setFieldValue("destination_plot_id", values.pickup_plot_id);
+
+        setPickupPlotData(destinationPlotData);
+        setDestinationPlotData(pickupPlotData);
+        setStablePickupCoords(stableDestinationCoords);
+        setStableDestinationCoords(stablePickupCoords);
+
+        setShowPickup(false);
+        setShowDestination(false);
+        setPickupSuggestions([]);
+        setDestinationSuggestions([]);
+
+        invalidateFare();
+    };
+
     const applyMultiBookingDateSync = (values, setFieldValue, overrides = {}) => {
         const multiDays = overrides.multi_days ?? values.multi_days;
         const multiStartAt = overrides.multi_start_at ?? values.multi_start_at;
@@ -891,12 +1024,16 @@ const AddBooking = ({ setIsOpen, onBookingCreated }) => {
                 formData.append('includes_today', includesToday ? 'yes' : 'no');
                 formData.append('today_weekday', todayWeekday);
             }
+            formData.append('pickup_time_type', values.pickup_time_type === "time" ? "time" : "asap");
             if (values.pickup_time_type === "asap") {
                 const now = new Date();
                 formData.append('pickup_time', `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:00`);
             } else {
                 const tv = values.pickup_time || '';
                 formData.append('pickup_time', tv ? `${tv}:00` : '');
+                if (values.reminder_minutes) {
+                    formData.append('reminder_minutes', String(values.reminder_minutes));
+                }
             }
             const bookingDate = isMultiBooking
                 ? resolveMultiBookingSubmitDate({
@@ -972,7 +1109,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated }) => {
             formData.append('phone_no', values.phone_no || '');
             formData.append('tel_no', values.tel_no || '');
             formData.append('journey_type', values.journey_type || '');
-            formData.append('account', values.account || '');
+            appendAccountFields(formData, values.account);
             formData.append('vehicle', values.request_for_vehicle ? (values.vehicle || '') : '');
             formData.append('driver', values.auto_dispatch ? (values.driver || '') : '');
             formData.append('request_for_vehicle', values.request_for_vehicle ? 'yes' : 'no');
@@ -1002,13 +1139,31 @@ const AddBooking = ({ setIsOpen, onBookingCreated }) => {
                             ? `${createdCount} bookings created. Check Today's Booking for today and Pre Bookings for future dates.`
                             : (response?.data?.message || "Multi-bookings created successfully")
                     )
-                    : (response?.data?.message || "Booking created successfully");
+                    : values.pickup_time_type === "time"
+                        ? (response?.data?.message || "Booking created. View it under Pre Bookings.")
+                        : (response?.data?.message || "Booking created successfully");
                 toast.success(successMessage);
                 playSuccessSound();
                 const bookingCreatedMeta = {
                     isMultiBooking,
                     includesToday,
                     createdCount,
+                    isScheduled: values.pickup_time_type === "time",
+                    pickupTimeType: values.pickup_time_type,
+                    reminderMinutes: values.reminder_minutes || null,
+                    createdBookings: extractCreatedBookings(response.data, {
+                        isScheduled: values.pickup_time_type === "time",
+                        pickupTimeType: values.pickup_time_type,
+                        reminderMinutes: values.reminder_minutes || null,
+                        bookingDate,
+                        pickupTime: values.pickup_time_type === "time" && values.pickup_time
+                            ? `${values.pickup_time}:00`
+                            : null,
+                        pickupLocation: values.pickup_point || null,
+                        destinationLocation: values.destination || null,
+                        phoneNo: values.phone_no || null,
+                        passenger: values.passenger || 1,
+                    }),
                 };
                 if (response?.data?.alertMessage) {
                     setAlertModal({ isOpen: true, message: response.data.alertMessage });
@@ -1017,12 +1172,147 @@ const AddBooking = ({ setIsOpen, onBookingCreated }) => {
                 }
                 onBookingCreated?.(bookingCreatedMeta);
                 unlockBodyScroll();
-                setIsOpen({ type: "new", isOpen: false });
+                setIsOpen({ type: "new", isOpen: false, booking: null });
             } else {
                 toast.error(response?.data?.message || "Failed to create booking");
             }
         } catch (error) {
             toast.error(error?.response?.data?.message || "An error occurred while creating booking");
+        } finally {
+            setIsBookingLoading(false);
+        }
+    };
+
+    const handleUpdateBooking = async (values) => {
+        const errors = validateCreateBooking(values);
+        if (Object.keys(errors).length > 0) { setBookingErrors(errors); return; }
+        setBookingErrors({});
+        setIsBookingLoading(true);
+        try {
+            const pickupCoords = await resolveLocationCoords(
+                values.pickup_point,
+                values.pickup_latitude,
+                values.pickup_longitude
+            );
+            const destinationCoords = await resolveLocationCoords(
+                values.destination,
+                values.destination_latitude,
+                values.destination_longitude
+            );
+
+            const data = {
+                sub_company: values.sub_company || "",
+                pickup_time_type: values.pickup_time_type === "time" ? "time" : "asap",
+                booking_date: values.booking_date || "",
+                booking_type: values.booking_type || "",
+                pickup_location: values.pickup_point || "",
+                destination_location: values.destination || "",
+                user_id: values.user_id || "",
+                name: values.name || "",
+                email: values.email || "",
+                phone_no: values.phone_no || "",
+                tel_no: values.tel_no || "",
+                journey_type: values.journey_type || "",
+                account: values.account || "",
+                account_id: values.account || "",
+                vehicle: values.request_for_vehicle ? (values.vehicle || "") : "",
+                driver: values.auto_dispatch ? (values.driver || "") : "",
+                request_for_vehicle: values.request_for_vehicle ? "yes" : "no",
+                passenger: values.passenger || "0",
+                luggage: values.luggage || "0",
+                hand_luggage: values.hand_luggage || "0",
+                special_request: values.special_request || "",
+                payment_reference: values.payment_reference || "",
+                booking_system: values.booking_system || "auto_dispatch",
+                payment_method: values.payment_method || "",
+                parking_charge: values.parking_charges || "",
+                waiting_charge: values.waiting_charges || "",
+                ac_fares: values.ac_fares || "",
+                return_ac_fares: values.return_ac_fares || "",
+                ac_parking_charge: values.ac_parking_charges || "",
+                ac_waiting_charge: values.ac_waiting_charges || "",
+                extra_charge: values.extra_charges || "",
+                toll: values.congestion_toll || "",
+                booking_amount: values.total_charges?.toString() || "0",
+                distance: values.distance?.toString() || fareData?.distance?.toString() || "",
+            };
+
+            if (values.pickup_time_type === "asap") {
+                const now = new Date();
+                data.pickup_time = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}:00`;
+            } else {
+                const tv = values.pickup_time || "";
+                data.pickup_time = tv ? `${tv}:00` : "";
+                if (values.reminder_minutes) {
+                    data.reminder_minutes = String(values.reminder_minutes);
+                }
+            }
+
+            if (pickupCoords) {
+                data.pickup_point = `${pickupCoords.latitude}, ${pickupCoords.longitude}`;
+                let pickupPlotId = values.pickup_plot_id;
+                const plotRes = await fetchPlotName(pickupCoords.latitude, pickupCoords.longitude);
+                if (plotRes?.found && plotRes.id) pickupPlotId = plotRes.id;
+                if (pickupPlotId) {
+                    data.pickup_point_id = pickupPlotId;
+                    data.pickup_plot_id = pickupPlotId;
+                }
+            }
+
+            if (destinationCoords) {
+                data.destination_point = `${destinationCoords.latitude}, ${destinationCoords.longitude}`;
+                let destinationPlotId = values.destination_plot_id;
+                const plotRes = await fetchPlotName(destinationCoords.latitude, destinationCoords.longitude);
+                if (plotRes?.found && plotRes.id) destinationPlotId = plotRes.id;
+                if (destinationPlotId) {
+                    data.destination_point_id = destinationPlotId;
+                    data.destination_plot_id = destinationPlotId;
+                }
+            }
+
+            if (values.via_points?.length > 0) {
+                const viaLocations = [];
+                const viaPoints = [];
+                let vi = 0;
+                for (let i = 0; i < values.via_points.length; i++) {
+                    const viaPoint = values.via_points[i];
+                    if (!viaPoint?.trim()) continue;
+                    const viaCoords = await resolveLocationCoords(
+                        viaPoint,
+                        values.via_latitude?.[i],
+                        values.via_longitude?.[i]
+                    );
+                    if (!viaCoords) continue;
+                    viaPoints.push({
+                        latitude: viaCoords.latitude,
+                        longitude: viaCoords.longitude,
+                    });
+                    viaLocations.push(viaPoint);
+                    let viaPlotId = values.via_plot_id?.[i];
+                    const plotRes = await fetchPlotName(viaCoords.latitude, viaCoords.longitude);
+                    if (plotRes?.found && plotRes.id) viaPlotId = plotRes.id;
+                    if (viaPlotId) data[`via_point_id[${vi}]`] = viaPlotId;
+                    vi++;
+                }
+                if (viaLocations.length) data.via_location = JSON.stringify(viaLocations);
+                if (viaPoints.length) data.via_point = JSON.stringify(viaPoints);
+            }
+
+            const response = await updateBooking(editBooking.id, data, getDispatcherName());
+            if (isApiSuccess(response?.data)) {
+                toast.success(response?.data?.message || "Booking updated successfully");
+                onBookingCreated?.({
+                    isEdit: true,
+                    updatedBooking: extractUpdatedBookingFromResponse(response?.data, editBooking),
+                });
+                unlockBodyScroll();
+                setIsOpen({ type: "new", isOpen: false, booking: null });
+            } else {
+                toast.error(response?.data?.message || "Failed to update booking");
+            }
+        } catch (error) {
+            console.error("Update booking error:", error);
+            toast.error(error?.response?.data?.message || "An error occurred while updating booking");
         } finally {
             setIsBookingLoading(false);
         }
@@ -1094,14 +1384,14 @@ const AddBooking = ({ setIsOpen, onBookingCreated }) => {
                 onClose={() => {
                     setAlertModal({ isOpen: false, message: '' });
                     unlockBodyScroll();
-                    setIsOpen({ type: "new", isOpen: false });
+                    setIsOpen({ type: "new", isOpen: false, booking: null });
                 }}
             />
 
             <Formik
                 initialValues={initialFormValues}
-                key={initialFormValues.pickup_point || 'new'}
-                onSubmit={handleCreateBooking}
+                key={editBooking?.id ? `edit-${editBooking.id}` : initialFormValues.pickup_point || "new"}
+                onSubmit={isEditMode ? handleUpdateBooking : handleCreateBooking}
                 enableReinitialize
             >
                 {({ values, setFieldValue }) => {
@@ -1127,13 +1417,24 @@ const AddBooking = ({ setIsOpen, onBookingCreated }) => {
 
                     return (
                         <Form>
-                            <div className="w-full flex flex-col gap-6">
+                            <div className="w-full flex flex-col gap-2 lg:gap-2">
                                 {/* Header */}
-                                <div className="rounded-xl border border-[#E5E7EB] bg-white px-4 py-4 sm:px-5 shadow-sm">
-                                    <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                                <div className="rounded-xl border border-[#E5E7EB] bg-white px-3 py-2 lg:px-3 shadow-sm">
+                                    <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
                                         <div>
-                                            <h2 className="text-xl font-semibold text-[#111827]">Create New Booking</h2>
-                                            <p className="mt-1 text-sm text-[#6B7280]">Fill in trip, passenger, and dispatch details below.</p>
+                                            <h2 className="text-base lg:text-lg font-semibold text-[#111827]">
+                                                {isEditMode ? "Edit Booking" : "Create New Booking"}
+                                            </h2>
+                                            {isEditMode && (
+                                                <p className="mt-0.5 text-xs text-[#6B7280]">
+                                                    Booking #{editBooking.booking_id || editBooking.id}
+                                                </p>
+                                            )}
+                                            <p className="mt-0.5 text-xs text-[#6B7280] sm:hidden">
+                                                {isEditMode
+                                                    ? "Update trip, passenger, and dispatch details."
+                                                    : "Fill in trip, passenger, and dispatch details."}
+                                            </p>
                                         </div>
                                         <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-3">
                                             <div className="sm:min-w-[220px]">
@@ -1149,6 +1450,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated }) => {
                                                     {subCompanyList?.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}
                                                 </select>
                                             </div>
+                                            {!isEditMode && (
                                             <div className="flex items-center justify-between sm:justify-start gap-3 rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] px-4 py-3">
                                                 <span className={`text-sm font-medium ${!isMultiBooking ? "text-[#1F41BB]" : "text-[#6B7280]"}`}>Single</span>
                                                 <label className="relative inline-flex items-center cursor-pointer">
@@ -1171,71 +1473,73 @@ const AddBooking = ({ setIsOpen, onBookingCreated }) => {
                                                 </label>
                                                 <span className={`text-sm font-medium ${isMultiBooking ? "text-[#1F41BB]" : "text-[#6B7280]"}`}>Multi</span>
                                             </div>
+                                            )}
                                         </div>
                                     </div>
                                 </div>
 
-                                <div className="grid xl:grid-cols-[1fr_320px] gap-6 mb-2">
-                                    <div className="space-y-5 min-w-0">
-                                        {isMultiBooking && (
-                                            <FormSection title="Recurring Schedule" description="Select weekdays and the date range for multi-bookings.">
-                                                <div className="flex flex-wrap gap-3">
-                                                    {MULTI_BOOKING_WEEKDAYS.map((day) => {
-                                                        const value = day;
-                                                        const checked = values.multi_days?.includes(value);
-                                                        const isToday = day === todayWeekday;
-                                                        return (
-                                                            <label
-                                                                key={day}
-                                                                className={`flex items-center gap-2 cursor-pointer rounded-lg border px-3 py-2 text-sm transition ${checked ? "border-[#1F41BB] bg-[#EEF2FF] text-[#1F41BB]" : "border-[#E5E7EB] bg-[#F9FAFB] text-[#374151]"}`}
-                                                            >
-                                                                <input type="checkbox" checked={checked} className="sr-only"
-                                                                    onChange={(e) => {
-                                                                        const days = new Set(values.multi_days || []);
-                                                                        e.target.checked ? days.add(value) : days.delete(value);
-                                                                        const nextDays = [...days];
-                                                                        setFieldValue("multi_days", nextDays);
-                                                                        applyMultiBookingDateSync(values, setFieldValue, { multi_days: nextDays });
-                                                                        clearBookingError("multi_days");
-                                                                    }}
-                                                                />
-                                                                {day}{isToday ? " (Today)" : ""}
-                                                            </label>
-                                                        );
-                                                    })}
-                                                </div>
-                                                <FieldError message={bookingErrors.multi_days} />
-                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                                    <FormField label="Start Date">
-                                                        <input type="date"
-                                                            className={`${formInputClass} ${bookingErrors.multi_start_at ? formInputErrorClass : ""}`}
-                                                            value={values.multi_start_at || ""}
+                                {isMultiBooking && (
+                                    <FormSection title="Recurring Schedule" description="Select weekdays and the date range for multi-bookings.">
+                                        <div className="flex flex-wrap gap-2">
+                                            {MULTI_BOOKING_WEEKDAYS.map((day) => {
+                                                const value = day;
+                                                const checked = values.multi_days?.includes(value);
+                                                const isToday = day === todayWeekday;
+                                                return (
+                                                    <label
+                                                        key={day}
+                                                        className={`flex items-center gap-2 cursor-pointer rounded-lg border px-2.5 py-1.5 text-xs lg:text-sm transition ${checked ? "border-[#1F41BB] bg-[#EEF2FF] text-[#1F41BB]" : "border-[#E5E7EB] bg-[#F9FAFB] text-[#374151]"}`}
+                                                    >
+                                                        <input type="checkbox" checked={checked} className="sr-only"
                                                             onChange={(e) => {
-                                                                const value = e.target.value;
-                                                                setFieldValue("multi_start_at", value);
-                                                                applyMultiBookingDateSync(values, setFieldValue, { multi_start_at: value });
-                                                                clearBookingError("multi_start_at");
-                                                            }} />
-                                                        <FieldError message={bookingErrors.multi_start_at} />
-                                                    </FormField>
-                                                    <FormField label="End Date">
-                                                        <input type="date"
-                                                            className={`${formInputClass} ${bookingErrors.multi_end_at ? formInputErrorClass : ""}`}
-                                                            value={values.multi_end_at || ""}
-                                                            onChange={(e) => {
-                                                                const value = e.target.value;
-                                                                setFieldValue("multi_end_at", value);
-                                                                applyMultiBookingDateSync(values, setFieldValue, { multi_end_at: value });
-                                                                clearBookingError("multi_end_at");
-                                                            }} />
-                                                        <FieldError message={bookingErrors.multi_end_at} />
-                                                    </FormField>
-                                                </div>
-                                            </FormSection>
-                                        )}
+                                                                const days = new Set(values.multi_days || []);
+                                                                e.target.checked ? days.add(value) : days.delete(value);
+                                                                const nextDays = [...days];
+                                                                setFieldValue("multi_days", nextDays);
+                                                                applyMultiBookingDateSync(values, setFieldValue, { multi_days: nextDays });
+                                                                clearBookingError("multi_days");
+                                                            }}
+                                                        />
+                                                        {day}{isToday ? " (Today)" : ""}
+                                                    </label>
+                                                );
+                                            })}
+                                        </div>
+                                        <FieldError message={bookingErrors.multi_days} />
+                                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+                                            <FormField label="Start Date">
+                                                <input type="date"
+                                                    className={`${formInputClass} ${bookingErrors.multi_start_at ? formInputErrorClass : ""}`}
+                                                    value={values.multi_start_at || ""}
+                                                    onChange={(e) => {
+                                                        const value = e.target.value;
+                                                        setFieldValue("multi_start_at", value);
+                                                        applyMultiBookingDateSync(values, setFieldValue, { multi_start_at: value });
+                                                        clearBookingError("multi_start_at");
+                                                    }} />
+                                                <FieldError message={bookingErrors.multi_start_at} />
+                                            </FormField>
+                                            <FormField label="End Date">
+                                                <input type="date"
+                                                    className={`${formInputClass} ${bookingErrors.multi_end_at ? formInputErrorClass : ""}`}
+                                                    value={values.multi_end_at || ""}
+                                                    onChange={(e) => {
+                                                        const value = e.target.value;
+                                                        setFieldValue("multi_end_at", value);
+                                                        applyMultiBookingDateSync(values, setFieldValue, { multi_end_at: value });
+                                                        clearBookingError("multi_end_at");
+                                                    }} />
+                                                <FieldError message={bookingErrors.multi_end_at} />
+                                            </FormField>
+                                        </div>
+                                    </FormSection>
+                                )}
 
-                                        <FormSection title="Schedule" description="Pickup timing and booking classification.">
-                                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 w-full">
+                                <div className="grid grid-cols-1 lg:grid-cols-6 lg:grid-rows-[auto_auto_auto] gap-2">
+                                    {/* Row 1: Schedule */}
+                                    <div className="lg:col-span-2 lg:row-start-1 min-w-0">
+                                        <FormSection title="Schedule">
+                                                    <div className={`grid gap-2 w-full ${values.pickup_time_type === "time" ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-4" : "grid-cols-1 sm:grid-cols-3"}`}>
                                                         <FormField label="Pickup Time">
                                                             <div className="flex gap-2">
                                                                 <select
@@ -1244,9 +1548,14 @@ const AddBooking = ({ setIsOpen, onBookingCreated }) => {
                                                                     onChange={(e) => {
                                                                         const val = e.target.value;
                                                                         setFieldValue("pickup_time_type", val);
-                                                                        if (val === "asap") setFieldValue("pickup_time", "");
-                                                                        else if (!values.pickup_time) setFieldValue("pickup_time", "00:00");
+                                                                        if (val === "asap") {
+                                                                            setFieldValue("pickup_time", "");
+                                                                            setFieldValue("reminder_minutes", "");
+                                                                        } else if (!values.pickup_time) {
+                                                                            setFieldValue("pickup_time", "00:00");
+                                                                        }
                                                                         clearBookingError("pickup_time");
+                                                                        clearBookingError("reminder_minutes");
                                                                     }}>
                                                                     <option value="asap">ASAP</option>
                                                                     <option value="time">Pick a time</option>
@@ -1267,8 +1576,8 @@ const AddBooking = ({ setIsOpen, onBookingCreated }) => {
                                                                     disabled={isMultiBooking}
                                                                     onChange={(e) => { setFieldValue("booking_date", e.target.value); clearBookingError("booking_date"); }} />
                                                                 {isMultiBooking && (
-                                                                    <p className="text-xs text-[#6B7280] mt-1">
-                                                                        Auto-set from today or start date for multi-booking.
+                                                                    <p className="text-[10px] text-[#6B7280] mt-0.5 hidden lg:block">
+                                                                        Auto from start date
                                                                     </p>
                                                                 )}
                                                                 <FieldError message={bookingErrors.booking_date} />
@@ -1283,157 +1592,64 @@ const AddBooking = ({ setIsOpen, onBookingCreated }) => {
                                                                 </select>
                                                                 <FieldError message={bookingErrors.booking_type} />
                                                         </FormField>
+                                                        {values.pickup_time_type === "time" && (
+                                                            <FormField label="Reminder Time">
+                                                                <select
+                                                                    className={`${formSelectClass} ${bookingErrors.reminder_minutes ? formInputErrorClass : ""}`}
+                                                                    value={values.reminder_minutes || ""}
+                                                                    onChange={(e) => {
+                                                                        setFieldValue("reminder_minutes", e.target.value);
+                                                                        clearBookingError("reminder_minutes");
+                                                                    }}
+                                                                >
+                                                                    <option value="">Select reminder</option>
+                                                                    {REMINDER_TIME_OPTIONS.map((opt) => (
+                                                                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                                                    ))}
+                                                                </select>
+                                                                <FieldError message={bookingErrors.reminder_minutes} />
+                                                            </FormField>
+                                                        )}
                                                     </div>
                                         </FormSection>
+                                    </div>
 
-                                        <FormSection title="Route" description="Pickup, optional via stops, and destination.">
-                                            <div className="space-y-4">
-                                                <div className="flex flex-col gap-3 md:flex-row md:items-start">
-                                                    <div className="flex-1">
-                                                        <InputBox
-                                                            label="Pickup Point"
-                                                            value={values.pickup_point}
-                                                            plot={pickupPlotData?.name || ""}
-                                                            suggestions={pickupSuggestions}
-                                                            show={showPickup}
-                                                            placeholder="Search location..."
-                                                            hasError={!!(calculateErrors.pickup_point || bookingErrors.pickup_point)}
-                                                            onChange={(v) => {
-                                                                setFieldValue("pickup_point", v);
-                                                                if (!v) {
-                                                                    setStablePickupCoords(null);
-                                                                    setFieldValue("pickup_latitude", "");
-                                                                    setFieldValue("pickup_longitude", "");
-                                                                }
-                                                                searchLocation(v, "pickup");
-                                                                clearFieldErrors("pickup_point");
-                                                            }}
-                                                            onSelect={(i) => selectLocation(i, "pickup", setFieldValue)}
-                                                        />
-                                                        <FieldError message={calculateErrors.pickup_point || bookingErrors.pickup_point} />
-                                                    </div>
-                                                    {values.via_points.length < 2 && (
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => {
-                                                                if (values.via_points.length < 2) {
-                                                                    setFieldValue("via_points", [...values.via_points, ""]);
-                                                                    invalidateFare();
-                                                                } else {
-                                                                    toast.error("Maximum 2 via stops allowed");
-                                                                }
-                                                            }}
-                                                            className="mt-6 rounded-lg border border-[#BFDBFE] bg-[#EFF6FF] px-4 py-2.5 text-sm font-medium text-[#1F41BB] transition hover:bg-[#DBEAFE]"
-                                                        >
-                                                            + Add Via
-                                                        </button>
-                                                    )}
-                                                </div>
-
-                                                    {values.via_points.map((_, i) => (
-                                                        <div key={i} className="flex flex-col gap-3 md:flex-row md:items-start">
-                                                            <div className="flex-1">
-                                                                <InputBox
-                                                                    label={`Via ${i + 1}`}
-                                                                    value={values.via_points[i]}
-                                                                    plot={viaPlotData[i]?.name || ""}
-                                                                    suggestions={viaSuggestions[i] || []}
-                                                                    placeholder="Search location..."
-                                                                    show={showVia[i]}
-                                                                    hasError={!!(calculateErrors[`via_points_${i}`] || bookingErrors[`via_points_${i}`])}
-                                                                    onChange={(v) => {
-                                                                        setFieldValue(`via_points[${i}]`, v);
-                                                                        if (!v) {
-                                                                            setStableViaCoords(prev => { const u = [...prev]; u[i] = null; return u; });
-                                                                            setFieldValue(`via_latitude[${i}]`, "");
-                                                                            setFieldValue(`via_longitude[${i}]`, "");
-                                                                        }
-                                                                        searchLocation(v, "via", i);
-                                                                        clearCalcError(`via_points_${i}`);
-                                                                        clearBookingError(`via_points_${i}`);
-                                                                    }}
-                                                                    onSelect={(i2) => selectLocation(i2, "via", setFieldValue, i)}
-                                                                />
-                                                                <FieldError message={calculateErrors[`via_points_${i}`] || bookingErrors[`via_points_${i}`]} />
-                                                            </div>
-                                                            <div className="flex gap-2 md:mt-6">
-                                                                <button type="button" onClick={() => swapLocations(i, setFieldValue, values)} className="rounded-lg border border-[#E5E7EB] bg-white px-3 py-2.5 text-sm font-medium text-[#374151] hover:bg-[#F9FAFB]">Swap</button>
-                                                                <button type="button"
-                                                                    onClick={() => {
-                                                                        setFieldValue("via_points", values.via_points.filter((_, idx) => idx !== i));
-                                                                        const newP = { ...viaPlotData }; delete newP[i]; setViaPlotData(newP);
-                                                                        setStableViaCoords(prev => prev.filter((_, idx) => idx !== i));
-                                                                        invalidateFare();
-                                                                    }}
-                                                                    className="rounded-lg border border-[#FECACA] bg-[#FEF2F2] px-3 py-2.5 text-sm font-medium text-[#DC2626] hover:bg-[#FEE2E2]">Remove</button>
-                                                            </div>
-                                                        </div>
-                                                    ))}
-
-                                                <InputBox
-                                                    label="Destination"
-                                                    value={values.destination}
-                                                    plot={destinationPlotData?.name || ""}
-                                                    suggestions={destinationSuggestions}
-                                                    show={showDestination}
-                                                    placeholder="Search location..."
-                                                    hasError={!!(calculateErrors.destination || bookingErrors.destination)}
-                                                    onChange={(v) => {
-                                                        setFieldValue("destination", v);
-                                                        if (!v) {
-                                                            setStableDestinationCoords(null);
-                                                            setFieldValue("destination_latitude", "");
-                                                            setFieldValue("destination_longitude", "");
-                                                        }
-                                                        searchLocation(v, "destination");
-                                                        clearFieldErrors("destination");
-                                                    }}
-                                                    onSelect={(i) => selectLocation(i, "destination", setFieldValue)}
-                                                />
-                                                <FieldError message={calculateErrors.destination || bookingErrors.destination} />
-                                            </div>
-                                        </FormSection>
-
-                                        <FormSection title="Passenger Details" description="Contact information for the booking.">
-                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    {/* Row 1: Passenger */}
+                                    <div className="lg:col-span-2 lg:row-start-1 min-w-0">
+                                        <FormSection title="Passenger">
+                                            <div className="grid grid-cols-2 gap-2">
                                                 <FormField label="Name">
-                                                    <input type="text" placeholder="Enter passenger name"
+                                                    <input type="text" placeholder="Passenger name"
                                                         className={`${formInputClass} ${bookingErrors.name ? formInputErrorClass : ""}`}
                                                         value={values.name || ""}
                                                         onChange={(e) => { setFieldValue("name", e.target.value); clearBookingError("name"); }} />
                                                     <FieldError message={bookingErrors.name} />
                                                 </FormField>
                                                 <FormField label="Email">
-                                                    <input type="email" placeholder="Enter email"
+                                                    <input type="email" placeholder="Email"
                                                         className={formInputClass}
                                                         value={values.email || ""}
                                                         onChange={(e) => setFieldValue("email", e.target.value)} />
                                                 </FormField>
-                                            </div>
-                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                                 <FormField label="Mobile No">
                                                     <div className="relative flex">
                                                         {defaultDialCode && (
-                                                            <span className="inline-flex items-center rounded-l-lg border border-r-0 border-[#D1D5DB] bg-[#F3F4F6] px-3 text-sm font-medium text-[#374151]">
+                                                            <span className="inline-flex items-center rounded-l-lg border border-r-0 border-[#D1D5DB] bg-[#F3F4F6] px-2 text-xs font-medium text-[#374151]">
                                                                 {defaultDialCode}
                                                             </span>
                                                         )}
-                                                        <input type="text" placeholder="Enter mobile number"
+                                                        <input type="text" placeholder="Mobile"
                                                             className={`${formInputClass} ${defaultDialCode ? "rounded-l-none" : ""} ${bookingErrors.phone_no ? formInputErrorClass : ""}`}
                                                             value={values.phone_no || ""}
                                                             onChange={(e) => { const v = e.target.value; setFieldValue("phone_no", v); searchUsers(v); clearBookingError("phone_no"); }}
                                                             onFocus={() => { if (values.phone_no && userSuggestions.length > 0) setShowUserSuggestions(true); }} />
                                                         {showUserSuggestions && (
-                                                            <div className="absolute top-full left-0 right-0 z-50 mt-1 max-h-60 overflow-auto rounded-lg border border-[#E5E7EB] bg-white shadow-lg">
-                                                                {!loadingUsers && userSuggestions.length === 0 && <div className="p-3 text-center text-sm text-[#9CA3AF]">No users found</div>}
+                                                            <div className="absolute top-full left-0 right-0 z-50 mt-1 max-h-40 overflow-auto rounded-lg border border-[#E5E7EB] bg-white shadow-lg">
                                                                 {userSuggestions.map((user, idx) => (
                                                                     <div key={user.id || idx} onClick={() => selectUser(user, setFieldValue)}
-                                                                        className="flex cursor-pointer items-center justify-between border-b border-[#F3F4F6] p-3 last:border-b-0 hover:bg-[#F9FAFB]">
+                                                                        className="flex cursor-pointer items-center justify-between border-b border-[#F3F4F6] p-2 last:border-b-0 hover:bg-[#F9FAFB] text-xs">
                                                                         <div className="font-medium text-[#111827]">{user.phone_no}</div>
-                                                                        <div className="flex gap-3 text-xs text-[#1F41BB]">
-                                                                            <span className="cursor-pointer">Copy Details</span>
-                                                                            <span onClick={(e) => { e.stopPropagation(); handleViewHistory(user); }} className="cursor-pointer text-[#6B7280]">View History</span>
-                                                                        </div>
+                                                                        <span onClick={(e) => { e.stopPropagation(); handleViewHistory(user); }} className="cursor-pointer text-[#6B7280]">History</span>
                                                                     </div>
                                                                 ))}
                                                             </div>
@@ -1441,21 +1657,24 @@ const AddBooking = ({ setIsOpen, onBookingCreated }) => {
                                                     </div>
                                                     <FieldError message={bookingErrors.phone_no} />
                                                 </FormField>
-                                                <FormField label="Telephone No">
-                                                    <input type="text" placeholder="Enter telephone number"
+                                                <FormField label="Telephone">
+                                                    <input type="text" placeholder="Telephone"
                                                         className={formInputClass}
                                                         value={values.tel_no || ""}
                                                         onChange={(e) => setFieldValue("tel_no", e.target.value)} />
                                                 </FormField>
                                             </div>
                                         </FormSection>
+                                    </div>
 
-                                        <FormSection title="Dispatch & Vehicle" description="Choose how the job is assigned and whether a vehicle type is required.">
-                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                                <FormField label="Journey Type">
-                                                    <div className="flex flex-wrap gap-2">
+                                    {/* Row 1: Dispatch & Vehicle */}
+                                    <div className="lg:col-span-2 lg:row-start-1 min-w-0">
+                                        <FormSection title="Dispatch & Vehicle">
+                                            <div className="grid grid-cols-2 gap-2">
+                                                <FormField label="Journey">
+                                                    <div className="flex flex-wrap gap-1">
                                                         {[{ val: "one_way", label: "One Way" }, { val: "return", label: "Return" }, { val: "wr", label: "W/R" }].map(({ val, label }) => (
-                                                            <label key={val} className={`cursor-pointer rounded-lg border px-3 py-2 text-sm font-medium transition ${values.journey_type === val ? "border-[#1F41BB] bg-[#EEF2FF] text-[#1F41BB]" : "border-[#E5E7EB] bg-[#F9FAFB] text-[#374151]"}`}>
+                                                            <label key={val} className={`cursor-pointer rounded border px-2 py-1 text-xs font-medium transition ${values.journey_type === val ? "border-[#1F41BB] bg-[#EEF2FF] text-[#1F41BB]" : "border-[#E5E7EB] bg-[#F9FAFB] text-[#374151]"}`}>
                                                                 <input type="radio" name="journey" className="sr-only" checked={values.journey_type === val}
                                                                     onChange={() => { setFieldValue("journey_type", val); invalidateFare(); clearFieldErrors("journey_type"); }} />
                                                                 {label}
@@ -1465,246 +1684,260 @@ const AddBooking = ({ setIsOpen, onBookingCreated }) => {
                                                 </FormField>
                                                 <FormField label="Account">
                                                     <select name="account" value={values.account || ""}
-                                                        onChange={(e) => setFieldValue("account", e.target.value)}
+                                                        onChange={(e) => {
+                                                            setFieldValue("account", e.target.value);
+                                                            invalidateFare();
+                                                        }}
                                                         className={formSelectClass}
                                                         disabled={loadingSubCompanies}>
-                                                        <option value="">Select Account</option>
+                                                        <option value="">Account</option>
                                                         {accountList?.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}
                                                     </select>
                                                 </FormField>
                                             </div>
-
-                                            <FormField label="Dispatch Mode">
-                                                <div className={`inline-flex rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] p-1 ${isManualDispatchOnly ? "opacity-50" : ""}`}>
-                                                    <button
-                                                        type="button"
-                                                        disabled={isManualDispatchOnly}
-                                                        onClick={() => {
-                                                            setFieldValue("auto_dispatch", true);
-                                                            setFieldValue("bidding", false);
-                                                            setFieldValue("booking_system", "auto_dispatch");
-                                                        }}
-                                                        className={`rounded-md px-4 py-2 text-sm font-medium transition ${values.auto_dispatch && !values.bidding ? "bg-white text-[#1F41BB] shadow-sm" : "text-[#6B7280]"}`}
-                                                    >
-                                                        Auto Dispatch
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        disabled={isManualDispatchOnly}
-                                                        onClick={() => {
-                                                            setFieldValue("auto_dispatch", false);
-                                                            setFieldValue("bidding", true);
-                                                            setFieldValue("booking_system", "bidding");
-                                                            setFieldValue("driver", "");
-                                                            clearBookingError("driver");
-                                                        }}
-                                                        className={`rounded-md px-4 py-2 text-sm font-medium transition ${values.bidding && !values.auto_dispatch ? "bg-white text-[#1F41BB] shadow-sm" : "text-[#6B7280]"}`}
-                                                    >
-                                                        Bidding
-                                                    </button>
-                                                </div>
-                                                <FieldError message={bookingErrors.booking_system} />
-                                            </FormField>
-
-                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                            <div className={`inline-flex rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] p-0.5 w-full ${isManualDispatchOnly ? "opacity-50" : ""}`}>
+                                                <button type="button" disabled={isManualDispatchOnly}
+                                                    onClick={() => { setFieldValue("auto_dispatch", true); setFieldValue("bidding", false); setFieldValue("booking_system", "auto_dispatch"); }}
+                                                    className={`flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition ${values.auto_dispatch && !values.bidding ? "bg-white text-[#1F41BB] shadow-sm" : "text-[#6B7280]"}`}>
+                                                    Auto
+                                                </button>
+                                                <button type="button" disabled={isManualDispatchOnly}
+                                                    onClick={() => { setFieldValue("auto_dispatch", false); setFieldValue("bidding", true); setFieldValue("booking_system", "bidding"); setFieldValue("driver", ""); clearBookingError("driver"); }}
+                                                    className={`flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition ${values.bidding && !values.auto_dispatch ? "bg-white text-[#1F41BB] shadow-sm" : "text-[#6B7280]"}`}>
+                                                    Bidding
+                                                </button>
+                                            </div>
+                                            <FieldError message={bookingErrors.booking_system} />
+                                            <div className="grid grid-cols-2 gap-2">
                                                 {(values.auto_dispatch || isManualDispatchOnly) && !values.bidding && (
-                                                    <FormField label="Driver (Optional)">
-                                                        <select
-                                                            name="driver"
-                                                            value={values.driver || ""}
+                                                    <FormField label="Driver">
+                                                        <select name="driver" value={values.driver || ""}
                                                             onChange={(e) => {
                                                                 const selectedDriverId = e.target.value;
                                                                 setFieldValue("driver", selectedDriverId);
                                                                 clearBookingError("driver");
                                                                 if (!selectedDriverId) {
-                                                                    if (values.request_for_vehicle) {
-                                                                        setFilteredVehicleList(vehicleList);
-                                                                        setFieldValue("vehicle", "");
-                                                                        invalidateFare();
-                                                                    }
+                                                                    if (values.request_for_vehicle) { setFilteredVehicleList(vehicleList); setFieldValue("vehicle", ""); invalidateFare(); }
                                                                     return;
                                                                 }
                                                                 if (!values.request_for_vehicle) return;
                                                                 const sel = driverList.find(d => d.value === selectedDriverId);
-                                                                if (!sel) {
-                                                                    setFilteredVehicleList(vehicleList);
-                                                                    return;
-                                                                }
+                                                                if (!sel) { setFilteredVehicleList(vehicleList); return; }
                                                                 const avId = sel.assigned_vehicle;
                                                                 const vtId = sel.vehicle_type;
                                                                 if (avId) {
                                                                     const filtered = vehicleList.filter(v => v.value === avId.toString());
                                                                     setFilteredVehicleList(filtered.length > 0 ? filtered : vehicleList);
-                                                                    if (filtered.length === 1) {
-                                                                        setFieldValue("vehicle", filtered[0].value);
-                                                                        invalidateFare();
-                                                                    } else {
-                                                                        setFieldValue("vehicle", "");
-                                                                    }
+                                                                    if (filtered.length === 1) { setFieldValue("vehicle", filtered[0].value); invalidateFare(); }
+                                                                    else setFieldValue("vehicle", "");
                                                                 } else {
                                                                     setFilteredVehicleList(vehicleList);
                                                                     if (vtId) {
                                                                         const match = vehicleList.find(v => v.value === vtId.toString());
-                                                                        if (match) {
-                                                                            setFieldValue("vehicle", match.value);
-                                                                            invalidateFare();
-                                                                        }
-                                                                    } else {
-                                                                        setFieldValue("vehicle", "");
-                                                                    }
+                                                                        if (match) { setFieldValue("vehicle", match.value); invalidateFare(); }
+                                                                    } else setFieldValue("vehicle", "");
                                                                 }
                                                             }}
                                                             disabled={loadingSubCompanies}
-                                                            className={`${formSelectClass} ${bookingErrors.driver ? formInputErrorClass : ""}`}
-                                                        >
-                                                            <option value="">Select Driver</option>
-                                                            {driverList?.map(item => (
-                                                                <option key={item.value} value={item.value}>{item.label}</option>
-                                                            ))}
+                                                            className={`${formSelectClass} ${bookingErrors.driver ? formInputErrorClass : ""}`}>
+                                                            <option value="">Driver</option>
+                                                            {driverList?.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}
                                                         </select>
                                                         <FieldError message={bookingErrors.driver} />
                                                     </FormField>
                                                 )}
-
-                                                <FormField label="Request for Vehicle">
-                                                    <div className="flex h-[42px] items-center justify-between rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] px-4">
-                                                        <span className="text-sm text-[#374151]">{values.request_for_vehicle ? "Vehicle type required" : "No vehicle preference"}</span>
-                                                        <button
-                                                            type="button"
-                                                            aria-pressed={values.request_for_vehicle}
+                                                <FormField label="Req. Vehicle">
+                                                    <div className="flex h-[34px] items-center justify-between rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] px-2">
+                                                        <span className="text-xs text-[#374151]">{values.request_for_vehicle ? "Yes" : "No"}</span>
+                                                        <button type="button" aria-pressed={values.request_for_vehicle}
                                                             onClick={() => {
                                                                 const next = !values.request_for_vehicle;
                                                                 setFieldValue("request_for_vehicle", next);
-                                                                if (!next) {
-                                                                    setFieldValue("vehicle", "");
-                                                                    setFilteredVehicleList(vehicleList);
-                                                                    invalidateFare();
-                                                                    clearFieldErrors("vehicle");
-                                                                }
+                                                                if (!next) { setFieldValue("vehicle", ""); setFilteredVehicleList(vehicleList); invalidateFare(); clearFieldErrors("vehicle"); }
                                                             }}
-                                                            className={`relative inline-flex h-[28px] w-[48px] items-center rounded-full transition-colors flex-shrink-0 ${values.request_for_vehicle ? "bg-[#1F41BB]" : "bg-[#D1D5DB]"}`}
-                                                        >
-                                                            <span className={`inline-block h-[22px] w-[22px] transform rounded-full bg-white shadow transition-transform ${values.request_for_vehicle ? "translate-x-[22px]" : "translate-x-[3px]"}`} />
+                                                            className={`relative inline-flex h-6 w-10 items-center rounded-full transition-colors flex-shrink-0 ${values.request_for_vehicle ? "bg-[#1F41BB]" : "bg-[#D1D5DB]"}`}>
+                                                            <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${values.request_for_vehicle ? "translate-x-[18px]" : "translate-x-[3px]"}`} />
                                                         </button>
                                                     </div>
                                                 </FormField>
-
                                                 {values.request_for_vehicle && (
-                                                    <FormField label="Vehicle Type" className="md:col-span-2">
-                                                        <select
-                                                            name="vehicle"
-                                                            value={values.vehicle || ""}
-                                                            onChange={(e) => {
-                                                                setFieldValue("vehicle", e.target.value);
-                                                                invalidateFare();
-                                                                clearFieldErrors("vehicle");
-                                                            }}
+                                                    <FormField label="Vehicle" className="col-span-2">
+                                                        <select name="vehicle" value={values.vehicle || ""}
+                                                            onChange={(e) => { setFieldValue("vehicle", e.target.value); invalidateFare(); clearFieldErrors("vehicle"); }}
                                                             disabled={loadingSubCompanies}
-                                                            className={`${formSelectClass} ${(calculateErrors.vehicle || bookingErrors.vehicle) ? formInputErrorClass : ""}`}
-                                                        >
-                                                            <option value="">Select Vehicle</option>
-                                                            {filteredVehicleList?.map(item => (
-                                                                <option key={item.value} value={item.value}>{item.label}</option>
-                                                            ))}
+                                                            className={`${formSelectClass} ${(calculateErrors.vehicle || bookingErrors.vehicle) ? formInputErrorClass : ""}`}>
+                                                            <option value="">Vehicle</option>
+                                                            {filteredVehicleList?.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}
                                                         </select>
                                                         <FieldError message={calculateErrors.vehicle || bookingErrors.vehicle} />
                                                     </FormField>
                                                 )}
                                             </div>
                                         </FormSection>
+                                    </div>
 
-                                        <FormSection title="Trip Details">
-                                                    <div className="grid md:grid-cols-3 grid-cols-1 gap-4">
-                                                        {[{ label: "Passengers", name: "passenger" }, { label: "Luggage", name: "luggage" }, { label: "Hand Luggage", name: "hand_luggage" }].map(({ label, name }) => (
-                                                            <FormField key={name} label={label}>
-                                                                <input type="number" className={formInputClass}
-                                                                    value={values[name] || 0}
-                                                                    onChange={(e) => setFieldValue(name, Number(e.target.value) || 0)} />
-                                                            </FormField>
-                                                        ))}
+                                    {/* Row 2: Route */}
+                                    <div className="lg:col-span-3 lg:row-start-2 min-w-0">
+                                        <FormSection title="Route">
+                                            <div className="space-y-2">
+                                                <div className="flex flex-col gap-2 lg:flex-row lg:items-start">
+                                                    <div className="flex-1">
+                                                        <InputBox label="Pickup" value={values.pickup_point} plot={pickupPlotData?.name || ""}
+                                                            suggestions={pickupSuggestions} show={showPickup} placeholder="Pickup..."
+                                                            hasError={!!(calculateErrors.pickup_point || bookingErrors.pickup_point)}
+                                                            onChange={(v) => {
+                                                                setFieldValue("pickup_point", v);
+                                                                if (!v) { setStablePickupCoords(null); setFieldValue("pickup_latitude", ""); setFieldValue("pickup_longitude", ""); }
+                                                                searchLocation(v, "pickup"); clearFieldErrors("pickup_point");
+                                                            }}
+                                                            onSelect={(i) => selectLocation(i, "pickup", setFieldValue)} />
+                                                        <FieldError message={calculateErrors.pickup_point || bookingErrors.pickup_point} />
                                                     </div>
-                                                    <div className="grid md:grid-cols-2 grid-cols-1 gap-4">
-                                                        <FormField label="Special Request">
-                                                            <input type="text" placeholder="Any special instructions..."
-                                                                className={formInputClass}
-                                                                value={values.special_request || ""}
-                                                                onChange={(e) => setFieldValue("special_request", e.target.value)} />
-                                                        </FormField>
-                                                        <FormField label="Payment Reference">
-                                                            <input type="text" placeholder="Payment reference..."
-                                                                className={formInputClass}
-                                                                value={values.payment_reference || ""}
-                                                                onChange={(e) => setFieldValue("payment_reference", e.target.value)} />
-                                                        </FormField>
+                                                    {values.via_points.length < 2 && (
+                                                        <button type="button" onClick={() => {
+                                                            if (values.via_points.length < 2) { setFieldValue("via_points", [...values.via_points, ""]); invalidateFare(); }
+                                                            else toast.error("Maximum 2 via stops allowed");
+                                                        }} className="lg:mt-5 rounded border border-[#BFDBFE] bg-[#EFF6FF] px-2 py-1.5 text-xs font-medium text-[#1F41BB]">+ Via</button>
+                                                    )}
+                                                </div>
+                                                {values.via_points.map((_, i) => (
+                                                    <div key={i} className="flex flex-col gap-2 lg:flex-row lg:items-start">
+                                                        <div className="flex-1">
+                                                            <InputBox label={`Via ${i + 1}`} value={values.via_points[i]} plot={viaPlotData[i]?.name || ""}
+                                                                suggestions={viaSuggestions[i] || []} placeholder="Via..." show={showVia[i]}
+                                                                hasError={!!(calculateErrors[`via_points_${i}`] || bookingErrors[`via_points_${i}`])}
+                                                                onChange={(v) => {
+                                                                    setFieldValue(`via_points[${i}]`, v);
+                                                                    if (!v) { setStableViaCoords(prev => { const u = [...prev]; u[i] = null; return u; }); setFieldValue(`via_latitude[${i}]`, ""); setFieldValue(`via_longitude[${i}]`, ""); }
+                                                                    searchLocation(v, "via", i); clearCalcError(`via_points_${i}`); clearBookingError(`via_points_${i}`);
+                                                                }}
+                                                                onSelect={(i2) => selectLocation(i2, "via", setFieldValue, i)} />
+                                                            <FieldError message={calculateErrors[`via_points_${i}`] || bookingErrors[`via_points_${i}`]} />
+                                                        </div>
+                                                        <div className="flex gap-1 lg:mt-5">
+                                                            <button type="button" onClick={() => swapLocations(i, setFieldValue, values)} className="rounded border border-[#E5E7EB] px-2 py-1 text-xs">Swap</button>
+                                                            <button type="button" onClick={() => {
+                                                                setFieldValue("via_points", values.via_points.filter((_, idx) => idx !== i));
+                                                                const newP = { ...viaPlotData }; delete newP[i]; setViaPlotData(newP);
+                                                                setStableViaCoords(prev => prev.filter((_, idx) => idx !== i)); invalidateFare();
+                                                            }} className="rounded border border-[#FECACA] bg-[#FEF2F2] px-2 py-1 text-xs text-[#DC2626]">Remove</button>
+                                                        </div>
                                                     </div>
+                                                ))}
+                                                <div className="flex justify-end">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => swapPickupAndDestination(setFieldValue, values)}
+                                                        className="inline-flex items-center gap-1.5 rounded border border-[#BFDBFE] bg-[#EFF6FF] px-2.5 py-1.5 text-xs font-medium text-[#1F41BB] hover:bg-[#DBEAFE]"
+                                                        title="Swap pickup and destination"
+                                                    >
+                                                        <span aria-hidden>⇅</span>
+                                                        Reverse route
+                                                    </button>
+                                                </div>
+                                                <InputBox label="Destination" value={values.destination} plot={destinationPlotData?.name || ""}
+                                                    suggestions={destinationSuggestions} show={showDestination} placeholder="Destination..."
+                                                    hasError={!!(calculateErrors.destination || bookingErrors.destination)}
+                                                    onChange={(v) => {
+                                                        setFieldValue("destination", v);
+                                                        if (!v) { setStableDestinationCoords(null); setFieldValue("destination_latitude", ""); setFieldValue("destination_longitude", ""); }
+                                                        searchLocation(v, "destination"); clearFieldErrors("destination");
+                                                    }}
+                                                    onSelect={(i) => selectLocation(i, "destination", setFieldValue)} />
+                                                <FieldError message={calculateErrors.destination || bookingErrors.destination} />
+                                            </div>
                                         </FormSection>
                                     </div>
 
-                                    {/* Map sidebar */}
-                                    <div className="xl:sticky xl:top-4 h-fit space-y-4">
-                                        <div className="overflow-hidden rounded-xl border border-[#E5E7EB] bg-white shadow-sm">
-                                            <div className="border-b border-[#F3F4F6] px-4 py-3">
-                                                <h3 className="text-sm font-semibold text-[#111827]">Route Map</h3>
-                                                <p className="text-xs text-[#6B7280]">Preview pickup, via, and destination</p>
+                                    {/* Row 2: Trip */}
+                                    <div className="lg:col-span-1 lg:row-start-2 min-w-0">
+                                        <FormSection title="Trip">
+                                            <div className="grid grid-cols-3 lg:grid-cols-1 gap-1.5">
+                                                {[{ label: "Pax", name: "passenger" }, { label: "Lug", name: "luggage" }, { label: "Hand", name: "hand_luggage" }].map(({ label, name }) => (
+                                                    <FormField key={name} label={label}>
+                                                        <input type="number" className={formInputClass}
+                                                            value={values[name] || 0}
+                                                            onChange={(e) => setFieldValue(name, Number(e.target.value) || 0)} />
+                                                    </FormField>
+                                                ))}
                                             </div>
-                                            <div className="min-h-[360px] w-full">
+                                            <FormField label="Special Req.">
+                                                <input type="text" placeholder="Notes..." className={formInputClass}
+                                                    value={values.special_request || ""}
+                                                    onChange={(e) => setFieldValue("special_request", e.target.value)} />
+                                            </FormField>
+                                            <FormField label="Pay Ref.">
+                                                <input type="text" placeholder="Ref..." className={formInputClass}
+                                                    value={values.payment_reference || ""}
+                                                    onChange={(e) => setFieldValue("payment_reference", e.target.value)} />
+                                            </FormField>
+                                        </FormSection>
+                                    </div>
+
+                                    {/* Row 2: Map */}
+                                    <div className="lg:col-span-2 lg:row-start-2 min-w-0 space-y-1.5">
+                                        <div className="overflow-hidden rounded-xl border border-[#E5E7EB] bg-white shadow-sm">
+                                            <div className="border-b border-[#F3F4F6] px-2 py-1.5 flex items-center justify-between">
+                                                <h3 className="text-xs font-semibold text-[#111827]">Route Map</h3>
+                                                <span className="text-[10px] text-[#6B7280]">{formatDistanceWithUnit(values.distance) || "—"}</span>
+                                            </div>
+                                            <div className="h-[200px] lg:h-[280px] w-full">
                                                 {memoizedMap}
                                             </div>
                                         </div>
-                                        <FormField label="Estimated Distance">
-                                            <input type="text" placeholder="Calculated after route selection" readOnly
-                                                value={formatDistanceWithUnit(values.distance)}
-                                                className={`${formInputClass} bg-[#F9FAFB]`} />
-                                        </FormField>
                                     </div>
-                                </div>
 
-                                {/* Charges */}
-                                <FormSection title="Fare & Charges" description="Calculate fares before creating the booking." className="bg-[#F8FAFF]">
-                                    <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
-                                        <FormField label="Payment Method" className="sm:min-w-[220px]">
-                                            <select value={values.payment_method}
-                                                onChange={(e) => { setFieldValue("payment_method", e.target.value); clearBookingError("payment_method"); }}
-                                                className={`${formSelectClass} ${bookingErrors.payment_method ? formInputErrorClass : ""}`}>
-                                                <option value="">Select Method</option>
-                                                <option value="cash">Cash</option>
-                                                <option value="online">Online</option>
-                                            </select>
-                                            <FieldError message={bookingErrors.payment_method} />
-                                        </FormField>
-                                        <Button btnSize="md" type="filled" className="px-5 py-3 text-sm whitespace-nowrap"
-                                            onClick={() => handleCalculateFares(values, setFieldValue)}
-                                            disabled={fareLoading}>
-                                            {fareLoading ? "Calculating..." : "Calculate Fares"}
-                                        </Button>
+                                    {/* Row 3: Fare & Charges + Actions */}
+                                    <div className="lg:col-span-6 lg:row-start-3 min-w-0">
+                                        <FormSection title="Fare & Charges" className="bg-[#F8FAFF] !mb-0">
+                                            <div className="flex flex-wrap items-end gap-2">
+                                                <div className="w-[110px] shrink-0">
+                                                    <FormField label="Payment">
+                                                        <select value={values.payment_method}
+                                                            onChange={(e) => { setFieldValue("payment_method", e.target.value); clearBookingError("payment_method"); }}
+                                                            className={`${formSelectClass} ${bookingErrors.payment_method ? formInputErrorClass : ""}`}>
+                                                            <option value="">Method</option>
+                                                            <option value="cash">Cash</option>
+                                                            <option value="online">Online</option>
+                                                        </select>
+                                                    </FormField>
+                                                </div>
+                                                <div className="w-[90px] shrink-0">
+                                                    <ChargeInput label="Bk Fee" name="booking_fee_charges" value={values.booking_fee_charges} onChange={handleChargeChange} />
+                                                </div>
+                                                {chargeFields.map(field => (
+                                                    <div key={field} className="w-[80px] shrink-0">
+                                                        <ChargeInput label={field.replaceAll("_", " ").replace("fares", "fare").replace("charges", "").replace("waiting time", "wait").replace("congestion toll", "toll")} name={field} value={values[field]} onChange={handleChargeChange} />
+                                                    </div>
+                                                ))}
+                                                <div className="w-[100px] shrink-0 rounded-lg border border-[#BBF7D0] bg-[#F0FDF4] px-2 py-1">
+                                                    <ChargeInput label="Total" name="total_charges" value={values.total_charges} onChange={handleChargeChange} />
+                                                </div>
+                                                <div className="flex flex-wrap items-center gap-2 ml-auto shrink-0">
+                                                    {!fareCalculated && (
+                                                        <span className="text-[10px] font-medium text-red-600 whitespace-nowrap">Calc fares first</span>
+                                                    )}
+                                                    {bookingErrors.fare && (
+                                                        <span className="text-[10px] font-medium text-red-600">{bookingErrors.fare}</span>
+                                                    )}
+                                                    <Button btnSize="md" type="filled" className="px-3 py-2 text-xs whitespace-nowrap"
+                                                        onClick={() => handleCalculateFares(values, setFieldValue)}
+                                                        disabled={fareLoading}>
+                                                        {fareLoading ? "..." : "Calc Fares"}
+                                                    </Button>
+                                                    <Button btnSize="md" type="filledGray" className="px-3 py-2 text-xs"
+                                                        onClick={() => { unlockBodyScroll(); setIsOpen({ type: "new", isOpen: false, booking: null }); }}>
+                                                        Cancel
+                                                    </Button>
+                                                    <Button btnType="submit" btnSize="md" type="filled" className="px-3 py-2 text-xs"
+                                                        disabled={isBookingLoading || !fareCalculated}
+                                                        title={!fareCalculated ? "Calculate fares first" : ""}>
+                                                        {isBookingLoading ? "..." : isEditMode ? "Update" : "Create"}
+                                                    </Button>
+                                                </div>
+                                            </div>
+                                        </FormSection>
                                     </div>
-                                    <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-4">
-                                        <ChargeInput label="Booking Fee" name="booking_fee_charges" value={values.booking_fee_charges} onChange={handleChargeChange} />
-                                        {chargeFields.map(field => (
-                                            <ChargeInput key={field} label={field.replaceAll("_", " ")} name={field} value={values[field]} onChange={handleChargeChange} />
-                                        ))}
-                                    </div>
-                                    <div className="rounded-lg border border-[#BBF7D0] bg-[#F0FDF4] px-4 py-3">
-                                        <ChargeInput label="Total Charges" name="total_charges" value={values.total_charges} onChange={handleChargeChange} />
-                                    </div>
-                                    {bookingErrors.fare && <FieldError message={bookingErrors.fare} />}
-                                </FormSection>
-
-                                <div className="rounded-xl border border-[#E5E7EB] bg-white px-4 py-4 shadow-sm">
-                                    <div className="flex flex-col sm:flex-row gap-3 sm:justify-end">
-                                        <Button btnSize="md" type="filledGray" className="!px-8 py-3 w-full sm:w-auto"
-                                            onClick={() => { unlockBodyScroll(); setIsOpen({ type: "new", isOpen: false }); }}>
-                                            Cancel
-                                        </Button>
-                                        <Button btnType="submit" btnSize="md" type="filled" className="!px-8 py-3 w-full sm:w-auto"
-                                            disabled={isBookingLoading || !fareCalculated}
-                                            title={!fareCalculated ? "Please calculate fares first" : ""}>
-                                            {isBookingLoading ? "Creating..." : "Create Booking"}
-                                        </Button>
-                                    </div>
-                                    {!fareCalculated && (
-                                        <p className="mt-3 text-xs font-medium text-red-600 text-center sm:text-right">Please calculate fares before creating the booking.</p>
-                                    )}
                                 </div>
                             </div>
                         </Form>
@@ -1724,7 +1957,7 @@ export default AddBooking;
 const InputBox = ({ label, value, onChange, suggestions, show, onSelect, plot, placeholder, hasError }) => (
     <div className="relative w-full">
         <label className={formLabelClass}>{label}</label>
-        <div className="grid grid-cols-1 md:grid-cols-[1fr_140px] gap-2">
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr_90px] gap-1.5">
             <div className="relative">
                 <input value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder}
                     className={`${formInputClass} ${hasError ? formInputErrorClass : ""}`} />

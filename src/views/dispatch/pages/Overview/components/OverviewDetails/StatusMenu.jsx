@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { mapBookingToFormValues } from "../../../../../../utils/functions/bookingFormMapper";
 import DispatchJobIcon from "../../../../../../components/svg/DispatchJobIcon";
 import CancelJobIcon from "../../../../../../components/svg/CancelJobIcon";
 import AllocateDriverIcon from "../../../../../../components/svg/AllocateDriverIcon";
@@ -130,102 +131,7 @@ const StatusMenu = ({
                     const dispatcherName = getDispatcherName();
                     await recordDispatcherAction(bookingId, "copied this booking", dispatcherName);
 
-                    let viaPoints = [];
-                    let viaLatitudes = [];
-                    let viaLongitudes = [];
-
-                    if (bookingData.via_location) {
-                        try {
-                            const arr = typeof bookingData.via_location === "string"
-                                ? JSON.parse(bookingData.via_location)
-                                : bookingData.via_location;
-                            viaPoints = Array.isArray(arr) ? arr : [];
-                        } catch (e) { console.error("Error parsing via_location:", e); }
-                    }
-
-                    if (bookingData.via_point) {
-                        try {
-                            const arr = typeof bookingData.via_point === "string"
-                                ? JSON.parse(bookingData.via_point)
-                                : bookingData.via_point;
-                            if (Array.isArray(arr)) {
-                                viaLatitudes = arr.map((p) => p.latitude || "");
-                                viaLongitudes = arr.map((p) => p.longitude || "");
-                            }
-                        } catch (e) { console.error("Error parsing via_point:", e); }
-                    }
-
-                    let pickupLat = "", pickupLng = "";
-                    if (bookingData.pickup_point) {
-                        const [lat, lng] = bookingData.pickup_point.split(",").map((s) => s.trim());
-                        pickupLat = lat || ""; pickupLng = lng || "";
-                    }
-
-                    let destLat = "", destLng = "";
-                    if (bookingData.destination_point) {
-                        const [lat, lng] = bookingData.destination_point.split(",").map((s) => s.trim());
-                        destLat = lat || ""; destLng = lng || "";
-                    }
-
-                    let formattedPickupTime = "";
-                    if (bookingData.pickup_time && bookingData.pickup_time !== "asap") {
-                        const tp = bookingData.pickup_time.split(":");
-                        formattedPickupTime = `${tp[0]}:${tp[1]}`;
-                    }
-
-                    let formattedDate = "";
-                    if (bookingData.booking_date) {
-                        formattedDate = new Date(bookingData.booking_date).toISOString().split("T")[0];
-                    }
-
-                    const copiedData = {
-                        sub_company: bookingData.sub_company?.toString() || "",
-                        pickup_point: bookingData.pickup_location || "",
-                        destination: bookingData.destination_location || "",
-                        pickup_latitude: pickupLat,
-                        pickup_longitude: pickupLng,
-                        destination_latitude: destLat,
-                        destination_longitude: destLng,
-                        pickup_plot_id: bookingData.pickup_plot_id || null,
-                        destination_plot_id: bookingData.destination_plot_id || null,
-                        via_points: viaPoints,
-                        via_latitude: viaLatitudes,
-                        via_longitude: viaLongitudes,
-                        via_plot_id: [],
-                        booking_date: formattedDate,
-                        pickup_time: formattedPickupTime,
-                        pickup_time_type: bookingData.pickup_time === "asap" ? "asap" : "time",
-                        booking_type: bookingData.booking_type || "outstation",
-                        name: bookingData.name || "",
-                        email: bookingData.email || "",
-                        phone_no: bookingData.phone_no || "",
-                        tel_no: bookingData.tel_no || "",
-                        journey_type: bookingData.journey_type || "one_way",
-                        account: bookingData.account?.toString() || "",
-                        vehicle: bookingData.vehicle?.toString() || "",
-                        passenger: parseInt(bookingData.passenger) || 0,
-                        luggage: parseInt(bookingData.luggage) || 0,
-                        hand_luggage: parseInt(bookingData.hand_luggage) || 0,
-                        special_request: bookingData.special_request || "",
-                        payment_reference: bookingData.payment_reference || "",
-                        payment_method: bookingData.payment_method || "cash",
-                        fares: parseFloat(bookingData.fares) || 0,
-                        return_fares: parseFloat(bookingData.return_fares) || 0,
-                        parking_charges: parseFloat(bookingData.parking_charge) || 0,
-                        waiting_charges: parseFloat(bookingData.waiting_charge) || 0,
-                        ac_fares: parseFloat(bookingData.ac_fares) || 0,
-                        return_ac_fares: parseFloat(bookingData.return_ac_fares) || 0,
-                        ac_parking_charges: parseFloat(bookingData.ac_parking_charge) || 0,
-                        ac_waiting_charges: parseFloat(bookingData.ac_waiting_charge) || 0,
-                        extra_charges: parseFloat(bookingData.extra_charge) || 0,
-                        congestion_toll: parseFloat(bookingData.toll) || 0,
-                        booking_fee_charges: 0,
-                        total_charges: parseFloat(bookingData.booking_amount) || 0,
-                        driver: "",
-                        booking_system: "auto_dispatch",
-                        auto_dispatch: true,
-                        bidding: false,
-                    };
+                    const copiedData = mapBookingToFormValues(bookingData, { mode: "copy" });
 
                     localStorage.setItem("copiedBookingData", JSON.stringify(copiedData));
                     toast.success("Booking copied! Opening booking form...");
@@ -286,7 +192,7 @@ const StatusMenu = ({
 
     const getFilteredMenuItems = () => {
         const status = bookingData?.booking_status;
-        const isDriverAssigned = !!bookingData?.driver;
+        const isDriverAssigned = !!(bookingData?.driver || bookingData?.pending_driver_id);
         const hasFollowOnLinked = !!bookingData?.follow_on_job_id;
 
         if (status === "cancelled") {

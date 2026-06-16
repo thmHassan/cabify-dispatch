@@ -23,6 +23,7 @@ import {
   storeTenantId,
   storeTenantData,
 } from "../functions/tokenEncryption";
+import { setCachedTenantCurrency } from "../functions/formatters";
 
 const API_ERROR_MAP = {
   "Database header is missing.": "Company ID is missing.",
@@ -132,6 +133,7 @@ function useAuth() {
 
     if (companyData) {
       storeTenantData(companyData);
+      setCachedTenantCurrency(companyData?.currency || companyData?.data?.currency);
     }
 
     navigate(

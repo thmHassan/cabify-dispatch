@@ -87,15 +87,51 @@ export const syncMultiBookingReferenceDate = ({
     return "";
 };
 
+const isApiSuccess = (data) => data?.success === 1 || data?.success === true;
+
+export const isScheduledPreBooking = (booking) => {
+    if (!booking) return false;
+
+    if (booking.pickup_time_type === "asap") return false;
+
+    const isReleased = booking.dispatch_released;
+    if (isReleased === true || isReleased === 1 || isReleased === "1") return false;
+
+    if (booking.pre_booking === false || booking.pre_booking === 0 || booking.pre_booking === "0") {
+        return false;
+    }
+    if (booking.is_scheduled === false || booking.is_scheduled === 0 || booking.is_scheduled === "0") {
+        return false;
+    }
+
+    if (booking.pickup_time_type === "time") return true;
+
+    const preBooking = booking.pre_booking;
+    if (preBooking === true || preBooking === 1 || preBooking === "1") return true;
+
+    const isScheduled = booking.is_scheduled;
+    if (isScheduled === true || isScheduled === 1 || isScheduled === "1") return true;
+
+    return false;
+};
+
+export const bookingHasSchedulingMetadata = (booking) =>
+    booking?.pickup_time_type != null ||
+    booking?.is_scheduled != null ||
+    booking?.pre_booking != null;
+
 export const filterBookingsForOverviewTab = (bookings, filter) => {
     if (!Array.isArray(bookings) || !filter) return bookings || [];
 
-    if (filter === "todays_booking") {
-        return bookings.filter((booking) => isTodayDate(booking?.booking_date));
-    }
+    if (filter === "todays_booking" || filter === "pre_bookings") {
+        const canRefineClientSide = bookings.some(bookingHasSchedulingMetadata);
+        if (!canRefineClientSide) return bookings;
 
-    if (filter === "pre_bookings") {
-        return bookings.filter((booking) => isFutureDate(booking?.booking_date));
+        if (filter === "todays_booking") {
+            return bookings.filter((booking) => !isScheduledPreBooking(booking));
+        }
+
+        return bookings.filter((booking) => isScheduledPreBooking(booking));
     }
 
     return bookings;
@@ -112,4 +148,105 @@ export const getMultiBookingCreatedCount = (responseData) => {
 
     const parsed = Number(count);
     return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+};
+
+export const extractCreatedBookings = (responseData, formMeta = {}) => {
+    const raw =
+        responseData?.bookings ||
+        responseData?.data?.bookings ||
+        responseData?.booking ||
+        responseData?.data?.booking ||
+        [];
+
+    let list = Array.isArray(raw) ? raw : raw ? [raw] : [];
+
+    if (list.length === 0) {
+        const bookingId =
+            responseData?.booking_id ||
+            responseData?.id ||
+            responseData?.data?.id ||
+            responseData?.data?.booking_id;
+
+        if (bookingId) {
+            list = [{ id: bookingId }];
+        } else if (formMeta.isScheduled) {
+            list = [{ id: `pending-${Date.now()}` }];
+        }
+    }
+
+    return list.filter(Boolean).map((booking) => ({
+        ...booking,
+        pickup_time_type:
+            booking.pickup_time_type ||
+            formMeta.pickupTimeType ||
+            (formMeta.isScheduled ? "time" : "asap"),
+        is_scheduled:
+            booking.is_scheduled ??
+            (formMeta.isScheduled ? true : false),
+        pre_booking:
+            booking.pre_booking ??
+            (formMeta.isScheduled ? true : false),
+        dispatch_released: booking.dispatch_released ?? false,
+        reminder_minutes: booking.reminder_minutes ?? formMeta.reminderMinutes ?? null,
+        booking_date: booking.booking_date ?? formMeta.bookingDate ?? null,
+        pickup_time: booking.pickup_time ?? formMeta.pickupTime ?? null,
+        pickup_location: booking.pickup_location ?? formMeta.pickupLocation ?? null,
+        destination_location: booking.destination_location ?? formMeta.destinationLocation ?? null,
+        phone_no: booking.phone_no ?? formMeta.phoneNo ?? null,
+        passenger: booking.passenger ?? formMeta.passenger ?? 1,
+        booking_status: booking.booking_status ?? "pending",
+    }));
+};
+
+export const mergeBookingsById = (primary = [], secondary = []) => {
+    const seen = new Set();
+    const merged = [];
+
+    [...secondary, ...primary].forEach((booking) => {
+        if (!booking || booking.id == null || seen.has(booking.id)) return;
+        seen.add(booking.id);
+        merged.push(booking);
+    });
+
+    return merged;
+};
+
+export const isDispatchReleased = (booking) =>
+    booking?.dispatch_released === true ||
+    booking?.dispatch_released === 1 ||
+    booking?.dispatch_released === "1";
+
+export const extractUpdatedBookingFromResponse = (responseData, fallbackBooking = {}) => {
+    const raw =
+        responseData?.data?.booking ||
+        responseData?.booking ||
+        responseData?.data ||
+        responseData;
+
+    if (!raw || typeof raw !== "object") {
+        return { ...fallbackBooking };
+    }
+
+    const booking = raw.id != null ? raw : raw.booking;
+    if (!booking || typeof booking !== "object") {
+        return { ...fallbackBooking };
+    }
+
+    return { ...fallbackBooking, ...booking };
+};
+
+export const shouldShowBookingInOverviewTab = (booking, filter) => {
+    if (!filter || filter === "recent_jobs" || filter === "completed" || filter === "no_show" || filter === "cancelled") {
+        return true;
+    }
+
+    if (filter === "pre_bookings") {
+        return isScheduledPreBooking(booking);
+    }
+
+    if (filter === "todays_booking") {
+        return !isScheduledPreBooking(booking);
+    }
+
+    return true;
 };

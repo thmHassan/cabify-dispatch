@@ -19,6 +19,7 @@ import PageSubTitle from "../../ui/PageSubTitle/PageSubTitle";
 import { PlainSwitch } from "../../ui/Switch/Switch ";
 import { filterNavByTenantFeatures } from "../../../utils/functions/featureVisibilityFilter";
 import { getTenantData } from "../../../utils/functions/tokenEncryption";
+import { formatRelativeTime } from "../../../utils/functions/formatters";
 import { useNavbarNotifications } from "../../../hooks/useNavbarNotifications";
 
 const UserPageContainer = ({ children }) => {
@@ -48,21 +49,7 @@ const UserPageContainer = ({ children }) => {
     [tenantData]
   );
 
-  const formatTimestamp = (timestamp) => {
-    const date = new Date(timestamp);
-    const now = new Date();
-    const diffMs = now - date;
-    const diffMins = Math.floor(diffMs / 60000);
-    
-    if (diffMins < 1) return "Just now";
-    if (diffMins < 60) return `${diffMins}m ago`;
-    
-    const diffHours = Math.floor(diffMins / 60);
-    if (diffHours < 24) return `${diffHours}h ago`;
-    
-    const diffDays = Math.floor(diffHours / 24);
-    return `${diffDays}d ago`;
-  };
+  const formatTimestamp = formatRelativeTime;
 
   useEffect(() => {
     const handleClickOutside = (event) => {

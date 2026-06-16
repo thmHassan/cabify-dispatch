@@ -1,27 +1,15 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import UserDropdown from "../../../../../../components/shared/UserDropdown";
 import Button from "../../../../../../components/ui/Button/Button";
 import ThreeDotsIcon from "../../../../../../components/svg/ThreeDotsIcon";
 import toast from "react-hot-toast";
-import { getTenantData } from "../../../../../../utils/functions/tokenEncryption";
 import { formatPhoneDisplay } from "../../../../../../utils/functions/tenantSettings";
+import { formatCurrency } from "../../../../../../utils/functions/formatters";
 import { apieditDriverStatus } from "../../../../../../services/DriverManagementService";
 
 const DriverManagementCard = ({ driver, onEdit, onDelete, onStatusChange }) => {
     const [status, setStatus] = useState(driver?.status || "pending");
     const [loading, setLoading] = useState(false);
-    const [currencySymbol, setCurrencySymbol] = useState("₹");
-
-    const currencySymbols = {
-        INR: "₹",
-        USD: "$",
-        EUR: "€",
-        GBP: "£",
-        AUD: "A$",
-        CAD: "C$",
-        AED: "د.إ",
-    };
-
     const actionOptions = [
         {
             label: "View",
@@ -90,16 +78,6 @@ const DriverManagementCard = ({ driver, onEdit, onDelete, onStatusChange }) => {
         }
     };
 
-    useEffect(() => {
-        const tenant = getTenantData();
-
-        const currency = tenant?.currency || tenant?.data?.currency;
-
-        if (currency) {
-            setCurrencySymbol(currencySymbols[currency] || currency);
-        }
-    }, []);
-
     const capitalizeFirst = (value) => {
         if (!value) return "-";
         return value.charAt(0).toUpperCase() + value.slice(1);
@@ -150,7 +128,7 @@ const DriverManagementCard = ({ driver, onEdit, onDelete, onStatusChange }) => {
 
                 <div className="inline-flex flex-col px-4 py-2 rounded-full bg-[#006FFF1A] text-left whitespace-nowrap">
                     <p className="text-xs text-center text-gray-500">Wallet Balance</p>
-                    <p className="text-black text-center text-[#1F41BB] font-semibold text-sm"> {currencySymbol} {driver.wallet_balance || "0"}</p>
+                    <p className="text-black text-center text-[#1F41BB] font-semibold text-sm">{formatCurrency(driver.wallet_balance ?? 0)}</p>
                 </div>
 
                 <div

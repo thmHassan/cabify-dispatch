@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { formatDateTime } from "../../../../../../utils/functions/formatters";
 
 const getUserTypeLabel = (userType) => (userType === "driver" ? "Driver" : "Customer");
 
@@ -59,7 +60,7 @@ const TicketsCard = ({ tickets, onReplyClick, onStatusChange, onUserClick }) => 
                             {tickets.customer || getUserTypeLabel(tickets.user_type) || "View user"}
                         </button>
                         <p className="text-xs">
-                            {new Date(tickets.created_at).toLocaleDateString("en-GB")}
+                            {formatDateTime(tickets.created_at)}
                         </p>
                     </div>
                 </div>

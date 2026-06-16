@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { getTenantCountryIso } from "../../../../../../../utils/functions/tenantSettings";
 
+const MAP_MIN_HEIGHT = "280px";
+
 const COUNTRY_CENTERS = {
     GB: { lat: 51.5074, lng: -0.1278 },
     US: { lat: 37.0902, lng: -95.7129 },
@@ -39,12 +41,29 @@ const getApiKeys = (apiKeys) => {
     };
 };
 
-const waitForGoogleMapsApi = (maxAttempts = 100) =>
+const waitForGoogleMapsApi = (maxAttempts = 150) =>
     new Promise((resolve, reject) => {
         let attempts = 0;
-        const check = () => {
-            if (window.google?.maps) return resolve();
-            if (++attempts >= maxAttempts) return reject(new Error("Google Maps API timed out"));
+        const check = async () => {
+            if (typeof window.google?.maps?.Map === "function") {
+                resolve();
+                return;
+            }
+            if (window.google?.maps?.importLibrary) {
+                try {
+                    await window.google.maps.importLibrary("maps");
+                    if (typeof window.google?.maps?.Map === "function") {
+                        resolve();
+                        return;
+                    }
+                } catch {
+                    // keep polling
+                }
+            }
+            if (++attempts >= maxAttempts) {
+                reject(new Error("Google Maps API timed out"));
+                return;
+            }
             setTimeout(check, 50);
         };
         check();
@@ -52,9 +71,9 @@ const waitForGoogleMapsApi = (maxAttempts = 100) =>
 
 let googleMapsPromise = null;
 const loadGoogleMaps = (apiKey) => {
-    if (window.google?.maps) return waitForGoogleMapsApi();
+    if (typeof window.google?.maps?.Map === "function") return waitForGoogleMapsApi();
     if (googleMapsPromise) return googleMapsPromise;
-    const existing = document.querySelector('script[src*="maps.googleapis.com"]');
+    const existing = document.getElementById("google-maps-script") || document.querySelector('script[src*="maps.googleapis.com"]');
     if (existing) {
         googleMapsPromise = waitForGoogleMapsApi().catch(() => {
             googleMapsPromise = null;
@@ -64,8 +83,10 @@ const loadGoogleMaps = (apiKey) => {
     }
     googleMapsPromise = new Promise((resolve, reject) => {
         const s = document.createElement("script");
-        s.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places&loading=async`;
+        s.id = "google-maps-script";
+        s.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`;
         s.async = true;
+        s.defer = true;
         s.onload = () => waitForGoogleMapsApi().then(resolve).catch(reject);
         s.onerror = () => { googleMapsPromise = null; reject(new Error("Google Maps script failed to load")); };
         document.head.appendChild(s);
@@ -271,8 +292,16 @@ const GoogleMap = ({
             if (cancelled || !mapRef.current || mapInstanceRef.current) return;
 
             try {
+                if (typeof window.google?.maps?.Map !== "function" && window.google?.maps?.importLibrary) {
+                    await window.google.maps.importLibrary("maps");
+                    await window.google.maps.importLibrary("routes");
+                }
+                if (typeof window.google?.maps?.Map !== "function") {
+                    throw new Error("Google Maps Map constructor unavailable");
+                }
+
                 const center = getCountryCenter();
-                mapRef.current.style.minHeight = "400px";
+                mapRef.current.style.minHeight = MAP_MIN_HEIGHT;
                 mapInstanceRef.current = new window.google.maps.Map(mapRef.current, {
                     zoom: 5,
                     center: { lat: center.lat, lng: center.lng },
@@ -387,7 +416,7 @@ const GoogleMap = ({
 
     if (!googleKey || loadError) {
         return (
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "400px", background: "#fef2f2", borderRadius: "8px" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", minHeight: MAP_MIN_HEIGHT, background: "#fef2f2", borderRadius: "8px" }}>
                 <p style={{ color: "#dc2626", fontSize: "14px" }}>
                     {!googleKey ? "Google Maps API key is not configured." : "Google Maps failed to load. Please check your API key."}
                 </p>
@@ -396,8 +425,8 @@ const GoogleMap = ({
     }
 
     return (
-        <div ref={wrapperRef} style={{ position: "relative", width: "100%", height: "400px", minHeight: "400px", borderRadius: "8px", overflow: "hidden" }}>
-            <div ref={mapRef} style={{ width: "100%", height: "100%", minHeight: "400px" }} />
+        <div ref={wrapperRef} style={{ position: "relative", width: "100%", height: "100%", minHeight: MAP_MIN_HEIGHT, borderRadius: "8px", overflow: "hidden" }}>
+            <div ref={mapRef} style={{ width: "100%", height: "100%", minHeight: MAP_MIN_HEIGHT }} />
             {!isLoaded && <LoadingPlaceholder />}
         </div>
     );
@@ -514,7 +543,7 @@ const BarikoiMap = ({
 
             try {
                 const center = getCountryCenter();
-                containerRef.current.style.minHeight = "400px";
+                containerRef.current.style.minHeight = MAP_MIN_HEIGHT;
                 mapRef.current = new window.maplibregl.Map({
                     container: containerRef.current,
                     style: buildBarikoiStyle(barikoiKey),
@@ -679,7 +708,7 @@ const BarikoiMap = ({
 
     if (!barikoiKey || loadError) {
         return (
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "400px", background: "#fef2f2", borderRadius: "8px" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", minHeight: MAP_MIN_HEIGHT, background: "#fef2f2", borderRadius: "8px" }}>
                 <p style={{ color: "#dc2626", fontSize: "14px" }}>
                     {!barikoiKey ? "Barikoi API key is not configured." : "Barikoi map failed to load. Please check your API key."}
                 </p>
@@ -688,8 +717,8 @@ const BarikoiMap = ({
     }
 
     return (
-        <div ref={wrapperRef} style={{ position: "relative", width: "100%", height: "400px", minHeight: "400px", borderRadius: "8px", overflow: "hidden", fontFamily: "Roboto,Arial,sans-serif" }}>
-            <div ref={containerRef} style={{ width: "100%", height: "100%", minHeight: "400px" }} />
+        <div ref={wrapperRef} style={{ position: "relative", width: "100%", height: "100%", minHeight: MAP_MIN_HEIGHT, borderRadius: "8px", overflow: "hidden", fontFamily: "Roboto,Arial,sans-serif" }}>
+            <div ref={containerRef} style={{ width: "100%", height: "100%", minHeight: MAP_MIN_HEIGHT }} />
             {!isLoaded && <LoadingPlaceholder />}
 
             {isLoaded && (

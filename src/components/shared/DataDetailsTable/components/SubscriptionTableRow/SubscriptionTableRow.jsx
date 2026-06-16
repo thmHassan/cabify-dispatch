@@ -4,6 +4,7 @@ import ChildText from "../../../../ui/ChildText.jsx/ChildText";
 import CommonTableRowFields from "../CommonTableRowFields/CommonTableRowFields";
 import WalletIcon from "../../../../svg/WalletIcon";
 import DriverVehicleIcon from "../../../../svg/DriverVehicleIcon";
+import { formatCurrency } from "../../../../../utils/functions/formatters";
 import _ from "lodash";
 
 const ICON_CONFIG = {
@@ -88,7 +89,7 @@ const SubscriptionTableRow = (props) => {
         </td>
 
         <td className="py-[30px] flex flex-col justify-center min-w-[199px]">
-          <CardSubtitle type={1} subtitle={`$${amount}`} />
+          <CardSubtitle type={1} subtitle={formatCurrency(amount)} />
           <ChildText text={`${billing_cycle} revenue`} />
         </td>
       </CommonTableRowFields>

@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { formatBookingDate, formatReminderMinutes, formatTime } from "../../../../../../utils/functions/formatters";
 
 const DriverAssignmentModal = ({
     notification,
@@ -33,9 +34,32 @@ const DriverAssignmentModal = ({
 
     if (!notification) return null;
 
-    const { booking, driver_name, message, type } = notification;
+    const {
+        booking,
+        driver_name,
+        message,
+        type,
+        title: reminderTitle,
+        booking_reference,
+        pickup_location,
+        pickup_time,
+        booking_date,
+        reminder_minutes,
+        booking_id,
+    } = notification;
+
+    const isReminder = type === "reminder";
 
     const theme = {
+        reminder: {
+            color: "#d97706",
+            label: reminderTitle || "Booking Reminder",
+            gradient: "from-amber-600 via-amber-400 to-amber-600",
+            dot: "bg-amber-600",
+            ping: "bg-amber-600",
+            avatar: "bg-amber-600",
+            progress: "bg-amber-600",
+        },
         accepted: {
             color: "#16a34a",
             label: "Ride Accepted",
@@ -110,43 +134,62 @@ const DriverAssignmentModal = ({
 
                 <div className="px-5 pb-4 space-y-3">
 
-                    <div className="flex items-center gap-2">
-                        <div className={`flex-shrink-0 w-9 h-9 rounded-full ${t.avatar} flex items-center justify-center`}>
-                            <span className="text-white text-sm font-bold">
-                                {driver_name?.charAt(0)?.toUpperCase() ?? "D"}
-                            </span>
-                        </div>
-                        <div>
-                            <p className="text-xs text-gray-500 leading-none mb-0.5">
-                                {type === "accepted" ? "Accepted by" : type === "cancelled" ? "Cancelled by" : "Assigned Driver"}
-                            </p>
-                            <p className="text-sm font-semibold text-gray-800 leading-tight">
-                                {driver_name ?? "Unknown Driver"}
-                            </p>
-                        </div>
-                    </div>
-
-                    <p className="text-sm text-gray-600 leading-snug">{message}</p>
-
-                    {booking && (
-                        <div className="bg-gray-50 rounded-xl px-4 py-3 space-y-1.5 border border-gray-100">
-                            <Row label="Booking ID" value={booking.booking_id ?? `#${booking.id}`} />
-                            {booking.pickup_location && <Row label="Pickup" value={booking.pickup_location} truncate />}
-                            {booking.destination_location && <Row label="Drop" value={booking.destination_location} truncate />}
-                            {booking.booking_date && (
-                                <Row label="Date" value={new Date(booking.booking_date).toLocaleDateString("en-GB")} />
-                            )}
-                            {booking.pickup_time && (
-                                <Row label="Time" value={booking.pickup_time === "asap" ? "ASAP" : booking.pickup_time} />
-                            )}
-                            <div className="flex items-center justify-between pt-1">
-                                <span className="text-xs text-gray-500">Status</span>
-                                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full 
-                                    ${(statusBadgeStyle[booking.booking_status] || statusBadgeStyle.pending).bg} 
-                                    ${(statusBadgeStyle[booking.booking_status] || statusBadgeStyle.pending).text}`}>
-                                    {(statusBadgeStyle[booking.booking_status] || statusBadgeStyle.pending).label}
+                    {!isReminder && (
+                        <div className="flex items-center gap-2">
+                            <div className={`flex-shrink-0 w-9 h-9 rounded-full ${t.avatar} flex items-center justify-center`}>
+                                <span className="text-white text-sm font-bold">
+                                    {driver_name?.charAt(0)?.toUpperCase() ?? "D"}
                                 </span>
                             </div>
+                            <div>
+                                <p className="text-xs text-gray-500 leading-none mb-0.5">
+                                    {type === "accepted" ? "Accepted by" : type === "cancelled" ? "Cancelled by" : "Assigned Driver"}
+                                </p>
+                                <p className="text-sm font-semibold text-gray-800 leading-tight">
+                                    {driver_name ?? "Unknown Driver"}
+                                </p>
+                            </div>
+                        </div>
+                    )}
+
+                    {message && <p className="text-sm text-gray-600 leading-snug">{message}</p>}
+
+                    {(booking || isReminder) && (
+                        <div className="bg-gray-50 rounded-xl px-4 py-3 space-y-1.5 border border-gray-100">
+                            {(booking_reference || booking?.booking_id || booking?.id || booking_id) && (
+                                <Row
+                                    label="Booking"
+                                    value={booking_reference || booking?.booking_id || (booking?.id ? `#${booking.id}` : `#${booking_id}`)}
+                                />
+                            )}
+                            {(pickup_location || booking?.pickup_location) && (
+                                <Row label="Pickup" value={pickup_location || booking.pickup_location} truncate />
+                            )}
+                            {booking?.destination_location && (
+                                <Row label="Drop" value={booking.destination_location} truncate />
+                            )}
+                            {(booking_date || booking?.booking_date) && (
+                                <Row label="Date" value={formatBookingDate(booking_date || booking.booking_date, "-")} />
+                            )}
+                            {(pickup_time || booking?.pickup_time) && (
+                                <Row label="Time" value={formatTime(pickup_time || booking.pickup_time)} />
+                            )}
+                            {(reminder_minutes || booking?.reminder_minutes) && (
+                                <Row
+                                    label="Reminder"
+                                    value={formatReminderMinutes(reminder_minutes || booking.reminder_minutes, "-")}
+                                />
+                            )}
+                            {!isReminder && booking && (
+                                <div className="flex items-center justify-between pt-1">
+                                    <span className="text-xs text-gray-500">Status</span>
+                                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full 
+                                        ${(statusBadgeStyle[booking.booking_status] || statusBadgeStyle.pending).bg} 
+                                        ${(statusBadgeStyle[booking.booking_status] || statusBadgeStyle.pending).text}`}>
+                                        {(statusBadgeStyle[booking.booking_status] || statusBadgeStyle.pending).label}
+                                    </span>
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>

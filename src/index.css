@@ -83,6 +83,23 @@ textarea:focus-visible,
   }
 }
 
+@keyframes pending-booking-blink {
+  0%,
+  100% {
+    background-color: rgb(255 251 235);
+    box-shadow: inset 4px 0 0 0 rgb(251 146 60);
+  }
+
+  50% {
+    background-color: rgb(254 243 199);
+    box-shadow: inset 4px 0 0 0 rgb(234 88 12), inset 0 0 0 1px rgb(251 146 60 / 0.45);
+  }
+}
+
+.pending-booking-blink {
+  animation: pending-booking-blink 1.25s ease-in-out infinite;
+}
+
 /* Ensure base state also doesn't animate between fields */
 input:not([type="hidden"]),
 select,

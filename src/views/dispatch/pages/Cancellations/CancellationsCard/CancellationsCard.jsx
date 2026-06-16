@@ -1,53 +1,9 @@
-import { useEffect, useState } from "react";
-import { getTenantData } from "../../../../../utils/functions/tokenEncryption";
+import { formatCurrency, formatDateTime } from "../../../../../utils/functions/formatters";
 
 const CancellationsCard = ({ cancellations }) => {
-    const currencySymbols = {
-        INR: "₹",
-        USD: "$",
-        EUR: "€",
-        GBP: "£",
-        AUD: "A$",
-        CAD: "C$",
-        AED: "د.إ",
-    };
-
-    const [currencySymbol, setCurrencySymbol] = useState("₹");
-
-    useEffect(() => {
-        const tenant = getTenantData();
-
-        const currency = tenant?.currency || tenant?.data?.currency;
-
-        if (currency) {
-            setCurrencySymbol(currencySymbols[currency] || currency);
-        }
-    }, []);
-
-
     const capitalizeFirst = (value) => {
         if (!value) return "-";
         return value.charAt(0).toUpperCase() + value.slice(1);
-    };
-
-    const formatAmount = (amount) => {
-        if (amount === null || amount === undefined) return "-";
-        return Number(amount).toFixed(2);
-    };
-
-    const formatDate = (dateString) => {
-        if (!dateString) return "-";
-
-        const date = new Date(dateString);
-
-        return date.toLocaleString("en-GB", {
-            weekday: "short",
-            day: "2-digit",
-            month: "short",
-            year: "numeric",
-            hour: "2-digit",
-            minute: "2-digit",
-        }).replace(",", "")
     };
 
     return (
@@ -91,7 +47,7 @@ const CancellationsCard = ({ cancellations }) => {
                 <div className="w-[100px]">
                     <p className="text-xs text-center text-[#6C6C6C]">Amount</p>
                     <p className="text-[#333333] text-center font-semibold text-sm">
-                        {currencySymbol} {formatAmount(cancellations.booking_amount)}
+                        {formatCurrency(cancellations.booking_amount)}
                     </p>
                 </div>
             </div>
@@ -118,7 +74,7 @@ const CancellationsCard = ({ cancellations }) => {
                 <div className="w-[140px]">
                     <p className="text-xs text-center text-[#6C6C6C]">Initiated At</p>
                     <p className="text-[#333333] text-center font-semibold text-sm line-clamp-3">
-                        {formatDate(cancellations.created_at)}
+                        {formatDateTime(cancellations.created_at)}
                     </p>
                 </div>
             </div>

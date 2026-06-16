@@ -8,8 +8,8 @@ import Loading from "../../../../../../components/shared/Loading/Loading";
 import { apiGetDriverDocumentById, apiGetDriverDocumentList, apiGetDriverManagementById } from "../../../../../../services/DriverManagementService";
 import DocumentModel from "./component/DocumentModel";
 import Modal from "../../../../../../components/shared/Modal/Modal";
-import { getTenantData } from "../../../../../../utils/functions/tokenEncryption";
 import { getTenantDialCode } from "../../../../../../utils/functions/tenantSettings";
+import { formatCurrency } from "../../../../../../utils/functions/formatters";
 
 const FormField = ({ label, type = "text", placeholder, options = [], value = "", onChange, name }) => {
     return (
@@ -59,27 +59,6 @@ const DriverDetails = () => {
     const [isAddDocumentModalOpen, setIsAddDocumentModalOpen] = useState(false);
     const [selectedDocument, setSelectedDocument] = useState(null);
     const [isLoadingDocument, setIsLoadingDocument] = useState(false);
-    const [currencySymbol, setCurrencySymbol] = useState("₹");
-
-    const currencySymbols = {
-        INR: "₹",
-        USD: "$",
-        EUR: "€",
-        GBP: "£",
-        AUD: "A$",
-        CAD: "C$",
-        AED: "د.إ",
-    };
-
-    useEffect(() => {
-        const tenant = getTenantData();
-
-        const currency = tenant?.currency || tenant?.data?.currency;
-
-        if (currency) {
-            setCurrencySymbol(currencySymbols[currency] || currency);
-        }
-    }, []);
 
     const [formData, setFormData] = useState({
         name: "",
@@ -331,7 +310,7 @@ const DriverDetails = () => {
                             </label>
                             <input
                                 type="text"
-                                value={driverData?.wallet_balance ? `${driverData.wallet_balance}` : "$0.00"}
+                                value={formatCurrency(driverData?.wallet_balance ?? 0)}
                                 disabled
                                 className="w-full h-11 rounded-lg border border-gray-300 px-4 text-sm bg-gray-100 text-gray-600"
                             />

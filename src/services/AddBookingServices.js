@@ -1,6 +1,6 @@
 import { METHOD_GET, METHOD_POST } from "../constants/method.constant";
 import ApiService from "./ApiService";
-import { CALCULATE_FARES, CANCELLED_BOOKING, CREATE_BOOKING, GET_ALL_PLOT, GET_RIDE_MANAGEMENT } from "../constants/api.route.constant";
+import { CALCULATE_FARES, CANCELLED_BOOKING, CREATE_BOOKING, EDIT_BOOKING, GET_ALL_PLOT, GET_RIDE_MANAGEMENT } from "../constants/api.route.constant";
 import socketApi from "./SocketApiService";
 import { getDispatcherId } from "../utils/auth";
 import { getTenantId } from "../utils/functions/tokenEncryption";
@@ -19,6 +19,18 @@ const buildBookingParams = ({
     if (sub_company) params.sub_company = sub_company;
     if (filter) params.filter = filter;
     return params;
+};
+
+export const isApiSuccess = (data) =>
+    data?.success === 1 || data?.success === true || data?.success === "1";
+
+export const getApiErrorMessage = (error, fallback = "Request failed") => {
+    const data = error?.response?.data;
+    if (typeof data === "string" && data.trim()) return data;
+    if (data?.message) return data.message;
+    if (data?.error) return data.error;
+    if (error?.message) return error.message;
+    return fallback;
 };
 
 const fetchBookingsFromLaravel = async ({
@@ -50,7 +62,7 @@ const fetchBookingsFromLaravel = async ({
 
     return {
         data: {
-            success: res?.data?.success === 1,
+            success: isApiSuccess(res?.data),
             data: rides?.data || [],
             pagination: {
                 total_pages: rides?.last_page || 1,
@@ -136,12 +148,17 @@ export const getBookings = async (bookingParams) => {
 
     try {
         const res = await socketApi.get("/bookings", { params });
-        if (res?.data?.success) return res;
-        throw new Error("Socket bookings API returned unsuccessful response");
+        if (isApiSuccess(res?.data)) {
+            const rows = res?.data?.data || [];
+            if (rows.length > 0 || !bookingParams?.filter) {
+                return res;
+            }
+        }
     } catch (err) {
         console.warn("Socket bookings API failed, falling back to Laravel:", err.message);
-        return fetchBookingsFromLaravel(bookingParams);
     }
+
+    return fetchBookingsFromLaravel(bookingParams);
 };
 
 export const sendConfirmationEmail = (bookingId, dispatcherName) => {
@@ -214,6 +231,34 @@ export const updateBookingStatus = (bookingId, data, dispatcherName) => {
     });
 };
 
+export const updateBooking = async (bookingId, data, dispatcherName) => {
+    const payload = { ...data, dispatcher_name: dispatcherName };
+
+    try {
+        const res = await socketApi.put(`/bookings/${bookingId}`, payload);
+        if (res?.data?.success === 1 || res?.data?.success === true) return res;
+        throw new Error(res?.data?.message || "Socket booking update unsuccessful");
+    } catch (err) {
+        console.warn("Socket booking update failed, falling back to Laravel:", err.message);
+    }
+
+    const formData = new FormData();
+    formData.append("id", String(bookingId));
+    Object.entries(data).forEach(([key, value]) => {
+        if (value !== undefined && value !== null) {
+            formData.append(key, String(value));
+        }
+    });
+    if (dispatcherName) formData.append("dispatcher_name", dispatcherName);
+
+    return ApiService.fetchData({
+        url: EDIT_BOOKING,
+        method: METHOD_POST,
+        data: formData,
+        headers: { "Content-Type": "multipart/form-data" },
+    });
+};
+
 // export const followDriverTracking = (bookingId) => {
 //     return socketApi.post(`/bookings/${bookingId}/follow-driver`);
 // };
@@ -225,10 +270,14 @@ export const updateBookingStatus = (bookingId, data, dispatcherName) => {
 // };
 
 export const assignDriverToBooking = (bookingId, driverId, assignmentType = "allocate_driver", dispatcherName) => {
-    return socketApi.put(`/bookings/${bookingId}/assign-driver`, {
-        driver_id: driverId,
+    const numericBookingId = Number(bookingId);
+    const numericDriverId = Number(driverId);
+
+    return socketApi.put(`/bookings/${numericBookingId}/assign-driver`, {
+        driver_id: numericDriverId,
         assignment_type: assignmentType,
         dispatcher_name: dispatcherName,
+        dispatcher_id: getDispatcherId(),
     });
 };
 

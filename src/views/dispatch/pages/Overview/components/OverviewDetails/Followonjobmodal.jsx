@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { getBookings, setFollowOnJob } from "../../../../../../services/AddBookingServices";
 import toast from "react-hot-toast";
 import { getDispatcherName } from "../../../../../../utils/auth";
+import { formatBookingDate, formatCurrency } from "../../../../../../utils/functions/formatters";
 
 const FollowOnJobModal = ({ bookingData, onClose, onSuccess }) => {
     const [pendingBookings, setPendingBookings] = useState([]);
@@ -68,11 +69,6 @@ const FollowOnJobModal = ({ bookingData, onClose, onSuccess }) => {
         }
     };
 
-    const formatDate = (dateStr) => {
-        if (!dateStr) return "—";
-        return new Date(dateStr).toLocaleDateString("en-GB");
-    };
-
     return (
         <div className="p-6 w-full max-w-2xl">
             <div className="flex items-center justify-between mb-5">
@@ -135,7 +131,7 @@ const FollowOnJobModal = ({ bookingData, onClose, onSuccess }) => {
                                                 #{b.booking_id}
                                             </span>
                                             <span className={`text-xs ${isSelected ? "text-blue-100" : "text-gray-500"}`}>
-                                                {formatDate(b.booking_date)}
+                                                {formatBookingDate(b.booking_date)}
                                                 {b.pickup_time ? ` · ${b.pickup_time === "asap" ? "ASAP" : b.pickup_time}` : ""}
                                             </span>
                                         </div>
@@ -156,7 +152,7 @@ const FollowOnJobModal = ({ bookingData, onClose, onSuccess }) => {
                                     </div>
                                     <div className="flex-shrink-0 text-right">
                                         <div className={`text-sm font-bold ${isSelected ? "text-white" : "text-[#1F41BB]"}`}>
-                                            {b.recommended_amount || b.booking_amount || "—"}
+                                            {formatCurrency(b.recommended_amount || b.booking_amount, { fallback: "—" })}
                                         </div>
                                         <div className={`text-xs ${isSelected ? "text-blue-100" : "text-gray-400"}`}>
                                             {b.payment_method || ""}

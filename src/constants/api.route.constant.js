@@ -1,6 +1,7 @@
 //api for booking
 export const GET_ALL_PLOT = "/company/get-plot"
 export const CREATE_BOOKING = "/company/create-booking"
+export const EDIT_BOOKING = "/company/edit-booking"
 export const CALCULATE_FARES = "/company/calculate-fares"
 export const CANCELLED_BOOKING = "/company/cancelled-booking"
 

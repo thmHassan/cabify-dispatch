@@ -23,6 +23,7 @@ import SendDriverMessageModal from "./components/SendDriverMessageModal";
 import RedCarIcon from "../../../../components/svg/RedCarIcon";
 import GreenCarIcon from "../../../../components/svg/GreenCarIcon";
 import { renderToString } from "react-dom/server";
+import { formatCurrency } from "../../../../utils/functions/formatters";
 
 const GOOGLE_KEY = "AIzaSyDTlV1tPVuaRbtvBQu4-kjDhTV54tR4cDU";
 const BARIKOI_KEY = "bkoi_a468389d0211910bd6723de348e0de79559c435f07a17a5419cbe55ab55a890a";
@@ -218,11 +219,7 @@ const formatCoord = (str) => {
   return `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
 };
 
-const formatAmount = (val) => {
-  if (!val) return "—";
-  const num = parseFloat(val);
-  return isNaN(num) ? val : `৳${num.toLocaleString()}`;
-};
+const formatAmount = (val) => formatCurrency(val, { fallback: "—" });
 
 const NotifRow = ({ icon, label, value, color, bold }) => (
   <div style={{ display: "flex", alignItems: "flex-start", gap: "8px", marginBottom: "8px" }}>
@@ -954,12 +951,13 @@ const usePersistedWaitingDrivers = () => {
 };
 
 const Overview = () => {
-  const [isBookingModelOpen, setIsBookingModelOpen] = useState({ type: "new", isOpen: false });
+  const [isBookingModelOpen, setIsBookingModelOpen] = useState({ type: "new", isOpen: false, booking: null });
   const [isMessageModelOpen, setIsMessageModelOpen] = useState({ type: "new", isOpen: false });
   const [selectedMessageDriver, setSelectedMessageDriver] = useState(null);
   const [isDriverMessageOpen, setIsDriverMessageOpen] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [activeBookingFilter, setActiveBookingFilter] = useState("todays_booking");
+  const [seedBookings, setSeedBookings] = useState([]);
   const [mapType, setMapType] = useState(null);
   const [apiKeys, setApiKeys] = useState({ googleKey: GOOGLE_KEY, barikoiKey: BARIKOI_KEY, searchApi: "google", countryOfUse: null });
   const countryCenter = React.useMemo(() => getCountryCenter(apiKeys.countryOfUse), [apiKeys.countryOfUse]);
@@ -1050,12 +1048,31 @@ const Overview = () => {
     setRefreshTrigger((prev) => prev + 1);
     fetchDashboardCards();
 
-    if (meta?.isMultiBooking) {
+    if (meta?.isEdit) {
+      return;
+    }
+
+    if (meta?.createdBookings?.length) {
+      setSeedBookings(meta.createdBookings);
+    }
+
+    if (meta?.isScheduled || meta?.pickupTimeType === "time") {
+      setActiveBookingFilter("pre_bookings");
+    } else if (meta?.isMultiBooking) {
       setActiveBookingFilter(meta.includesToday ? "todays_booking" : "pre_bookings");
     } else {
       setActiveBookingFilter("todays_booking");
     }
   }, [fetchDashboardCards]);
+
+  const handleOpenEditBooking = useCallback((booking) => {
+    lockBodyScroll();
+    setIsBookingModelOpen({ isOpen: true, type: "edit", booking });
+  }, []);
+
+  const handleSeedConsumed = useCallback(() => {
+    setSeedBookings([]);
+  }, []);
 
   const syncWaitingDriversFromApi = useCallback(async () => {
     try {
@@ -1466,7 +1483,7 @@ const Overview = () => {
   }, [syncWaitingDriversFromApi]);
 
   useEffect(() => {
-    const handleOpenModal = () => { lockBodyScroll(); setIsBookingModelOpen({ isOpen: true, type: "new" }); };
+    const handleOpenModal = () => { lockBodyScroll(); setIsBookingModelOpen({ isOpen: true, type: "new", booking: null }); };
     window.addEventListener("openAddBookingModal", handleOpenModal);
     return () => window.removeEventListener("openAddBookingModal", handleOpenModal);
   }, []);
@@ -1608,7 +1625,7 @@ const Overview = () => {
               <span>Call Queue</span>
             </div>
           </Button>
-          <Button type="filled" btnSize="md" onClick={() => { lockBodyScroll(); setIsBookingModelOpen({ isOpen: true, type: "new" }); }} className="w-full sm:w-auto -mb-2 sm:-mb-3 lg:-mb-3 !py-3.5 sm:!py-3 lg:!py-3">
+          <Button type="filled" btnSize="md" onClick={() => { lockBodyScroll(); setIsBookingModelOpen({ isOpen: true, type: "new", booking: null }); }} className="w-full sm:w-auto -mb-2 sm:-mb-3 lg:-mb-3 !py-3.5 sm:!py-3 lg:!py-3">
             <div className="flex gap-2 sm:gap-[15px] items-center justify-center whitespace-nowrap">
               <span className="hidden sm:inline-block"><PlusIcon /></span>
               <span className="sm:hidden"><PlusIcon height={16} width={16} /></span>
@@ -1787,7 +1804,13 @@ const Overview = () => {
       </div>
 
       <div className="px-4 sm:p-6">
-        <OverViewDetails filter={activeBookingFilter} externalRefreshTrigger={refreshTrigger} />
+        <OverViewDetails
+          filter={activeBookingFilter}
+          externalRefreshTrigger={refreshTrigger}
+          seedBookings={seedBookings}
+          onSeedConsumed={handleSeedConsumed}
+          onOpenEditBooking={handleOpenEditBooking}
+        />
       </div>
 
       <div className="sticky bottom-0 left-0 right-0 z-30 bg-white shadow-lg">
@@ -1808,8 +1831,17 @@ const Overview = () => {
         </div>
       </div>
 
-      <Modal isOpen={isBookingModelOpen.isOpen} className="p-4 sm:p-6 lg:p-10">
-        <AddBooking setIsOpen={setIsBookingModelOpen} onBookingCreated={handleBookingCreated} />
+      <Modal isOpen={isBookingModelOpen.isOpen} size="3xl" className="p-1 sm:p-2 lg:p-3 max-h-[98vh] overflow-y-auto overflow-x-hidden">
+        <AddBooking
+          key={
+            isBookingModelOpen.type === "edit" && isBookingModelOpen.booking?.id
+              ? `edit-${isBookingModelOpen.booking.id}`
+              : "new"
+          }
+          setIsOpen={setIsBookingModelOpen}
+          onBookingCreated={handleBookingCreated}
+          editBooking={isBookingModelOpen.type === "edit" ? isBookingModelOpen.booking : null}
+        />
       </Modal>
 
       <Modal isOpen={isMessageModelOpen.isOpen}>

@@ -1,3 +1,5 @@
+import { formatBookingDate, formatReminderMinutes, formatTime } from "../functions/formatters";
+
 export const parseSocketPayload = (rawData) => {
   if (!rawData) return null;
   if (typeof rawData === "string") {
@@ -29,9 +31,31 @@ const buildRideDescription = (data) => {
 };
 
 const buildBookingMeta = (data) => {
+  const bookingReference = data.booking_reference || data.bookingReference;
+  if (bookingReference) return `Ref: ${bookingReference}`;
+
   const bookingId = data.booking_id || data.bookingId || data.booking?.id;
   if (!bookingId) return null;
   return `Booking #${bookingId}`;
+};
+
+const buildReminderDescription = (data) => {
+  const message = data.description || data.message || data.body;
+  if (message) return message;
+
+  const parts = [];
+  if (data.pickup_location) parts.push(`Pickup: ${data.pickup_location}`);
+
+  const dateStr = data.booking_date ? formatBookingDate(data.booking_date) : "";
+  const timeStr = data.pickup_time ? formatTime(data.pickup_time) : "";
+  if (dateStr || timeStr) {
+    parts.push(`Scheduled: ${[dateStr, timeStr].filter(Boolean).join(" at ")}`);
+  }
+
+  const reminderLabel = formatReminderMinutes(data.reminder_minutes);
+  if (reminderLabel) parts.push(reminderLabel);
+
+  return parts.join(" • ") || "Upcoming booking reminder";
 };
 
 export const buildNotificationFromSocket = (event, rawData) => {
@@ -47,9 +71,15 @@ export const buildNotificationFromSocket = (event, rawData) => {
     case "send-reminder":
       return {
         ...base,
-        title: data.title || "Reminder",
-        description: data.description || data.message || data.body || "",
-        meta: data.client_id ? `Client: ${data.client_id}` : base.meta,
+        title: data.title || "Booking Reminder",
+        description: buildReminderDescription(data),
+        meta: buildBookingMeta(data),
+        bookingId: data.booking_id || data.bookingId || null,
+        bookingReference: data.booking_reference || data.bookingReference || null,
+        pickupLocation: data.pickup_location || null,
+        pickupTime: data.pickup_time || null,
+        bookingDate: data.booking_date || null,
+        reminderMinutes: data.reminder_minutes ?? null,
       };
 
     case "notification-ride":

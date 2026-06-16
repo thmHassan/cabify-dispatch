@@ -1,8 +1,8 @@
-import React, { useEffect, useState } from "react";
-import { getTenantData } from "../../../../../../utils/functions/tokenEncryption";
+import React from "react";
 import UserDropdown from "../../../../../../components/shared/UserDropdown/UserDropdown";
 import Button from "../../../../../../components/ui/Button/Button";
 import ThreeDotsIcon from "../../../../../../components/svg/ThreeDotsIcon";
+import { formatCurrency } from "../../../../../../utils/functions/formatters";
 
 const RidesManagementCard = ({ ride, onDelete, distanceUnit }) => {
 
@@ -13,26 +13,6 @@ const RidesManagementCard = ({ ride, onDelete, distanceUnit }) => {
         ongoing: "bg-[#10B981] text-white",
         default: "bg-[#EFEFEF] text-gray-600"
     };
-
-    const currencySymbols = {
-        INR: "₹",
-        USD: "$",
-        EUR: "€",
-        GBP: "£",
-        AUD: "A$",
-        CAD: "C$",
-        AED: "د.إ",
-    };
-
-    const [currencySymbol, setCurrencySymbol] = useState("₹");
-
-    useEffect(() => {
-        const tenant = getTenantData();
-        const currency = tenant?.currency || tenant?.data?.currency;
-        if (currency) {
-            setCurrencySymbol(currencySymbols[currency] || currency);
-        }
-    }, []);
 
     const formatDistance = (distanceInMeters) => {
         if (!distanceInMeters) return "-";
@@ -45,11 +25,6 @@ const RidesManagementCard = ({ ride, onDelete, distanceUnit }) => {
     const capitalizeFirst = (value) => {
         if (!value) return "-";
         return value.charAt(0).toUpperCase() + value.slice(1);
-    };
-
-    const formatAmount = (amount) => {
-        if (amount === null || amount === undefined) return "-";
-        return Number(amount).toFixed(2);
     };
 
     const actionOptions = [];
@@ -103,7 +78,7 @@ const RidesManagementCard = ({ ride, onDelete, distanceUnit }) => {
                 <div className="inline-flex flex-col px-4 py-2 rounded-full bg-[#EFEFEF] flex-shrink-0 w-[107px]">
                     <p className="text-xs font-semibold text-[#6C6C6C] text-center">Fare</p>
                     <p className="text-[#333333] text-center font-semibold text-sm">
-                        {currencySymbol} {formatAmount(ride.booking_amount)}
+                        {formatCurrency(ride.booking_amount)}
                     </p>
                 </div>
 

@@ -1,8 +1,9 @@
 import axios from "axios";
+import { resolveSocketApiBaseUrl } from "../utils/functions/backendUrls";
 import { getDecryptedToken, getTenantId } from "../utils/functions/tokenEncryption";
 
 const socketApi = axios.create({
-    baseURL: import.meta.env.VITE_BACKEND_SOCKET_URL,
+    baseURL: resolveSocketApiBaseUrl(),
     timeout: 20000,
     withCredentials: false, 
     headers: {
