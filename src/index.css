@@ -112,10 +112,24 @@ textarea,
   display: none !important;
 }
 
-/* React Hot Toast — stack below navbar, away from bottom ride alerts */
+/* React Hot Toast — vertical stack below navbar */
 .toast-stack-container {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: flex-end !important;
+  gap: 16px !important;
   width: auto !important;
   max-width: calc(100vw - 32px);
+}
+
+.toast-stack-container > div {
+  position: relative !important;
+  transform: none !important;
+  top: auto !important;
+  left: auto !important;
+  right: auto !important;
+  bottom: auto !important;
+  margin: 0 !important;
 }
 
 @media (max-width: 639px) {

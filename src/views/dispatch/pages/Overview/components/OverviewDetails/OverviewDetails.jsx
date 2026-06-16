@@ -59,8 +59,7 @@ const OverViewDetails = ({ filter, externalRefreshTrigger = 0, seedBookings = []
     const [subCompanyList, setSubCompanyList] = useState([]);
     const [loadingSubCompanies, setLoadingSubCompanies] = useState(false);
     const [tableLoading, setTableLoading] = useState(false);
-    const [assignmentNotification, setAssignmentNotification] = useState(null);
-    const assignmentNotificationRef = useRef(null);
+    const [assignmentNotifications, setAssignmentNotifications] = useState([]);
     const [refreshTrigger, setRefreshTrigger] = useState(0);
     const pendingSeedBookingsRef = useRef([]);
 
@@ -71,13 +70,12 @@ const OverViewDetails = ({ filter, externalRefreshTrigger = 0, seedBookings = []
     }, [seedBookings]);
 
     const showNotification = useCallback((data) => {
-        assignmentNotificationRef.current = data;
-        setAssignmentNotification(data);
+        const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+        setAssignmentNotifications((prev) => [...prev, { id, ...data }]);
     }, []);
 
-    const handleCloseNotification = useCallback(() => {
-        assignmentNotificationRef.current = null;
-        setAssignmentNotification(null);
+    const handleCloseNotification = useCallback((id) => {
+        setAssignmentNotifications((prev) => prev.filter((notification) => notification.id !== id));
     }, []);
 
     useEffect(() => {
@@ -732,13 +730,18 @@ const OverViewDetails = ({ filter, externalRefreshTrigger = 0, seedBookings = []
                 </div>
             )}
 
-            {/* Driver Assignment Notification */}
-            {assignmentNotification && (
-                <DriverAssignmentModal
-                    notification={assignmentNotification}
-                    onClose={handleCloseNotification}
-                    autoCloseDuration={6000}
-                />
+            {/* Driver assignment / reminder notifications — vertical stack */}
+            {assignmentNotifications.length > 0 && (
+                <div className="fixed bottom-24 right-4 sm:right-6 z-[99999] flex flex-col gap-3 items-end pointer-events-none max-h-[calc(100vh-140px)] overflow-y-auto overscroll-contain w-[min(100vw-2rem,24rem)]">
+                    {assignmentNotifications.map((notification) => (
+                        <DriverAssignmentModal
+                            key={notification.id}
+                            notification={notification}
+                            onClose={handleCloseNotification}
+                            autoCloseDuration={6000}
+                        />
+                    ))}
+                </div>
             )}
         </div>
     );

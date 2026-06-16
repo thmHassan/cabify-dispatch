@@ -30,7 +30,7 @@ function App() {
         <Toaster
           position="top-right"
           reverseOrder={false}
-          gutter={12}
+          gutter={16}
           containerClassName="toast-stack-container"
           containerStyle={{
             top: 88,

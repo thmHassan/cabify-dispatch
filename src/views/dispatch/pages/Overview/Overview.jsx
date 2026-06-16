@@ -325,9 +325,9 @@ const RideNotificationContainer = () => {
   }, []);
   const remove = (id) => setNotifications((prev) => prev.filter((n) => n.id !== id));
   return (
-    <div style={{ position: "fixed", bottom: "80px", right: "20px", zIndex: 9999, display: "flex", flexDirection: "column-reverse", alignItems: "flex-end", pointerEvents: "none" }}>
+    <div style={{ position: "fixed", bottom: "80px", right: "20px", zIndex: 9999, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "12px", pointerEvents: "none", maxHeight: "calc(100vh - 160px)", overflowY: "auto" }}>
       {notifications.map(({ id, data }) => (
-        <div key={id} style={{ pointerEvents: "auto" }}>
+        <div key={id} style={{ pointerEvents: "auto", flexShrink: 0 }}>
           {data.isFailedDispatch ? (
             <DispatchFailedCard data={data} onClose={() => remove(id)} />
           ) : (

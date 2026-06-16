@@ -13,7 +13,7 @@ const DriverAssignmentModal = ({
         if (!notification) return;
 
         timerRef.current = setTimeout(() => {
-            onClose();
+            onClose(notification.id);
         }, autoCloseDuration);
 
         if (progressRef.current) {
@@ -109,12 +109,11 @@ const DriverAssignmentModal = ({
     };
 
     return (
-        <div className="fixed inset-0 z-[99999] flex items-end justify-end p-6 pointer-events-none">
+        <>
             <div
-                className="pointer-events-auto w-full max-w-sm bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden"
+                className="pointer-events-auto w-full max-w-sm bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden shrink-0"
                 style={{ animation: "slideInUp 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) forwards" }}
             >
-
                 <div className={`h-1 w-full bg-gradient-to-r ${t.gradient}`} />
 
                 <div className="flex items-start justify-between px-5 pt-4 pb-2">
@@ -127,7 +126,7 @@ const DriverAssignmentModal = ({
                             {t.label}
                         </span>
                     </div>
-                    <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors text-xl leading-none ml-2 -mt-0.5">
+                    <button onClick={() => onClose(notification.id)} className="text-gray-400 hover:text-gray-600 transition-colors text-xl leading-none ml-2 -mt-0.5">
                         ×
                     </button>
                 </div>
@@ -205,7 +204,7 @@ const DriverAssignmentModal = ({
                     to { opacity: 1; transform: translateY(0) scale(1); }
                 }
             `}</style>
-        </div>
+        </>
     );
 };
 
