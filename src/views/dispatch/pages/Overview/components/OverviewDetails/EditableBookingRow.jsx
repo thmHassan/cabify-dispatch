@@ -39,7 +39,7 @@ const EditableBookingRow = ({
     onOpenFollowOnModal,
     onOpenEditBooking,
 }) => {
-    const showEdit = isEditableOverviewTab(filter) && Boolean(onOpenEditBooking);
+    const showEdit = canEditBookingRow(booking, filter) && Boolean(onOpenEditBooking);
     const blinkPending = shouldBlinkPendingTodaysRow(booking, filter);
 
     return (
