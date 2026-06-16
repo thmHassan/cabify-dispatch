@@ -232,16 +232,6 @@ export const updateBookingStatus = (bookingId, data, dispatcherName) => {
 };
 
 export const updateBooking = async (bookingId, data, dispatcherName) => {
-    const payload = { ...data, dispatcher_name: dispatcherName };
-
-    try {
-        const res = await socketApi.put(`/bookings/${bookingId}`, payload);
-        if (res?.data?.success === 1 || res?.data?.success === true) return res;
-        throw new Error(res?.data?.message || "Socket booking update unsuccessful");
-    } catch (err) {
-        console.warn("Socket booking update failed, falling back to Laravel:", err.message);
-    }
-
     const formData = new FormData();
     formData.append("id", String(bookingId));
     Object.entries(data).forEach(([key, value]) => {
@@ -250,13 +240,24 @@ export const updateBooking = async (bookingId, data, dispatcherName) => {
         }
     });
     if (dispatcherName) formData.append("dispatcher_name", dispatcherName);
+    const dispatcherId = getDispatcherId();
+    if (dispatcherId) formData.append("dispatcher_id", String(dispatcherId));
 
-    return ApiService.fetchData({
-        url: EDIT_BOOKING,
-        method: METHOD_POST,
-        data: formData,
-        headers: { "Content-Type": "multipart/form-data" },
-    });
+    try {
+        const res = await ApiService.fetchData({
+            url: EDIT_BOOKING,
+            method: METHOD_POST,
+            data: formData,
+            headers: { "Content-Type": "multipart/form-data" },
+        });
+        if (isApiSuccess(res?.data)) return res;
+        throw new Error(res?.data?.message || "Laravel booking update unsuccessful");
+    } catch (err) {
+        console.warn("Laravel booking update failed, falling back to socket API:", err.message);
+    }
+
+    const payload = { ...data, dispatcher_name: dispatcherName };
+    return socketApi.put(`/bookings/${bookingId}`, payload);
 };
 
 // export const followDriverTracking = (bookingId) => {
