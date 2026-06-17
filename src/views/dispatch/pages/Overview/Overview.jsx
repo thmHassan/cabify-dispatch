@@ -713,7 +713,7 @@ const GoogleMapSection = ({ mapRef, mapInstance, markers, driverData, setDriverD
 
   return (
     <div ref={mapRef} style={{ width: "100%", height: "100%", minHeight: "400px", position: "relative" }}>
-      {mapReady && (
+      {isMapReady && (
         <div style={{
           position: "absolute",
           left: "8px",
