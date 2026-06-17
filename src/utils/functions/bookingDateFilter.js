@@ -216,6 +216,40 @@ export const isDispatchReleased = (booking) =>
     booking?.dispatch_released === 1 ||
     booking?.dispatch_released === "1";
 
+export const isAsapPickupBooking = (booking) => {
+    if (!booking) return false;
+    if (booking.pickup_time_type === "asap") return true;
+    return String(booking.pickup_time || "").toLowerCase() === "asap";
+};
+
+export const hasScheduledPickupTime = (booking) => {
+    if (!booking || isAsapPickupBooking(booking)) return false;
+
+    if (booking.pickup_time_type === "time") return true;
+    if (booking.pickup_time || booking.scheduled_pickup_time) return true;
+
+    const isScheduled =
+        booking.is_scheduled === true ||
+        booking.is_scheduled === 1 ||
+        booking.is_scheduled === "1";
+    const isPreBooking =
+        booking.pre_booking === true ||
+        booking.pre_booking === 1 ||
+        booking.pre_booking === "1";
+
+    return isScheduled || isPreBooking;
+};
+
+export const hasReminderMinutes = (booking) => {
+    const reminder = booking?.reminder_minutes;
+    if (reminder === null || reminder === undefined || reminder === "") return false;
+    const value = Number(reminder);
+    return Number.isFinite(value) && value > 0;
+};
+
+export const isScheduledBookingWithReminder = (booking) =>
+    hasScheduledPickupTime(booking) && hasReminderMinutes(booking);
+
 export const extractUpdatedBookingFromResponse = (responseData, fallbackBooking = {}) => {
     const raw =
         responseData?.data?.booking ||

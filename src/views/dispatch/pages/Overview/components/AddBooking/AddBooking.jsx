@@ -1323,7 +1323,14 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
                 toast.error(response?.data?.message || "Failed to create booking");
             }
         } catch (error) {
-            toast.error(error?.response?.data?.message || "An error occurred while creating booking");
+            const message = error?.response?.data?.message || error?.message || "";
+            if (message.includes("bookings/broadcast") || message.includes("Could not resolve host: bookings")) {
+                toast.error(
+                    "Booking could not be broadcast. Ask your backend admin to set SOCKET_API_URL to the full socket API URL (e.g. https://backend.cabifyit.com/socket-api)."
+                );
+            } else {
+                toast.error(message || "An error occurred while creating booking");
+            }
         } finally {
             setIsBookingLoading(false);
         }
@@ -1465,7 +1472,14 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
             }
         } catch (error) {
             console.error("Update booking error:", error);
-            toast.error(getApiErrorMessage(error, "An error occurred while updating booking"));
+            const message = getApiErrorMessage(error, "An error occurred while updating booking");
+            if (message.includes("bookings/broadcast") || message.includes("Could not resolve host: bookings")) {
+                toast.error(
+                    "Booking could not be broadcast. Ask your backend admin to set SOCKET_API_URL to the full socket API URL (e.g. https://backend.cabifyit.com/socket-api)."
+                );
+            } else {
+                toast.error(message);
+            }
         } finally {
             setIsBookingLoading(false);
         }

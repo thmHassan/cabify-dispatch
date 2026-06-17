@@ -4,6 +4,7 @@ import { CALCULATE_FARES, CANCELLED_BOOKING, CREATE_BOOKING, EDIT_BOOKING, GET_A
 import socketApi from "./SocketApiService";
 import { getDispatcherId } from "../utils/auth";
 import { getTenantId } from "../utils/functions/tokenEncryption";
+import { resolveSocketApiBaseUrl } from "../utils/functions/backendUrls";
 
 const buildBookingParams = ({
     page = 1,
@@ -100,13 +101,28 @@ export async function apiGetAllPlot(data) {
     });
 }
 
+const appendSocketApiUrl = (data) => {
+    if (!(data instanceof FormData)) return data;
+
+    const socketApiUrl = resolveSocketApiBaseUrl();
+    if (!data.has("socket_api_url")) {
+        data.append("socket_api_url", socketApiUrl);
+    }
+    if (!data.has("socket_api_base_url")) {
+        data.append("socket_api_base_url", socketApiUrl);
+    }
+
+    return data;
+};
+
 export async function apiCreateBooking(data) {
     const isFormData = data instanceof FormData;
+    const payload = appendSocketApiUrl(data);
 
     return ApiService.fetchData({
         url: CREATE_BOOKING,
         method: METHOD_POST,
-        data,
+        data: payload,
         ...(isFormData && {
             headers: {
                 'Content-Type': 'multipart/form-data',
@@ -243,7 +259,7 @@ export async function apiUpdateBooking(formData) {
     return ApiService.fetchData({
         url: EDIT_BOOKING,
         method: METHOD_POST,
-        data: formData,
+        data: appendSocketApiUrl(formData),
         headers: { "Content-Type": "multipart/form-data" },
     });
 }

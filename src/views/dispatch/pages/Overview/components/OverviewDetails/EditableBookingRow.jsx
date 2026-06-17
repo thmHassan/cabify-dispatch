@@ -1,4 +1,7 @@
-import { isDispatchReleased } from "../../../../../../utils/functions/bookingDateFilter";
+import {
+    isDispatchReleased,
+    isScheduledBookingWithReminder,
+} from "../../../../../../utils/functions/bookingDateFilter";
 import {
     formatBookingDate,
     formatCurrency,
@@ -17,6 +20,7 @@ export const isEditableOverviewTab = (filter) =>
 export const canEditBookingRow = (booking, filter) => {
     if (!isEditableOverviewTab(filter) || !booking) return false;
     if (booking.booking_status !== "pending") return false;
+    if (isScheduledBookingWithReminder(booking)) return true;
     if (isDispatchReleased(booking)) return false;
     return true;
 };

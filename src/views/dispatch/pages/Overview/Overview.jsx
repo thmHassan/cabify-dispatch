@@ -81,7 +81,7 @@ const isDispatchSystemEnabled = (item) =>
 
 const isNearestDriverDispatchEnabled = (items) =>
   items.some(
-    (item) => item.dispatch_system === "auto_dispatch_nearest-driver" && isDispatchSystemEnabled(item)
+    (item) => item.dispatch_system === "auto_dispatch_nearest_driver" && isDispatchSystemEnabled(item)
   );
 
 const assignDefaultRanks = (drivers) => {
