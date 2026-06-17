@@ -188,6 +188,132 @@ const upsertWaitingDriver = (prev, driver) => {
   return sortWaitingDrivers(next);
 };
 
+const ON_JOB_BOOKING_STATUSES = new Set(["started", "ongoing"]);
+
+const isOnJobBookingStatus = (status) =>
+  ON_JOB_BOOKING_STATUSES.has(String(status || "").toLowerCase());
+
+const isNearestDispatchAcceptAction = (action) =>
+  /nearest dispatch.*accepted by driver/i.test(String(action || ""));
+
+const shouldRemoveDriverFromOnJob = (status) =>
+  ["completed", "cancelled", "no_show"].includes(String(status || "").toLowerCase());
+
+const buildOnJobDriverFromBooking = (booking) => {
+  if (!booking) return null;
+
+  const driverId = booking.driver || booking.driver_id || booking.driverDetail?.id;
+  if (!driverId) return null;
+
+  const name =
+    booking.driverDetail?.name ||
+    booking.driver_name ||
+    booking.driverName ||
+    `Driver ${driverId}`;
+
+  return {
+    ...booking.driverDetail,
+    id: driverId,
+    driver_id: driverId,
+    name,
+    driver_name: name,
+    driving_status: "busy",
+    status: "busy",
+    booking_id: booking.id,
+    booking_status: booking.booking_status,
+    updatedAt: Date.now(),
+  };
+};
+
+const buildOnJobDriverFromPayload = (data) => {
+  if (!data) return null;
+
+  if (data.booking_status != null && (data.driver != null || data.driver_id != null)) {
+    return buildOnJobDriverFromBooking(data);
+  }
+
+  const driverId =
+    data.driver_id ||
+    data.driverId ||
+    data.dispatcher_id ||
+    data.driver?.id ||
+    data.driver?.driver_id ||
+    data.id;
+
+  if (!driverId) return null;
+
+  const name =
+    data.driver_name ||
+    data.driverName ||
+    data.name ||
+    data.driver?.name ||
+    `Driver ${driverId}`;
+
+  return {
+    ...data,
+    id: driverId,
+    driver_id: driverId,
+    name,
+    driver_name: name,
+    driving_status: "busy",
+    status: "busy",
+    updatedAt: Date.now(),
+  };
+};
+
+const upsertOnJobDriver = (prev, driver) => {
+  const key = getDriverKey(driver);
+  if (!key) return prev;
+  const exists = prev.some((d) => getDriverKey(d) === key);
+  if (exists) {
+    return prev.map((d) => (getDriverKey(d) === key ? { ...d, ...driver, updatedAt: Date.now() } : d));
+  }
+  return [driver, ...prev];
+};
+
+const mergeOnJobDrivers = (prev, drivers) => {
+  let next = [...prev];
+  drivers.forEach((driver) => {
+    next = upsertOnJobDriver(next, driver);
+  });
+  return next;
+};
+
+const applyOnJobDriverToMap = (prev, driver, plots) => {
+  const driverKey = getDriverKey(driver);
+  if (!driverKey) return prev;
+
+  let lat = driver.latitude ?? driver.lat;
+  let lng = driver.longitude ?? driver.lng;
+
+  if ((lat == null || lng == null) && (driver.plot_id || driver.plot)) {
+    const plot = plots.find(
+      (p) => p.id == (driver.plot_id || driver.plot) || p.plot_id == (driver.plot_id || driver.plot)
+    );
+    if (plot) {
+      const coords = parseCoordinates(plot);
+      if (coords.length > 0) {
+        lat = coords.reduce((s, c) => s + c.lat, 0) / coords.length;
+        lng = coords.reduce((s, c) => s + c.lng, 0) / coords.length;
+      }
+    }
+  }
+
+  const updated = {
+    ...prev,
+    [driverKey]: {
+      ...prev[driverKey],
+      ...driver,
+      ...(lat != null && lng != null ? { position: { lat: Number(lat), lng: Number(lng) } } : {}),
+      status: "busy",
+      driving_status: "busy",
+      online_status: "online",
+    },
+  };
+  saveToStorage(DRIVER_DATA_STORAGE_KEY, updated);
+  return updated;
+};
+
 const removeDriverFromDriverData = (prev, driverKey) => {
   if (!prev[driverKey]) return prev;
   const updated = { ...prev };
@@ -1036,10 +1162,16 @@ const Overview = () => {
   const onJobDriversRef = useRef(onJobDrivers);
   useEffect(() => { onJobDriversRef.current = onJobDrivers; }, [onJobDrivers]);
   const [waitingDrivers, setWaitingDrivers] = usePersistedWaitingDrivers();
+  const waitingDriversRef = useRef(waitingDrivers);
+  useEffect(() => { waitingDriversRef.current = waitingDrivers; }, [waitingDrivers]);
   const [editingRanks, setEditingRanks] = useState({});
   const [updatingRankId, setUpdatingRankId] = useState(null);
   const [loggingOutDriverId, setLoggingOutDriverId] = useState(null);
   const [hidePlotAndRank, setHidePlotAndRank] = useState(false);
+  const nearestDriverDispatchEnabledRef = useRef(false);
+  useEffect(() => {
+    nearestDriverDispatchEnabledRef.current = hidePlotAndRank;
+  }, [hidePlotAndRank]);
 
   useEffect(() => {
     const fetchDispatchSystem = async () => {
@@ -1215,6 +1347,16 @@ const Overview = () => {
       const rankedIdle = assignDefaultRanks(idle);
       setWaitingDrivers(rankedIdle);
 
+      const idleIds = new Set(rankedIdle.map((d) => getDriverKey(d)).filter(Boolean));
+      if (busy.length || idleIds.size) {
+        setOnJobDrivers((prev) =>
+          mergeOnJobDrivers(
+            prev.filter((d) => !idleIds.has(getDriverKey(d))),
+            busy
+          )
+        );
+      }
+
       const waitingIds = new Set(rankedIdle.map((d) => getDriverKey(d)).filter(Boolean));
       const onJobIds = new Set(
         (onJobDriversRef.current || []).map((d) => getDriverKey(d)).filter(Boolean)
@@ -1244,7 +1386,7 @@ const Overview = () => {
     } catch (err) {
       console.error("Sync waiting drivers error:", err);
     }
-  }, [setWaitingDrivers, setDriverData]);
+  }, [setWaitingDrivers, setOnJobDrivers, setDriverData]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1303,8 +1445,14 @@ const Overview = () => {
         const rankedIdle = assignDefaultRanks(idle);
         setWaitingDrivers(rankedIdle);
 
-        if (busy.length) {
-          setOnJobDrivers((prev) => (prev.length ? prev : busy));
+        const idleIds = new Set(rankedIdle.map((d) => getDriverKey(d)).filter(Boolean));
+        if (busy.length || idleIds.size) {
+          setOnJobDrivers((prev) =>
+            mergeOnJobDrivers(
+              prev.filter((d) => !idleIds.has(getDriverKey(d))),
+              busy
+            )
+          );
         }
 
         const waitingIds = new Set(rankedIdle.map((d) => getDriverKey(d)).filter(Boolean));
@@ -1379,10 +1527,82 @@ const Overview = () => {
       });
     };
 
+    const removeDriverFromOnJob = (driverId) => {
+      const driverKey = String(driverId);
+      if (!driverKey) return;
+
+      setOnJobDrivers((prev) => prev.filter((d) => getDriverKey(d) !== driverKey));
+    };
+
+    const promoteDriverToOnJob = (rawDriver) => {
+      let driver = buildOnJobDriverFromPayload(rawDriver);
+      if (!driver) return;
+
+      const driverKey = getDriverKey(driver);
+      const waitingMatch = (waitingDriversRef.current || []).find(
+        (d) => getDriverKey(d) === driverKey
+      );
+      if (waitingMatch) {
+        driver = {
+          ...waitingMatch,
+          ...driver,
+          driving_status: "busy",
+          status: "busy",
+          updatedAt: Date.now(),
+        };
+      }
+
+      removeDriverFromWaitingAndMap(driverKey);
+
+      setOnJobDrivers((prev) => upsertOnJobDriver(prev, driver));
+      setDriverData((prev) => applyOnJobDriverToMap(prev, driver, plotsDataRef.current));
+    };
+
+    const syncOnJobFromBooking = (booking) => {
+      if (!booking) return;
+
+      const status = booking.booking_status || booking.status;
+      let driver = buildOnJobDriverFromBooking(booking);
+
+      const isNearestAccept =
+        nearestDriverDispatchEnabledRef.current &&
+        isNearestDispatchAcceptAction(booking.dispatcher_action);
+
+      if (
+        (isOnJobBookingStatus(status) || (isNearestAccept && booking.driver)) &&
+        driver
+      ) {
+        promoteDriverToOnJob({
+          ...driver,
+          booking_status: isOnJobBookingStatus(status) ? status : "started",
+        });
+        return;
+      }
+
+      if (isOnJobBookingStatus(status) || isNearestAccept) {
+        syncWaitingDriversFromApi();
+        return;
+      }
+
+      if (shouldRemoveDriverFromOnJob(status) && driver) {
+        removeDriverFromOnJob(getDriverKey(driver));
+      }
+    };
+
     const handleDashboardUpdate = (data) => setDashboardCounts(data);
     const handleNotificationRide = (rawData) => {
-      let data; try { data = typeof rawData === "string" ? JSON.parse(rawData) : rawData; } catch { data = rawData; }
+      let data;
+      try {
+        data = typeof rawData === "string" ? JSON.parse(rawData) : rawData;
+      } catch {
+        data = rawData;
+      }
       showRideNotification(data);
+
+      const booking = data?.booking ?? (data?.booking_status ? data : null);
+      if (booking?.id) {
+        syncOnJobFromBooking(booking);
+      }
     };
 
     const handleMyRankUpdate = (rawData) => {
@@ -1417,9 +1637,14 @@ const Overview = () => {
         return;
       }
 
+      const onJobIds = new Set(
+        (onJobDriversRef.current || []).map((d) => getDriverKey(d)).filter(Boolean)
+      );
+
       const formattedDrivers = driversList
         .map(formatWaitingDriverFromSocket)
-        .filter(isWaitingListDriver);
+        .filter(isWaitingListDriver)
+        .filter((d) => !onJobIds.has(getDriverKey(d)));
 
       // Socket drivers[] is authoritative for who is online + waiting
       syncWaitingListAndMap(formattedDrivers);
@@ -1436,6 +1661,12 @@ const Overview = () => {
       if (!isWaitingListDriver(data)) return;
 
       const formatted = formatWaitingDriverFromSocket(data);
+      const driverKey = getDriverKey(formatted);
+      const isOnJob = (onJobDriversRef.current || []).some(
+        (d) => getDriverKey(d) === driverKey
+      );
+      if (isOnJob) return;
+
       setWaitingDrivers((prev) => {
         const next = upsertWaitingDriver(prev, formatted);
         pruneMapForWaitingList(next, true);
@@ -1444,48 +1675,121 @@ const Overview = () => {
     };
 
     const handleOnJobDriver = (rawData) => {
-      let data; try { data = typeof rawData === "string" ? JSON.parse(rawData) : rawData; } catch { data = rawData; }
-      if (Array.isArray(data)) { setOnJobDrivers(data); return; }
-      if (data?.driverName || data?.driver_name) {
-        const name = data.driverName || data.driver_name;
-        const driverId = data.id || data.driver_id || data.dispatcher_id;
-        const sId = String(driverId);
-        if (sId) {
-          setDriverData(prev => {
-            let lat = data.latitude || data.lat, lng = data.longitude || data.lng;
-            if ((lat == null || lng == null) && (data.plot_id || data.plot)) {
-              const plot = plotsDataRef.current.find(p => p.id == (data.plot_id || data.plot) || p.plot_id == (data.plot_id || data.plot));
-              if (plot) { const coords = parseCoordinates(plot); if (coords.length > 0) { lat = coords.reduce((s, c) => s + c.lat, 0) / coords.length; lng = coords.reduce((s, c) => s + c.lng, 0) / coords.length; } }
-            }
-            const status = "busy";
-            const updated = prev[sId]
-              ? { ...prev, [sId]: { ...prev[sId], ...data, position: (lat && lng) ? { lat: Number(lat), lng: Number(lng) } : prev[sId].position, status, driving_status: status } }
-              : (lat && lng ? { ...prev, [sId]: { ...data, position: { lat: Number(lat), lng: Number(lng) }, status, driving_status: status } } : prev);
-            saveToStorage(DRIVER_DATA_STORAGE_KEY, updated);
-            return updated;
-          });
-        }
-        setWaitingDrivers((prev) => prev.filter((d) => d.name !== name));
-        const obj = { id: driverId || Date.now(), name, ...data };
-        setOnJobDrivers((prev) => { const exists = prev.some((d) => d.name === obj.name); return exists ? prev.map((d) => d.name === obj.name ? obj : d) : [obj, ...prev]; });
+      let data;
+      try {
+        data = typeof rawData === "string" ? JSON.parse(rawData) : rawData;
+      } catch {
+        data = rawData;
       }
+
+      if (Array.isArray(data)) {
+        setOnJobDrivers(data);
+        return;
+      }
+
+      const driver = buildOnJobDriverFromPayload(data);
+      if (driver) promoteDriverToOnJob(driver);
     };
 
     const handleJobAccepted = (rawData) => {
-      let data; try { data = typeof rawData === "string" ? JSON.parse(rawData) : rawData; } catch { data = rawData; }
-      const driverName = data?.driver_name || data?.driverName;
-      if (driverName) {
-        setWaitingDrivers((prev) => prev.filter((d) => d.name !== driverName));
-        const obj = { id: Date.now(), name: driverName, ...data };
-        setOnJobDrivers((prev) => { const exists = prev.some((d) => d.name === obj.name); return exists ? prev.map((d) => d.name === obj.name ? obj : d) : [obj, ...prev]; });
+      let data;
+      try {
+        data = typeof rawData === "string" ? JSON.parse(rawData) : rawData;
+      } catch {
+        data = rawData;
       }
+
+      const booking = data?.booking
+        ? {
+            ...data.booking,
+            booking_status: data.booking.booking_status || data.booking_status || "started",
+          }
+        : data?.booking_id
+          ? {
+              id: data.booking_id,
+              booking_status: data.booking_status || "started",
+              driver: data.driver_id || data.driver,
+              driver_name: data.driver_name || data.driverName,
+              dispatcher_action: data.dispatcher_action,
+            }
+          : null;
+
+      if (booking) {
+        syncOnJobFromBooking(booking);
+        return;
+      }
+
+      const driver = buildOnJobDriverFromPayload(data);
+      if (driver) promoteDriverToOnJob(driver);
     };
 
     const handleJobCancelled = (rawData) => {
-      let data; try { data = typeof rawData === "string" ? JSON.parse(rawData) : rawData; } catch { data = rawData; }
-      const driverName = data?.driver_name || data?.driverName;
-      if (driverName) setOnJobDrivers((prev) => prev.filter((d) => d.name !== driverName));
+      let data;
+      try {
+        data = typeof rawData === "string" ? JSON.parse(rawData) : rawData;
+      } catch {
+        data = rawData;
+      }
+
+      const driverId =
+        data?.driver_id ||
+        data?.driverId ||
+        data?.id ||
+        data?.driver?.id;
+
+      if (driverId) {
+        removeDriverFromOnJob(driverId);
+      } else {
+        const driverName = data?.driver_name || data?.driverName;
+        if (driverName) {
+          setOnJobDrivers((prev) => prev.filter((d) => (d.name || d.driver_name) !== driverName));
+        }
+      }
+
       fetchDashboardCards();
+    };
+
+    const handleBookingUpdated = (rawData) => {
+      let data;
+      try {
+        data = typeof rawData === "string" ? JSON.parse(rawData) : rawData;
+      } catch {
+        data = rawData;
+      }
+
+      const booking = data?.booking ?? data;
+      if (!booking?.id) return;
+
+      syncOnJobFromBooking(booking);
+    };
+
+    const handleBookingStatusUpdated = (rawData) => {
+      let data;
+      try {
+        data = typeof rawData === "string" ? JSON.parse(rawData) : rawData;
+      } catch {
+        data = rawData;
+      }
+
+      const status = data?.status || data?.booking_status;
+      if (!status) return;
+
+      const booking = data?.booking ?? {
+        id: data.booking_id || data.id,
+        booking_status: status,
+        driver: data.driver_id || data.driver,
+        driver_name: data.driver_name || data.driverName,
+        driverDetail: data.driverDetail,
+      };
+
+      if (isOnJobBookingStatus(status) || shouldRemoveDriverFromOnJob(status)) {
+        const driver = buildOnJobDriverFromBooking(booking);
+        if (driver) {
+          syncOnJobFromBooking(booking);
+        } else {
+          syncWaitingDriversFromApi();
+        }
+      }
     };
 
     const handleBookingCancelled = () => fetchDashboardCards();
@@ -1503,9 +1807,15 @@ const Overview = () => {
         return;
       }
 
+      const drivingStatus = (data.driving_status || data.status || "").toLowerCase();
+      if (drivingStatus === "busy" || drivingStatus === "active") {
+        promoteDriverToOnJob(data);
+        return;
+      }
+
       // If socket explicitly says idle, remove from on-job + localStorage
-      if (data.driving_status === "idle") {
-        setOnJobDrivers((prev) => prev.filter(d => String(d.id || d.driver_id || d.dispatcher_id) !== sId));
+      if (drivingStatus === "idle") {
+        removeDriverFromOnJob(sId);
       }
 
       setWaitingDrivers((prev) => {
@@ -1552,6 +1862,8 @@ const Overview = () => {
     socket.on("booking-cancelled-event", handleBookingCancelled);
     socket.on("booking-cancelled", handleBookingCancelled);
     socket.on("cancel-booking-event", handleBookingCancelled);
+    socket.on("booking-updated-event", handleBookingUpdated);
+    socket.on("booking-status-updated", handleBookingStatusUpdated);
     socket.on("driver-offline-event", handleDriverOffline);
     socket.on("driver-offline", handleDriverOffline);
 
@@ -1568,6 +1880,8 @@ const Overview = () => {
       socket.off("booking-cancelled-event", handleBookingCancelled);
       socket.off("booking-cancelled", handleBookingCancelled);
       socket.off("cancel-booking-event", handleBookingCancelled);
+      socket.off("booking-updated-event", handleBookingUpdated);
+      socket.off("booking-status-updated", handleBookingStatusUpdated);
       socket.off("driver-offline-event", handleDriverOffline);
       socket.off("driver-offline", handleDriverOffline);
     };
