@@ -37,7 +37,9 @@ import { unlockBodyScroll } from "../../../../../../utils/functions/common.funct
 import toast from 'react-hot-toast';
 import { getDispatcherId, getDispatcherName } from "../../../../../../utils/auth";
 import { apiGetRideHistory, apiGetUser } from "../../../../../../services/UserService";
-import { apiMapifyGeocoding, normalizeMapifyFeatures } from "../../../../../../services/MapSearchService";
+import {
+    fetchMapifyLocationSuggestions,
+} from "../../../../../../services/MapSearchService";
 import { debounce } from "lodash";
 import {
     extractCreatedBookings,
@@ -327,6 +329,12 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
     const [showPickup, setShowPickup] = useState(false);
     const [showDestination, setShowDestination] = useState(false);
     const [showVia, setShowVia] = useState({});
+    const [pickupSearchLoading, setPickupSearchLoading] = useState(false);
+    const [destinationSearchLoading, setDestinationSearchLoading] = useState(false);
+    const [viaSearchLoading, setViaSearchLoading] = useState({});
+    const [pickupSearchError, setPickupSearchError] = useState("");
+    const [destinationSearchError, setDestinationSearchError] = useState("");
+    const [viaSearchError, setViaSearchError] = useState({});
     const [pickupPlotData, setPickupPlotData] = useState(null);
     const [destinationPlotData, setDestinationPlotData] = useState(null);
     const [viaPlotData, setViaPlotData] = useState({});
@@ -720,92 +728,141 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
         searchAbortRef[type] = null;
     };
 
-    const searchLocation = async (query, type, index = null) => {
-        if (!query || query.trim().length < 2) return;
-        const cleanedQuery = query.trim();
-        let list = [];
+    const setLocationSearchLoading = (type, index, loading) => {
+        if (type === "pickup") setPickupSearchLoading(loading);
+        else if (type === "destination") setDestinationSearchLoading(loading);
+        else setViaSearchLoading((prev) => ({ ...prev, [index]: loading }));
+    };
 
-        cancelPendingSearch(type, index);
+    const setLocationSearchError = (type, index, message) => {
+        if (type === "pickup") setPickupSearchError(message);
+        else if (type === "destination") setDestinationSearchError(message);
+        else setViaSearchError((prev) => ({ ...prev, [index]: message }));
+    };
 
-        if (mapsApi === "default") {
-            const runSearch = async () => {
-                const controller = new AbortController();
-                if (type === "via") searchAbortRef.via[String(index)] = controller;
-                else searchAbortRef[type] = controller;
-
-                try {
-                    const origin = getSearchOrigin();
-                    const response = await apiMapifyGeocoding({
-                        query: cleanedQuery,
-                        lat: origin.lat,
-                        lon: origin.lon,
-                        boundaryCountry: countryCode,
-                        signal: controller.signal,
-                    });
-                    const normalized = normalizeMapifyFeatures(response?.data).map((item) => ({
-                        label: item.name,
-                        subtitle: item.label,
-                        lat: item.lat,
-                        lng: item.lon,
-                        source: "mapify",
-                    }));
-                    updateSuggestions(normalized, type, index);
-                } catch (err) {
-                    if (err?.name === "AbortError" || err?.code === "ERR_CANCELED") return;
-                    console.error("Mapify search error:", err);
-                    updateSuggestions([], type, index);
-                }
-            };
-
-            const timer = setTimeout(runSearch, 400);
-            if (type === "via") searchDebounceRef.via[String(index)] = timer;
-            else searchDebounceRef[type] = timer;
-            return;
-        }
-
-        if ((searchApi === "google" || searchApi === "both") && googleService) {
-            googleService.getPlacePredictions(
-                {
-                    input: cleanedQuery,
-                    componentRestrictions: { country: countryCode },
-                },
-                (predictions, status) => {
-                    if (status === "OK") {
-                        list = predictions.map(p => ({
-                            label: p.description,
-                            place_id: p.place_id,
-                            source: "google",
-                        }));
-                        updateSuggestions(list, type, index);
-                    }
-                }
-            );
-        }
-
-        if (searchApi === "barikoi" || searchApi === "both") {
-            try {
-                const res = await fetch(
-                    `https://barikoi.xyz/v1/api/search/autocomplete/${apiKeys.barikoiKey || BARIKOI_KEY}/place?q=${encodeURIComponent(cleanedQuery)}`
-                );
-                const json = await res.json();
-                const barikoiList = (json.places || []).map(p => ({
-                    label: p.address || p.place_name,
-                    lat: p.latitude,
-                    lng: p.longitude,
-                    source: "barikoi",
-                }));
-                list = searchApi === "both" ? [...list, ...barikoiList] : barikoiList;
-                updateSuggestions(list, type, index);
-            } catch (err) {
-                console.error("Barikoi search error:", err);
-            }
+    const updateSuggestions = (list, type, index, shouldShow = true) => {
+        if (type === "pickup") {
+            setPickupSuggestions(list);
+            setShowPickup(shouldShow && list.length > 0);
+        } else if (type === "destination") {
+            setDestinationSuggestions(list);
+            setShowDestination(shouldShow && list.length > 0);
+        } else {
+            setViaSuggestions((v) => ({ ...v, [index]: list }));
+            setShowVia((v) => ({ ...v, [index]: shouldShow && list.length > 0 }));
         }
     };
 
-    const updateSuggestions = (list, type, index) => {
-        if (type === "pickup") { setPickupSuggestions(list); setShowPickup(true); }
-        else if (type === "destination") { setDestinationSuggestions(list); setShowDestination(true); }
-        else { setViaSuggestions(v => ({ ...v, [index]: list })); setShowVia(v => ({ ...v, [index]: true })); }
+    const isMapifyLocationSearch = () => mapsApi === MAP_PROVIDER_DEFAULT;
+
+    const searchLocation = async (query, type, index = null) => {
+        const cleanedQuery = query?.trim() || "";
+        cancelPendingSearch(type, index);
+
+        if (cleanedQuery.length < 2) {
+            updateSuggestions([], type, index, false);
+            setLocationSearchLoading(type, index, false);
+            setLocationSearchError(type, index, "");
+            return;
+        }
+
+        if (!isMapifyLocationSearch()) {
+            let list = [];
+
+            if ((searchApi === "google" || searchApi === "both") && googleService) {
+                googleService.getPlacePredictions(
+                    {
+                        input: cleanedQuery,
+                        componentRestrictions: { country: countryCode },
+                    },
+                    (predictions, status) => {
+                        if (status === "OK") {
+                            list = predictions.map((p) => ({
+                                label: p.description,
+                                inputValue: p.description,
+                                place_id: p.place_id,
+                                source: "google",
+                            }));
+                            updateSuggestions(list, type, index);
+                        } else {
+                            updateSuggestions([], type, index, false);
+                        }
+                        setLocationSearchLoading(type, index, false);
+                    }
+                );
+                setLocationSearchLoading(type, index, true);
+                setLocationSearchError(type, index, "");
+                return;
+            }
+
+            if (searchApi === "barikoi" || searchApi === "both") {
+                setLocationSearchLoading(type, index, true);
+                setLocationSearchError(type, index, "");
+                try {
+                    const res = await fetch(
+                        `https://barikoi.xyz/v1/api/search/autocomplete/${apiKeys.barikoiKey || BARIKOI_KEY}/place?q=${encodeURIComponent(cleanedQuery)}`
+                    );
+                    const json = await res.json();
+                    const barikoiList = (json.places || []).map((p) => ({
+                        label: p.address || p.place_name,
+                        inputValue: p.address || p.place_name,
+                        lat: p.latitude,
+                        lng: p.longitude,
+                        source: "barikoi",
+                    }));
+                    list = searchApi === "both" ? [...list, ...barikoiList] : barikoiList;
+                    updateSuggestions(list, type, index);
+                } catch (err) {
+                    console.error("Barikoi search error:", err);
+                    updateSuggestions([], type, index, false);
+                    setLocationSearchError(type, index, "Failed to search locations");
+                } finally {
+                    setLocationSearchLoading(type, index, false);
+                }
+            }
+            return;
+        }
+
+        const runMapifySearch = async () => {
+            const controller = new AbortController();
+            if (type === "via") searchAbortRef.via[String(index)] = controller;
+            else searchAbortRef[type] = controller;
+
+            setLocationSearchLoading(type, index, true);
+            setLocationSearchError(type, index, "");
+
+            try {
+                const origin = getSearchOrigin();
+                const suggestions = await fetchMapifyLocationSuggestions({
+                    query: cleanedQuery,
+                    lat: origin.lat,
+                    lon: origin.lon,
+                    boundaryCountry: countryCode,
+                    signal: controller.signal,
+                });
+                updateSuggestions(suggestions, type, index, true);
+                if (!suggestions.length) {
+                    setLocationSearchError(type, index, "No locations found");
+                }
+            } catch (err) {
+                if (err?.name === "AbortError" || err?.code === "ERR_CANCELED") return;
+                console.error("Mapify search error:", err);
+                updateSuggestions([], type, index, false);
+                setLocationSearchError(
+                    type,
+                    index,
+                    err?.response?.data?.message || "Failed to search locations"
+                );
+            } finally {
+                if (!controller.signal.aborted) {
+                    setLocationSearchLoading(type, index, false);
+                }
+            }
+        };
+
+        const timer = setTimeout(runMapifySearch, 350);
+        if (type === "via") searchDebounceRef.via[String(index)] = timer;
+        else searchDebounceRef[type] = timer;
     };
 
     const getLatLngFromPlaceId = (placeId) =>
@@ -831,9 +888,12 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
     };
 
     const selectLocation = async (item, type, setFieldValue, index = null) => {
-        if (type === "pickup") { setFieldValue("pickup_point", item.label); setShowPickup(false); }
-        else if (type === "destination") { setFieldValue("destination", item.label); setShowDestination(false); }
-        else { setFieldValue(`via_points[${index}]`, item.label); setShowVia(v => ({ ...v, [index]: false })); }
+        const displayValue = item.inputValue || item.label;
+        if (type === "pickup") { setFieldValue("pickup_point", displayValue); setShowPickup(false); }
+        else if (type === "destination") { setFieldValue("destination", displayValue); setShowDestination(false); }
+        else { setFieldValue(`via_points[${index}]`, displayValue); setShowVia(v => ({ ...v, [index]: false })); }
+
+        setLocationSearchError(type, index, "");
 
         let latLng = null;
         if (item.source === "google") latLng = await getLatLngFromPlaceId(item.place_id);
@@ -885,17 +945,17 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
                     });
                 });
             }
-            if (mapsApi === "default") {
+            if (mapsApi === MAP_PROVIDER_DEFAULT) {
                 const origin = getSearchOrigin();
-                const response = await apiMapifyGeocoding({
+                const suggestions = await fetchMapifyLocationSuggestions({
                     query: address,
                     lat: origin.lat,
                     lon: origin.lon,
                     boundaryCountry: countryCode,
                 });
-                const [first] = normalizeMapifyFeatures(response?.data);
+                const first = suggestions[0];
                 if (first) {
-                    return { latitude: first.lat, longitude: first.lon };
+                    return { latitude: first.lat, longitude: first.lng };
                 }
             }
             if (searchApi === "barikoi" || searchApi === "both") {
@@ -1962,11 +2022,17 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
                                                 <div className="flex flex-col gap-2 lg:flex-row lg:items-start">
                                                     <div className="flex-1">
                                                         <InputBox label="Pickup" value={values.pickup_point} plot={pickupPlotData?.name || ""}
-                                                            suggestions={pickupSuggestions} show={showPickup} placeholder="Pickup..."
+                                                            suggestions={pickupSuggestions} show={showPickup} placeholder="Search pickup..."
+                                                            loading={pickupSearchLoading} error={pickupSearchError}
                                                             hasError={!!(calculateErrors.pickup_point || bookingErrors.pickup_point)}
                                                             onChange={(v) => {
                                                                 setFieldValue("pickup_point", v);
-                                                                if (!v) { setStablePickupCoords(null); setFieldValue("pickup_latitude", ""); setFieldValue("pickup_longitude", ""); }
+                                                                if (!v) {
+                                                                    setStablePickupCoords(null);
+                                                                    setFieldValue("pickup_latitude", "");
+                                                                    setFieldValue("pickup_longitude", "");
+                                                                    setPickupSearchError("");
+                                                                }
                                                                 searchLocation(v, "pickup"); clearFieldErrors("pickup_point");
                                                             }}
                                                             onSelect={(i) => selectLocation(i, "pickup", setFieldValue)} />
@@ -1983,7 +2049,8 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
                                                     <div key={i} className="flex flex-col gap-2 lg:flex-row lg:items-start">
                                                         <div className="flex-1">
                                                             <InputBox label={`Via ${i + 1}`} value={values.via_points[i]} plot={viaPlotData[i]?.name || ""}
-                                                                suggestions={viaSuggestions[i] || []} placeholder="Via..." show={showVia[i]}
+                                                                suggestions={viaSuggestions[i] || []} placeholder="Search via..." show={showVia[i]}
+                                                                loading={Boolean(viaSearchLoading[i])} error={viaSearchError[i] || ""}
                                                                 hasError={!!(calculateErrors[`via_points_${i}`] || bookingErrors[`via_points_${i}`])}
                                                                 onChange={(v) => {
                                                                     setFieldValue(`via_points[${i}]`, v);
@@ -2015,11 +2082,17 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
                                                     </button>
                                                 </div>
                                                 <InputBox label="Destination" value={values.destination} plot={destinationPlotData?.name || ""}
-                                                    suggestions={destinationSuggestions} show={showDestination} placeholder="Destination..."
+                                                    suggestions={destinationSuggestions} show={showDestination} placeholder="Search destination..."
+                                                    loading={destinationSearchLoading} error={destinationSearchError}
                                                     hasError={!!(calculateErrors.destination || bookingErrors.destination)}
                                                     onChange={(v) => {
                                                         setFieldValue("destination", v);
-                                                        if (!v) { setStableDestinationCoords(null); setFieldValue("destination_latitude", ""); setFieldValue("destination_longitude", ""); }
+                                                        if (!v) {
+                                                            setStableDestinationCoords(null);
+                                                            setFieldValue("destination_latitude", "");
+                                                            setFieldValue("destination_longitude", "");
+                                                            setDestinationSearchError("");
+                                                        }
                                                         searchLocation(v, "destination"); clearFieldErrors("destination");
                                                     }}
                                                     onSelect={(i) => selectLocation(i, "destination", setFieldValue)} />
@@ -2133,17 +2206,51 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
 
 export default AddBooking;
 
-const InputBox = ({ label, value, onChange, suggestions, show, onSelect, plot, placeholder, hasError }) => (
+const InputBox = ({
+    label,
+    value,
+    onChange,
+    suggestions,
+    show,
+    onSelect,
+    plot,
+    placeholder,
+    hasError,
+    loading = false,
+    error = "",
+}) => (
     <div className="relative w-full">
         <label className={formLabelClass}>{label}</label>
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_90px] gap-1.5">
             <div className="relative">
-                <input value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder}
-                    className={`${formInputClass} ${hasError ? formInputErrorClass : ""}`} />
-                {show && (
+                <input
+                    value={value}
+                    onChange={(e) => onChange(e.target.value)}
+                    placeholder={placeholder}
+                    className={`${formInputClass} ${hasError ? formInputErrorClass : ""}`}
+                />
+                {(show || loading || error) && (
                     <ul className="absolute left-0 right-0 top-full z-50 mt-1 max-h-60 overflow-auto rounded-lg border border-[#E5E7EB] bg-white shadow-lg">
-                        {suggestions.map((i, idx) => (
-                            <li key={idx} onClick={() => onSelect(i)} className="cursor-pointer px-3 py-2 text-sm hover:bg-[#F9FAFB]">{i.label}</li>
+                        {loading && (
+                            <li className="px-3 py-2 text-sm text-[#6B7280]">Searching...</li>
+                        )}
+                        {!loading && error && (
+                            <li className="px-3 py-2 text-sm text-[#DC2626]">{error}</li>
+                        )}
+                        {!loading && !error && suggestions.length === 0 && show && (
+                            <li className="px-3 py-2 text-sm text-[#6B7280]">No locations found</li>
+                        )}
+                        {!loading && !error && suggestions.map((item, idx) => (
+                            <li
+                                key={item.id || `${item.label}-${idx}`}
+                                onClick={() => onSelect(item)}
+                                className="cursor-pointer px-3 py-2 text-sm hover:bg-[#F9FAFB]"
+                            >
+                                <div className="font-medium text-[#111827]">{item.label}</div>
+                                {item.subtitle ? (
+                                    <div className="text-xs text-[#6B7280]">{item.subtitle}</div>
+                                ) : null}
+                            </li>
                         ))}
                     </ul>
                 )}
