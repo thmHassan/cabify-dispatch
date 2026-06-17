@@ -1,4 +1,8 @@
 import { formatBookingDate, formatReminderMinutes, formatTime } from "../functions/formatters";
+import {
+    NEAREST_DISPATCH_FAILURE_FALLBACK,
+    sanitizeNearestDispatchMessage,
+} from "./nearestDispatchMessages";
 
 export const parseSocketPayload = (rawData) => {
   if (!rawData) return null;
@@ -93,11 +97,12 @@ export const buildNotificationFromSocket = (event, rawData) => {
       return {
         ...base,
         title: "Nearest Dispatch Failed",
-        description:
+        description: sanitizeNearestDispatchMessage(
           data.message ||
           data.reason ||
           data.failure_reason ||
-          "No nearby drivers available within 6km radius.",
+          NEAREST_DISPATCH_FAILURE_FALLBACK
+        ),
       };
 
     case "new-booking-event": {

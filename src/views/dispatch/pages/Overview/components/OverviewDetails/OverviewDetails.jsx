@@ -19,6 +19,10 @@ import AllocateDriverModal from "./AllocateDriverModal";
 import AppLogoLoader from "../../../../../../components/shared/AppLogoLoader";
 import DriverAssignmentModal from "./DriverAssignmentModal";
 import EditableBookingRow, { isEditableOverviewTab } from "./EditableBookingRow";
+import {
+    NEAREST_DISPATCH_FAILURE_FALLBACK,
+    sanitizeNearestDispatchMessage,
+} from "../../../../../../utils/notifications/nearestDispatchMessages";
 import FollowOnJobModal from "./Followonjobmodal";
 
 const statusColor = {
@@ -36,11 +40,19 @@ const Col = ({ w, children, className = "" }) => (
     <div className={`px-4 py-3 flex-shrink-0 ${w} ${className}`}>{children}</div>
 );
 
-const OverViewDetails = ({ filter, externalRefreshTrigger = 0, seedBookings = [], onSeedConsumed, onOpenEditBooking }) => {
+const OverViewDetails = ({
+    filter,
+    externalRefreshTrigger = 0,
+    seedBookings = [],
+    onSeedConsumed,
+    onOpenEditBooking,
+    nearestDriverDispatchEnabled = false,
+}) => {
     const navigate = useNavigate();
+    const overviewTabOptions = { nearestDriverDispatchEnabled };
     const applyTabFilter = useCallback(
-        (bookings) => filterBookingsForOverviewTab((bookings || []).filter(Boolean), filter),
-        [filter]
+        (bookings) => filterBookingsForOverviewTab((bookings || []).filter(Boolean), filter, overviewTabOptions),
+        [filter, nearestDriverDispatchEnabled]
     );
     const [openMenu, setOpenMenu] = useState(null);
     const [showAllocateModal, setShowAllocateModal] = useState(false);
@@ -124,7 +136,7 @@ const OverViewDetails = ({ filter, externalRefreshTrigger = 0, seedBookings = []
 
                 const pendingSeeds = pendingSeedBookingsRef.current || [];
                 const relevantSeeds = pendingSeeds.filter((booking) =>
-                    shouldShowBookingInOverviewTab(booking, filter)
+                    shouldShowBookingInOverviewTab(booking, filter, overviewTabOptions)
                 );
                 setBookings(mergeBookingsById(fetchedBookings, relevantSeeds));
                 setTotalPages(res?.data?.pagination?.total_pages || 1);
@@ -136,7 +148,7 @@ const OverViewDetails = ({ filter, externalRefreshTrigger = 0, seedBookings = []
                 console.error("Error fetching booking:", error);
                 const pendingSeeds = pendingSeedBookingsRef.current || [];
                 const relevantSeeds = pendingSeeds.filter((booking) =>
-                    shouldShowBookingInOverviewTab(booking, filter)
+                    shouldShowBookingInOverviewTab(booking, filter, overviewTabOptions)
                 );
                 setBookings(relevantSeeds);
                 if (relevantSeeds.length > 0) {
@@ -160,7 +172,7 @@ const OverViewDetails = ({ filter, externalRefreshTrigger = 0, seedBookings = []
         const handleNewBooking = (booking) => {
             console.log("new-booking-event:", booking);
             if (!booking || booking.id == null) return;
-            if (!shouldShowBookingInOverviewTab(booking, filter)) return;
+            if (!shouldShowBookingInOverviewTab(booking, filter, overviewTabOptions)) return;
 
             setBookings((prev) => {
                 const safe = prev.filter(Boolean);
@@ -220,10 +232,23 @@ const OverViewDetails = ({ filter, externalRefreshTrigger = 0, seedBookings = []
             console.log("auto-dispatch-failed:", data);
             if (!data?.booking_id) return;
             const updatedBooking = data?.booking ?? null;
-            if (updatedBooking) {
-                setBookings((prev) =>
-                    mapBookings(prev, (b) => b.id === updatedBooking.id ? updatedBooking : b)
-                );
+            if (updatedBooking?.id) {
+                setBookings((prev) => {
+                    const safe = prev.filter(Boolean);
+                    const exists = safe.some((b) => b.id === updatedBooking.id);
+
+                    if (!exists) {
+                        return shouldShowBookingInOverviewTab(updatedBooking, filter, overviewTabOptions)
+                            ? [updatedBooking, ...safe]
+                            : safe;
+                    }
+
+                    return applyTabFilter(
+                        safe.map((b) => (b.id === updatedBooking.id ? { ...b, ...updatedBooking } : b))
+                    );
+                });
+            } else {
+                setRefreshTrigger((prev) => prev + 1);
             }
             showNotification({
                 booking_id: data.booking_id,
@@ -240,11 +265,37 @@ const OverViewDetails = ({ filter, externalRefreshTrigger = 0, seedBookings = []
             } catch {
                 data = rawData;
             }
-            setRefreshTrigger(prev => prev + 1);
+
+            const updatedBooking = data?.booking ?? null;
+            const bookingId = data?.booking_id || data?.bookingId || updatedBooking?.id;
+
+            if (updatedBooking?.id) {
+                setBookings((prev) => {
+                    const safe = prev.filter(Boolean);
+                    const exists = safe.some((b) => b.id === updatedBooking.id);
+
+                    if (!exists) {
+                        return shouldShowBookingInOverviewTab(updatedBooking, filter, overviewTabOptions)
+                            ? [updatedBooking, ...safe]
+                            : safe;
+                    }
+
+                    return applyTabFilter(
+                        safe.map((b) => (b.id === updatedBooking.id ? { ...b, ...updatedBooking } : b))
+                    );
+                });
+            } else if (bookingId) {
+                setRefreshTrigger((prev) => prev + 1);
+            } else {
+                setRefreshTrigger((prev) => prev + 1);
+            }
+
             showNotification({
-                booking_id: data?.booking_id || data?.bookingId || data?.booking?.id,
-                booking: data?.booking || null,
-                message: data?.message || data?.reason || "No nearby drivers available within 6km radius.",
+                booking_id: bookingId,
+                booking: updatedBooking,
+                message: sanitizeNearestDispatchMessage(
+                    data?.message || data?.reason || NEAREST_DISPATCH_FAILURE_FALLBACK
+                ),
                 type: "failed",
             });
         };
@@ -367,14 +418,14 @@ const OverViewDetails = ({ filter, externalRefreshTrigger = 0, seedBookings = []
                 const exists = safe.some((b) => b.id === booking.id);
 
                 if (!exists) {
-                    return shouldShowBookingInOverviewTab(booking, filter)
+                    return shouldShowBookingInOverviewTab(booking, filter, overviewTabOptions)
                         ? [booking, ...safe]
                         : safe;
                 }
 
                 return safe
                     .map((b) => (b.id === booking.id ? { ...b, ...booking } : b))
-                    .filter((b) => shouldShowBookingInOverviewTab(b, filter));
+                    .filter((b) => shouldShowBookingInOverviewTab(b, filter, overviewTabOptions));
             });
             setRefreshTrigger((prev) => prev + 1);
         };
@@ -423,7 +474,7 @@ const OverViewDetails = ({ filter, externalRefreshTrigger = 0, seedBookings = []
             socket.off("booking-updated-event", handleBookingUpdated);
         };
 
-    }, [socket, showNotification, filter, applyTabFilter]);
+    }, [socket, showNotification, filter, applyTabFilter, nearestDriverDispatchEnabled]);
 
     const getButtonRef = (id) => {
         if (!buttonRefs.current[id]) buttonRefs.current[id] = { current: null };
@@ -447,7 +498,7 @@ const OverViewDetails = ({ filter, externalRefreshTrigger = 0, seedBookings = []
         setBookings((prev) =>
             prev
                 .map((b) => (b.id === updated.id ? { ...b, ...updated } : b))
-                .filter((b) => shouldShowBookingInOverviewTab(b, filter))
+                .filter((b) => shouldShowBookingInOverviewTab(b, filter, overviewTabOptions))
         );
         setRefreshTrigger((prev) => prev + 1);
     };

@@ -89,6 +89,25 @@ export const syncMultiBookingReferenceDate = ({
 
 const isApiSuccess = (data) => data?.success === 1 || data?.success === true;
 
+export const NEAREST_DISPATCH_ACTIVE_PREFIX = "NEAREST_DISPATCH_ACTIVE|";
+
+export const isNearestDispatchInProgress = (booking) => {
+    const action = booking?.dispatcher_action;
+    if (typeof action !== "string" || !action.trim()) {
+        return false;
+    }
+
+    if (action.startsWith(NEAREST_DISPATCH_ACTIVE_PREFIX)) {
+        return true;
+    }
+
+    if (/started nearest driver dispatch/i.test(action)) {
+        return true;
+    }
+
+    return /Broadcast to \d+ driver\(s\) within/i.test(action);
+};
+
 export const isScheduledPreBooking = (booking) => {
     if (!booking) return false;
 
@@ -118,20 +137,56 @@ export const isScheduledPreBooking = (booking) => {
 export const bookingHasSchedulingMetadata = (booking) =>
     booking?.pickup_time_type != null ||
     booking?.is_scheduled != null ||
-    booking?.pre_booking != null;
+    booking?.pre_booking != null ||
+    booking?.dispatcher_action != null;
 
-export const filterBookingsForOverviewTab = (bookings, filter) => {
+export const shouldHideFromTodaysBookingForNearestDispatch = (
+    booking,
+    nearestDriverDispatchEnabled = false
+) => {
+    if (!booking || !nearestDriverDispatchEnabled) {
+        return false;
+    }
+
+    if (isScheduledPreBooking(booking)) {
+        return false;
+    }
+
+    if (isNearestDispatchInProgress(booking)) {
+        return true;
+    }
+
+    const action = booking?.dispatcher_action || "";
+    if (/no driver accepted|manual dispatch|available for manual/i.test(action)) {
+        return false;
+    }
+
+    if (
+        !action &&
+        isAsapPickupBooking(booking) &&
+        booking.booking_status === "pending" &&
+        !booking.driver &&
+        !booking.pending_driver_id
+    ) {
+        return true;
+    }
+
+    return false;
+};
+
+export const filterBookingsForOverviewTab = (bookings, filter, options = {}) => {
     if (!Array.isArray(bookings) || !filter) return bookings || [];
 
     if (filter === "todays_booking" || filter === "pre_bookings") {
-        const canRefineClientSide = bookings.some(bookingHasSchedulingMetadata);
+        const { nearestDriverDispatchEnabled = false } = options;
+        const canRefineClientSide =
+            bookings.some(bookingHasSchedulingMetadata) || nearestDriverDispatchEnabled;
+
         if (!canRefineClientSide) return bookings;
 
-        if (filter === "todays_booking") {
-            return bookings.filter((booking) => !isScheduledPreBooking(booking));
-        }
-
-        return bookings.filter((booking) => isScheduledPreBooking(booking));
+        return bookings.filter((booking) =>
+            shouldShowBookingInOverviewTab(booking, filter, options)
+        );
     }
 
     return bookings;
@@ -269,7 +324,9 @@ export const extractUpdatedBookingFromResponse = (responseData, fallbackBooking 
     return { ...fallbackBooking, ...booking };
 };
 
-export const shouldShowBookingInOverviewTab = (booking, filter) => {
+export const shouldShowBookingInOverviewTab = (booking, filter, options = {}) => {
+    const { nearestDriverDispatchEnabled = false } = options;
+
     if (!filter || filter === "recent_jobs" || filter === "completed" || filter === "no_show" || filter === "cancelled") {
         return true;
     }
@@ -279,7 +336,11 @@ export const shouldShowBookingInOverviewTab = (booking, filter) => {
     }
 
     if (filter === "todays_booking") {
-        return !isScheduledPreBooking(booking);
+        if (isScheduledPreBooking(booking)) {
+            return false;
+        }
+
+        return !shouldHideFromTodaysBookingForNearestDispatch(booking, nearestDriverDispatchEnabled);
     }
 
     return true;

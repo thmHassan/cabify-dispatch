@@ -29,6 +29,7 @@ import GreenCarIcon from "../../../../components/svg/GreenCarIcon";
 import AppLogoIcon from "../../../../components/svg/AppLogoIcon";
 import { renderToString } from "react-dom/server";
 import { formatCurrency } from "../../../../utils/functions/formatters";
+import { sanitizeNearestDispatchMessage } from "../../../../utils/notifications/nearestDispatchMessages";
 
 const GOOGLE_KEY = "AIzaSyDTlV1tPVuaRbtvBQu4-kjDhTV54tR4cDU";
 
@@ -316,7 +317,9 @@ const DispatchFailedCard = ({ data, onClose }) => {
   
   const pickup = data.pickup_location || (data.pickup_point ? formatCoord(data.pickup_point) : "");
   const destination = data.destination_location || (data.destination_point ? formatCoord(data.destination_point) : "");
-  const reason = data.message || data.reason || data.cancel_reason || "No driver accepted the request or no active drivers found.";
+  const reason = sanitizeNearestDispatchMessage(
+    data.message || data.reason || data.cancel_reason || "No driver accepted the request or no active drivers found."
+  );
 
   return (
     <>
@@ -1514,7 +1517,12 @@ const Overview = () => {
 
     const handleNearestDispatchFailed = (rawData) => {
       let data; try { data = typeof rawData === "string" ? JSON.parse(rawData) : rawData; } catch { data = rawData; }
-      showRideNotification({ ...data, isFailedDispatch: true });
+      showRideNotification({
+        ...data,
+        isFailedDispatch: true,
+        message: sanitizeNearestDispatchMessage(data?.message || data?.reason),
+        reason: sanitizeNearestDispatchMessage(data?.message || data?.reason),
+      });
       fetchDashboardCards();
     };
 
@@ -1909,6 +1917,7 @@ const Overview = () => {
           seedBookings={seedBookings}
           onSeedConsumed={handleSeedConsumed}
           onOpenEditBooking={handleOpenEditBooking}
+          nearestDriverDispatchEnabled={hidePlotAndRank}
         />
       </div>
 
