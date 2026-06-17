@@ -13,7 +13,7 @@ import { getTenantData } from "../../../../utils/functions/tokenEncryption";
 import { apiGetCompanyApiKeys } from "../../../../services/SettingsConfigurationServices";
 import { fetchMapConfiguration, MAP_PROVIDER_DEFAULT, MAP_PROVIDER_GOOGLE } from "../../../../services/mapConfigurationService";
 import { apiGetPlot } from "../../../../services/PlotService";
-import { apiMapifySearch, normalizeMapifyFeatures } from "../../../../services/MapSearchService";
+import { apiMapifyGeocoding, normalizeMapifyFeatures } from "../../../../services/MapSearchService";
 import MapSearchBox from "./components/MapSearchBox";
 
 const GOOGLE_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "";
@@ -779,11 +779,11 @@ const Map = () => {
       setSearchError("");
       try {
         const origin = getMapSearchOrigin();
-        const res = await apiMapifySearch({
+        const res = await apiMapifyGeocoding({
           query: debouncedQuery,
           lat: origin.lat,
           lon: origin.lon,
-          size: 8,
+          boundaryCountry: apiKeys.countryOfUse,
           signal: controller.signal,
         });
         const results = normalizeMapifyFeatures(res?.data);
@@ -801,7 +801,7 @@ const Map = () => {
     run();
 
     return () => controller.abort();
-  }, [debouncedQuery, mapType, getMapSearchOrigin]);
+  }, [debouncedQuery, mapType, getMapSearchOrigin, apiKeys.countryOfUse]);
 
   const handleSelectSearchResult = useCallback((item) => {
     setSearchQuery(item.name || "");

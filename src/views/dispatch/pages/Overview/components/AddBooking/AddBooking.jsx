@@ -37,7 +37,7 @@ import { unlockBodyScroll } from "../../../../../../utils/functions/common.funct
 import toast from 'react-hot-toast';
 import { getDispatcherId, getDispatcherName } from "../../../../../../utils/auth";
 import { apiGetRideHistory, apiGetUser } from "../../../../../../services/UserService";
-import { apiMapifySearch, normalizeMapifyFeatures } from "../../../../../../services/MapSearchService";
+import { apiMapifyGeocoding, normalizeMapifyFeatures } from "../../../../../../services/MapSearchService";
 import { debounce } from "lodash";
 import {
     extractCreatedBookings,
@@ -56,7 +56,14 @@ import successSound from "../../../../../../assets/audio/meldix-success-340660.m
 
 const DEFAULT_GOOGLE_KEY = "AIzaSyDTlV1tPVuaRbtvBQu4-kjDhTV54tR4cDU";
 const DEFAULT_BARIKOI_KEY = "bkoi_a468389d0211910bd6723de348e0de79559c435f07a17a5419cbe55ab55a890a";
-const FALLBACK_SEARCH_ORIGIN = { lat: 23.8103, lon: 90.4125 };
+
+const SEARCH_COUNTRY_CENTERS = {
+    PK: { lat: 30.3753, lon: 69.3451 },
+    BD: { lat: 23.8103, lon: 90.4125 },
+    IN: { lat: 20.5937, lon: 78.9629 },
+    GB: { lat: 51.5074, lon: -0.1278 },
+    DEFAULT: { lat: 23.8103, lon: 90.4125 },
+};
 
 const GOOGLE_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || DEFAULT_GOOGLE_KEY;
 const BARIKOI_KEY = import.meta.env.VITE_BARIKOI_API_KEY || DEFAULT_BARIKOI_KEY;
@@ -694,7 +701,8 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
         if (coords?.lat != null && coords?.lng != null) {
             return { lat: Number(coords.lat), lon: Number(coords.lng) };
         }
-        return FALLBACK_SEARCH_ORIGIN;
+        const code = countryCode?.trim().toUpperCase() || tenantCountryIso?.toUpperCase();
+        return SEARCH_COUNTRY_CENTERS[code] || SEARCH_COUNTRY_CENTERS.DEFAULT;
     };
 
     const cancelPendingSearch = (type, index = null) => {
@@ -727,11 +735,11 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
 
                 try {
                     const origin = getSearchOrigin();
-                    const response = await apiMapifySearch({
+                    const response = await apiMapifyGeocoding({
                         query: cleanedQuery,
                         lat: origin.lat,
                         lon: origin.lon,
-                        size: 8,
+                        boundaryCountry: countryCode,
                         signal: controller.signal,
                     });
                     const normalized = normalizeMapifyFeatures(response?.data).map((item) => ({
@@ -879,11 +887,11 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
             }
             if (mapsApi === "default") {
                 const origin = getSearchOrigin();
-                const response = await apiMapifySearch({
+                const response = await apiMapifyGeocoding({
                     query: address,
                     lat: origin.lat,
                     lon: origin.lon,
-                    size: 1,
+                    boundaryCountry: countryCode,
                 });
                 const [first] = normalizeMapifyFeatures(response?.data);
                 if (first) {

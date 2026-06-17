@@ -15,6 +15,7 @@ import CancelledIcon from "../../../../components/svg/CancelledIcon";
 import { useAppSelector } from "../../../../store";
 import {
   apiGetCompanyApiKeys,
+  apiGetDispatchSystem,
 } from "../../../../services/SettingsConfigurationServices";
 import { fetchMapConfiguration, MAP_PROVIDER_DEFAULT, MAP_PROVIDER_GOOGLE } from "../../../../services/mapConfigurationService";
 import { getDashboardCards, apiGetAllPlot, apiUpdateDriverRank } from "../../../../services/AddBookingServices";
@@ -55,6 +56,33 @@ const getDriverPlotId = (driver) => {
   if (Number.isNaN(Number(plotId))) return null;
   return plotId;
 };
+
+const normalizeDispatchSystemList = (response) => {
+  let data = response?.data?.data || response?.data || response;
+  if (!Array.isArray(data)) {
+    if (data && typeof data === "object") {
+      const keys = ["items", "results", "dispatches", "systems", "list"];
+      for (const key of keys) {
+        if (Array.isArray(data[key])) {
+          data = data[key];
+          break;
+        }
+      }
+    }
+    if (!Array.isArray(data)) {
+      data = data && typeof data === "object" && Object.keys(data).length > 0 ? [data] : [];
+    }
+  }
+  return data;
+};
+
+const isDispatchSystemEnabled = (item) =>
+  item?.status === "enable" || item?.status === "enabled" || item?.status === 1 || item?.status === true;
+
+const isNearestDriverDispatchEnabled = (items) =>
+  items.some(
+    (item) => item.dispatch_system === "auto_dispatch_nearest-driver" && isDispatchSystemEnabled(item)
+  );
 
 const assignDefaultRanks = (drivers) => {
   const byPlot = new Map();
@@ -1008,6 +1036,20 @@ const Overview = () => {
   const [editingRanks, setEditingRanks] = useState({});
   const [updatingRankId, setUpdatingRankId] = useState(null);
   const [loggingOutDriverId, setLoggingOutDriverId] = useState(null);
+  const [hidePlotAndRank, setHidePlotAndRank] = useState(false);
+
+  useEffect(() => {
+    const fetchDispatchSystem = async () => {
+      try {
+        const response = await apiGetDispatchSystem();
+        const data = normalizeDispatchSystemList(response);
+        setHidePlotAndRank(isNearestDriverDispatchEnabled(data));
+      } catch {
+        setHidePlotAndRank(false);
+      }
+    };
+    fetchDispatchSystem();
+  }, []);
 
   useEffect(() => {
     const fetchMapConfig = async () => {
@@ -1730,8 +1772,8 @@ const Overview = () => {
                 <tr>
                   <th className="text-left py-1 text-[11px]">Sr No</th>
                   <th className="text-left text-[11px]">Driver</th>
-                  <th className="text-left text-[11px]">Plot</th>
-                  <th className="text-right text-[11px]">Rank</th>
+                  {!hidePlotAndRank && <th className="text-left text-[11px]">Plot</th>}
+                  {!hidePlotAndRank && <th className="text-right text-[11px]">Rank</th>}
                   <th className="text-right text-[11px]">Msg</th>
                   <th className="text-right text-[11px]">Out</th>
                 </tr>
@@ -1758,35 +1800,39 @@ const Overview = () => {
                         driver.display_name || driver.name || driver.driver_name || "Unknown"
                       )}
                     </td>
-                    <td>
-                      {isOutsidePlot ? (
-                        <span className="text-red-600 font-medium">Outside the plot</span>
-                      ) : (
-                        getDriverPlotLabel(driver)
-                      )}
-                    </td>
-                    <td className="text-right">
-                      <input
-                        type="number"
-                        min={1}
-                        max={maxRank || undefined}
-                        title="Click to edit driver rank"
-                        disabled={driver.is_reconnecting || updatingRankId === driverKey}
-                        className="w-12 text-right border border-gray-300 rounded px-1 py-0.5 text-xs bg-white cursor-text focus:outline-none focus:border-[#1F41BB] focus:ring-1 focus:ring-[#1F41BB] disabled:opacity-50 disabled:cursor-not-allowed"
-                        value={editingRanks[driverKey] ?? (driver.rank || driver.ranking || i + 1)}
-                        onChange={(e) => {
-                          setEditingRanks((prev) => ({ ...prev, [driverKey]: e.target.value }));
-                        }}
-                        onBlur={(e) => handleRankChange(driver, e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") e.target.blur();
-                          if (e.key === "Escape") {
-                            clearEditingRank(driver.id || driver.driver_id);
-                            e.target.blur();
-                          }
-                        }}
-                      />
-                    </td>
+                    {!hidePlotAndRank && (
+                      <td>
+                        {isOutsidePlot ? (
+                          <span className="text-red-600 font-medium">Outside the plot</span>
+                        ) : (
+                          getDriverPlotLabel(driver)
+                        )}
+                      </td>
+                    )}
+                    {!hidePlotAndRank && (
+                      <td className="text-right">
+                        <input
+                          type="number"
+                          min={1}
+                          max={maxRank || undefined}
+                          title="Click to edit driver rank"
+                          disabled={driver.is_reconnecting || updatingRankId === driverKey}
+                          className="w-12 text-right border border-gray-300 rounded px-1 py-0.5 text-xs bg-white cursor-text focus:outline-none focus:border-[#1F41BB] focus:ring-1 focus:ring-[#1F41BB] disabled:opacity-50 disabled:cursor-not-allowed"
+                          value={editingRanks[driverKey] ?? (driver.rank || driver.ranking || i + 1)}
+                          onChange={(e) => {
+                            setEditingRanks((prev) => ({ ...prev, [driverKey]: e.target.value }));
+                          }}
+                          onBlur={(e) => handleRankChange(driver, e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") e.target.blur();
+                            if (e.key === "Escape") {
+                              clearEditingRank(driver.id || driver.driver_id);
+                              e.target.blur();
+                            }
+                          }}
+                        />
+                      </td>
+                    )}
                     <td className="text-right py-1">
                       <button
                         type="button"
@@ -1811,7 +1857,7 @@ const Overview = () => {
                   </tr>
                   );
                 }) : (
-                  <tr><td colSpan="6" className="text-center py-4 text-gray-500">No waiting drivers</td></tr>
+                  <tr><td colSpan={hidePlotAndRank ? 4 : 6} className="text-center py-4 text-gray-500">No waiting drivers</td></tr>
                 )}
               </tbody>
             </table>
