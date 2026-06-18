@@ -1,36 +1,63 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { formatBookingDate, formatReminderMinutes, formatTime } from "../../../../../../utils/functions/formatters";
+import { usePausableAutoDismiss } from "../../../../../../hooks/usePausableAutoDismiss";
 
 const DriverAssignmentModal = ({
     notification,
     onClose,
     autoCloseDuration = 6000,
 }) => {
-    const timerRef = useRef(null);
     const progressRef = useRef(null);
+    const handleDismiss = useCallback(() => {
+        if (notification?.id != null) onClose(notification.id);
+    }, [notification?.id, onClose]);
+
+    const { hoverHandlers, pause, resume, remainingMsRef } = usePausableAutoDismiss(
+        handleDismiss,
+        autoCloseDuration,
+        Boolean(notification)
+    );
+
+    const startProgressAnimation = useCallback((durationMs) => {
+        if (!progressRef.current) return;
+        const el = progressRef.current;
+        el.style.transition = "none";
+        el.style.width = "100%";
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                if (!progressRef.current) return;
+                progressRef.current.style.transition = `width ${durationMs}ms linear`;
+                progressRef.current.style.width = "0%";
+            });
+        });
+    }, []);
+
+    const pauseProgress = useCallback(() => {
+        if (!progressRef.current) return;
+        const el = progressRef.current;
+        const parent = el.parentElement;
+        const pct = parent?.getBoundingClientRect().width
+            ? (el.getBoundingClientRect().width / parent.getBoundingClientRect().width) * 100
+            : 0;
+        el.style.transition = "none";
+        el.style.width = `${pct}%`;
+    }, []);
+
+    const resumeProgress = useCallback(() => {
+        if (!progressRef.current) return;
+        const el = progressRef.current;
+        const remaining = remainingMsRef.current;
+        requestAnimationFrame(() => {
+            if (!progressRef.current) return;
+            progressRef.current.style.transition = `width ${remaining}ms linear`;
+            progressRef.current.style.width = "0%";
+        });
+    }, [remainingMsRef]);
 
     useEffect(() => {
         if (!notification) return;
-
-        timerRef.current = setTimeout(() => {
-            onClose(notification.id);
-        }, autoCloseDuration);
-
-        if (progressRef.current) {
-            progressRef.current.style.transition = "none";
-            progressRef.current.style.width = "100%";
-            requestAnimationFrame(() => {
-                requestAnimationFrame(() => {
-                    if (progressRef.current) {
-                        progressRef.current.style.transition = `width ${autoCloseDuration}ms linear`;
-                        progressRef.current.style.width = "0%";
-                    }
-                });
-            });
-        }
-
-        return () => clearTimeout(timerRef.current);
-    }, [notification, autoCloseDuration, onClose]);
+        startProgressAnimation(autoCloseDuration);
+    }, [notification, autoCloseDuration, startProgressAnimation]);
 
     if (!notification) return null;
 
@@ -108,11 +135,23 @@ const DriverAssignmentModal = ({
         accepted: { bg: "bg-green-100", text: "text-green-700", label: "Accepted" },
     };
 
+    const handleMouseEnter = () => {
+        pause();
+        pauseProgress();
+    };
+
+    const handleMouseLeave = () => {
+        resume();
+        resumeProgress();
+    };
+
     return (
         <>
             <div
                 className="pointer-events-auto w-full max-w-sm bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden shrink-0"
                 style={{ animation: "slideInUp 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) forwards" }}
+                onMouseEnter={handleMouseEnter}
+                onMouseLeave={handleMouseLeave}
             >
                 <div className={`h-1 w-full bg-gradient-to-r ${t.gradient}`} />
 

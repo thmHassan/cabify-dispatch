@@ -1,5 +1,7 @@
 import {
     isDispatchReleased,
+    isPlotDispatchExhausted,
+    isPlotDispatchInProgress,
     isScheduledBookingWithReminder,
 } from "../../../../../../utils/functions/bookingDateFilter";
 import {
@@ -8,6 +10,12 @@ import {
     formatPickupTime,
     formatReminderLabel,
 } from "../../../../../../utils/functions/formatters";
+import {
+    formatPlotDispatchProgressMessage,
+    getBookingPlotDispatchStatus,
+    isPlotDispatchPhaseActive,
+    isPlotDispatchStatusExhausted,
+} from "../../../../../../utils/plotDispatch/plotDispatchStatus";
 import StatusMenu from "./StatusMenu";
 
 const Col = ({ w, children, className = "" }) => (
@@ -42,16 +50,35 @@ const EditableBookingRow = ({
     onOpenAllocateModal,
     onOpenFollowOnModal,
     onOpenEditBooking,
+    plotDispatchStatusById = {},
+    highlightedBookingId = null,
+    onOpenPlotDispatchPanel,
+    plotBasedDispatchEnabled = false,
 }) => {
     const showEdit = canEditBookingRow(booking, filter) && Boolean(onOpenEditBooking);
     const blinkPending = shouldBlinkPendingTodaysRow(booking, filter);
+    const plotStatus = getBookingPlotDispatchStatus(booking, plotDispatchStatusById);
+    const plotDispatchActive = plotBasedDispatchEnabled && (
+        isPlotDispatchPhaseActive(plotStatus?.phase) || isPlotDispatchInProgress(booking)
+    );
+    const plotDispatchExhausted = plotBasedDispatchEnabled && (
+        isPlotDispatchStatusExhausted(plotStatus) || isPlotDispatchExhausted(booking)
+    );
+    const isHighlighted = highlightedBookingId != null && Number(highlightedBookingId) === Number(booking.id);
+    const progressMessage = plotStatus
+        ? formatPlotDispatchProgressMessage(plotStatus)
+        : "";
+
+    const rowClassName = [
+        "flex border-b text-sm transition-colors",
+        isHighlighted ? "plot-dispatch-highlight" : "",
+        plotDispatchActive && filter === "todays_booking" ? "plot-dispatch-in-progress-row plot-dispatch-active-row" : "",
+        !isHighlighted && !plotDispatchActive && blinkPending ? "pending-booking-blink" : "",
+        !isHighlighted && !plotDispatchActive && !blinkPending ? "bg-white hover:bg-gray-50" : "",
+    ].filter(Boolean).join(" ");
 
     return (
-        <div
-            className={`flex border-b text-sm transition-colors${
-                blinkPending ? " pending-booking-blink" : " bg-white hover:bg-gray-50"
-            }`}
-        >
+        <div className={rowClassName}>
             <Col w="w-[80px]">{index + 1}</Col>
 
             <Col w="w-[120px]">{formatBookingDate(booking.booking_date)}</Col>
@@ -129,7 +156,34 @@ const EditableBookingRow = ({
 
             <Col w="w-[230px]" className="whitespace-normal break-words">
                 <div className="flex flex-col gap-1">
-                    <span>{booking.dispatcher_action ?? "-"}</span>
+                    {plotBasedDispatchEnabled && progressMessage ? (
+                        <button
+                            type="button"
+                            onClick={() => onOpenPlotDispatchPanel?.(booking, plotStatus)}
+                            className={`text-left text-[11px] font-medium leading-snug ${
+                                plotDispatchExhausted
+                                    ? "text-amber-700"
+                                    : plotDispatchActive
+                                        ? "text-[#1F41BB]"
+                                        : "text-gray-700"
+                            } hover:underline`}
+                        >
+                            {progressMessage}
+                        </button>
+                    ) : (
+                        <span>{booking.dispatcher_action ?? "-"}</span>
+                    )}
+
+                    {plotDispatchExhausted && (
+                        <button
+                            type="button"
+                            onClick={() => onOpenAllocateModal(booking, "allocate_driver")}
+                            className="self-start rounded bg-amber-500 px-2 py-1 text-[10px] font-semibold text-white hover:bg-amber-600"
+                        >
+                            Manual Assign
+                        </button>
+                    )}
+
                     {showEdit && onOpenEditBooking && (
                         <button
                             type="button"

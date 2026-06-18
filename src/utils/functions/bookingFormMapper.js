@@ -1,4 +1,5 @@
 import { toBookingDateInputValue } from "./formatters";
+import { metersToDisplayDistance } from "./tenantSettings";
 
 const parseViaLocations = (booking) => {
     let viaPoints = [];
@@ -122,7 +123,7 @@ export const mapBookingToFormValues = (booking, { mode = "copy" } = {}) => {
         congestion_toll: parseFloat(booking.toll ?? booking.congestion_toll) || 0,
         booking_fee_charges: parseFloat(booking.booking_fee_charges) || 0,
         total_charges: parseFloat(booking.booking_amount ?? booking.offered_amount) || 0,
-        distance: booking.distance ? String(booking.distance) : "",
+        distance: booking.distance ? metersToDisplayDistance(booking.distance) : "",
         user_id: (booking.user_id ?? "").toString(),
         multi_days: [],
         multi_start_at: "",

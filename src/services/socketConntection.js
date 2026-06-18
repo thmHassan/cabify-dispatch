@@ -5,9 +5,14 @@ import { getDispatcherId } from "../utils/auth";
 
 let socket = null;
 
-const initSocket = () => {
-    if (socket) return socket;
+export const disconnectSocket = () => {
+    if (!socket) return;
+    socket.removeAllListeners();
+    socket.disconnect();
+    socket = null;
+};
 
+const initSocket = () => {
     const tenantId = getTenantId();
     const token = getDecryptedToken();
     const dispatcher_id = getDispatcherId()
@@ -15,11 +20,18 @@ const initSocket = () => {
     console.log("Socket database:", tenantId);
     console.log("Socket dispatcher_id:", dispatcher_id);
 
-
     if (!tenantId) {
         console.warn("❌Tenant ID not found, socket not connected");
+        disconnectSocket();
         return null;
     }
+
+    const connectedTenantId = socket?.io?.opts?.query?.database;
+    if (socket && connectedTenantId && connectedTenantId !== tenantId) {
+        disconnectSocket();
+    }
+
+    if (socket) return socket;
 
     const socketBaseUrl = resolveSocketIoOrigin();
 

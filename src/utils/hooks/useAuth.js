@@ -23,6 +23,7 @@ import {
   storeTenantId,
   storeTenantData,
 } from "../functions/tokenEncryption";
+import { disconnectSocket } from "../../services/socketConntection";
 import { setCachedTenantCurrency } from "../functions/formatters";
 
 const API_ERROR_MAP = {
@@ -147,6 +148,7 @@ function useAuth() {
     } catch (error) {
       console.error("Logout API error:", error);
     } finally {
+      disconnectSocket();
       clearAllAuthData();
       dispatch(signOutSuccess());
       dispatch(clearUser());

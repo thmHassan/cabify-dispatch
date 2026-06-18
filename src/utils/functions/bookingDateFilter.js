@@ -110,6 +110,11 @@ export const isNearestDispatchInProgress = (booking) => {
 };
 
 export const isPlotDispatchInProgress = (booking) => {
+    const trackedPhase = String(booking?.plot_dispatch_status?.phase || "").toLowerCase();
+    if (trackedPhase === "primary" || trackedPhase === "backup") {
+        return true;
+    }
+
     const action = booking?.dispatcher_action;
     if (typeof action !== "string" || !action.trim()) {
         return false;
@@ -135,6 +140,11 @@ export const isPlotDispatchInProgress = (booking) => {
 };
 
 export const isPlotDispatchExhausted = (booking) => {
+    const trackedPhase = String(booking?.plot_dispatch_status?.phase || "").toLowerCase();
+    if (trackedPhase === "exhausted") {
+        return true;
+    }
+
     const action = booking?.dispatcher_action || "";
     const status = String(booking?.booking_status || "").toLowerCase();
 

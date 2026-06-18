@@ -1,10 +1,10 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import CardContainer from "../../../../../../components/shared/CardContainer";
 import SearchBar from "../../../../../../components/shared/SearchBar/SearchBar";
 import CustomSelect from "../../../../../../components/ui/CustomSelect";
 import Pagination from "../../../../../../components/ui/Pagination/Pagination";
-import { useSocket } from "../../../../../../components/routes/SocketProvider";
-import { getBookings } from "../../../../../../services/AddBookingServices";
+import { useSocket, useSocketStatus } from "../../../../../../components/routes/SocketProvider";
+import { getBookings, getPlotDispatchStatus, startAutoDispatch } from "../../../../../../services/AddBookingServices";
 import { apiGetSubCompany } from "../../../../../../services/SubCompanyServices";
 import { OVERVIEW_STATUS_OPTIONS } from "../../../../../../constants/selectOptions";
 import {
@@ -28,6 +28,22 @@ import {
     sanitizePlotDispatchMessage,
 } from "../../../../../../utils/notifications/plotDispatchMessages";
 import FollowOnJobModal from "./Followonjobmodal";
+import PlotDispatchActiveStrip from "./PlotDispatchActiveStrip";
+import PlotDispatchStatusPanel from "./PlotDispatchStatusPanel";
+import {
+    formatPlotDispatchProgressMessage,
+    getPlotDispatchBookingId,
+    inferPhaseFromEvent,
+    isPlotDispatchPhaseActive,
+    isPlotDispatchPhaseTerminal,
+    isPlotDispatchStatusActive,
+    mergePlotDispatchIntoBooking,
+    normalizePlotDispatchStatus,
+    PLOT_DISPATCH_SOCKET_EVENTS,
+    parsePlotDispatchPayload,
+} from "../../../../../../utils/plotDispatch/plotDispatchStatus";
+import { getDispatcherName } from "../../../../../../utils/auth";
+import toast from "react-hot-toast";
 
 const statusColor = {
     pending: "text-orange-500",
@@ -66,6 +82,7 @@ const OverViewDetails = ({
     const [showFollowOnModal, setShowFollowOnModal] = useState(false);
     const [followOnSourceBooking, setFollowOnSourceBooking] = useState(null);
     const socket = useSocket();
+    const isSocketConnected = useSocketStatus();
     const [bookings, setBookings] = useState([]);
     const buttonRefs = useRef({});
     const [page, setPage] = useState(1);
@@ -79,7 +96,27 @@ const OverViewDetails = ({
     const [tableLoading, setTableLoading] = useState(false);
     const [assignmentNotifications, setAssignmentNotifications] = useState([]);
     const [refreshTrigger, setRefreshTrigger] = useState(0);
+    const [plotDispatchStatusById, setPlotDispatchStatusById] = useState({});
+    const [highlightedBookingId, setHighlightedBookingId] = useState(null);
+    const [plotDispatchPanel, setPlotDispatchPanel] = useState(null);
     const pendingSeedBookingsRef = useRef([]);
+    const bookingsRef = useRef([]);
+    const highlightTimeoutRef = useRef(null);
+
+    useEffect(() => {
+        bookingsRef.current = bookings;
+    }, [bookings]);
+
+    const clearHighlightLater = useCallback((bookingId, delayMs = 12000) => {
+        if (highlightTimeoutRef.current) {
+            clearTimeout(highlightTimeoutRef.current);
+        }
+        highlightTimeoutRef.current = setTimeout(() => {
+            setHighlightedBookingId((current) =>
+                Number(current) === Number(bookingId) ? null : current
+            );
+        }, delayMs);
+    }, []);
 
     useEffect(() => {
         if (seedBookings?.length) {
@@ -95,6 +132,152 @@ const OverViewDetails = ({
     const handleCloseNotification = useCallback((id) => {
         setAssignmentNotifications((prev) => prev.filter((notification) => notification.id !== id));
     }, []);
+
+    const applyPlotDispatchUpdate = useCallback((rawPayload, eventName) => {
+        const parsed = parsePlotDispatchPayload(rawPayload);
+        if (!parsed) return null;
+
+        const phase = inferPhaseFromEvent(eventName, parsed);
+        const status = normalizePlotDispatchStatus(
+            { ...parsed, phase: phase || parsed.phase, eventName },
+            { eventName }
+        );
+        const bookingId = getPlotDispatchBookingId(status);
+        if (!bookingId) return null;
+
+        setPlotDispatchStatusById((prev) => ({
+            ...prev,
+            [bookingId]: {
+                ...(prev[bookingId] || {}),
+                ...status,
+                booking_id: bookingId,
+            },
+        }));
+
+        const mergedBooking = status.booking
+            ? mergePlotDispatchIntoBooking(status.booking, status)
+            : null;
+
+        setBookings((prev) => {
+            const safe = prev.filter(Boolean);
+            const exists = safe.some((b) => Number(b.id) === Number(bookingId));
+
+            if (mergedBooking) {
+                if (!exists) {
+                    return shouldShowBookingInOverviewTab(mergedBooking, filter, overviewTabOptions)
+                        ? applyTabFilter([mergedBooking, ...safe])
+                        : safe;
+                }
+                return applyTabFilter(
+                    safe.map((b) =>
+                        Number(b.id) === Number(bookingId)
+                            ? mergePlotDispatchIntoBooking({ ...b, ...mergedBooking }, status)
+                            : b
+                    )
+                );
+            }
+
+            if (!exists) return safe;
+
+            return applyTabFilter(
+                safe.map((b) =>
+                    Number(b.id) === Number(bookingId)
+                        ? mergePlotDispatchIntoBooking(b, status)
+                        : b
+                )
+            );
+        });
+
+        if (status.highlight_booking_id) {
+            setHighlightedBookingId(status.highlight_booking_id);
+            clearHighlightLater(status.highlight_booking_id);
+        }
+
+        if (phase === "exhausted" || eventName === PLOT_DISPATCH_SOCKET_EVENTS.MANUAL_REQUIRED) {
+            setHighlightedBookingId(bookingId);
+            clearHighlightLater(bookingId);
+            setRefreshTrigger((prev) => prev + 1);
+        }
+
+        if (phase === "accepted" || eventName === PLOT_DISPATCH_SOCKET_EVENTS.ACCEPTED) {
+            setPlotDispatchStatusById((prev) => {
+                const next = { ...prev };
+                delete next[bookingId];
+                return next;
+            });
+            showNotification({
+                booking_id: bookingId,
+                booking: mergedBooking,
+                driver_name:
+                    mergedBooking?.driverDetail?.name ||
+                    parsed.driver_name ||
+                    status.pending_drivers?.[0]?.name,
+                message:
+                    formatPlotDispatchProgressMessage(status) ||
+                    parsed.message ||
+                    "Driver accepted plot dispatch",
+                type: "accepted",
+            });
+        }
+
+        if (isPlotDispatchPhaseTerminal(phase) && phase !== "accepted") {
+            setPlotDispatchPanel((current) =>
+                current?.booking?.id === bookingId
+                    ? { booking: mergedBooking || current.booking, status }
+                    : current
+            );
+        }
+
+        return status;
+    }, [applyTabFilter, clearHighlightLater, filter, overviewTabOptions, showNotification]);
+
+    const syncPlotDispatchStatus = useCallback(async (bookingId) => {
+        if (!bookingId || !plotBasedDispatchEnabled) return null;
+        try {
+            const res = await getPlotDispatchStatus(bookingId);
+            const payload = res?.data?.data ?? res?.data;
+            if (!payload) return null;
+            return applyPlotDispatchUpdate(payload, PLOT_DISPATCH_SOCKET_EVENTS.STATUS);
+        } catch (error) {
+            console.warn(`Plot dispatch status poll failed for booking ${bookingId}:`, error.message);
+            return null;
+        }
+    }, [applyPlotDispatchUpdate, plotBasedDispatchEnabled]);
+
+    const handleOpenPlotDispatchPanel = useCallback((booking, status) => {
+        setPlotDispatchPanel({ booking, status });
+    }, []);
+
+    const handlePlotDispatchRedispatch = useCallback(async (booking) => {
+        if (!booking?.id) return;
+        try {
+            const dispatcherName = getDispatcherName();
+            const res = await startAutoDispatch(booking.id, dispatcherName);
+            if (res?.data?.success) {
+                toast.success("Plot dispatch restarted");
+                setPlotDispatchPanel(null);
+                setHighlightedBookingId(null);
+                setRefreshTrigger((prev) => prev + 1);
+            } else {
+                toast.error(res?.data?.message || "Failed to restart dispatch");
+            }
+        } catch (error) {
+            toast.error(error?.response?.data?.message || "Failed to restart dispatch");
+        }
+    }, []);
+
+    const activePlotDispatches = useMemo(() => {
+        if (!plotBasedDispatchEnabled) return [];
+        return Object.values(plotDispatchStatusById)
+            .filter((status) => isPlotDispatchStatusActive(status))
+            .map((status) => {
+                const booking =
+                    bookings.find((b) => Number(b.id) === Number(status.booking_id)) ||
+                    status.booking ||
+                    { id: status.booking_id };
+                return { booking, status };
+            });
+    }, [bookings, plotBasedDispatchEnabled, plotDispatchStatusById]);
 
     useEffect(() => {
         const fetchSubCompanies = async () => {
@@ -169,6 +352,47 @@ const OverViewDetails = ({
     }, [page, search, selectedStatus, selectedSubCompany, filter, refreshTrigger, externalRefreshTrigger]);
 
     useEffect(() => {
+        if (!plotBasedDispatchEnabled) return undefined;
+
+        const candidates = bookingsRef.current.filter((booking) => {
+            const tracked = plotDispatchStatusById[booking.id];
+            return !tracked && (
+                booking.booking_status === "pending" &&
+                !booking.driver &&
+                !booking.pending_driver_id
+            );
+        });
+
+        candidates.slice(0, 5).forEach((booking) => {
+            syncPlotDispatchStatus(booking.id);
+        });
+    }, [bookings, plotBasedDispatchEnabled, plotDispatchStatusById, refreshTrigger, externalRefreshTrigger, syncPlotDispatchStatus]);
+
+    useEffect(() => {
+        if (!plotBasedDispatchEnabled || !isSocketConnected) return undefined;
+
+        const activeIds = Object.entries(plotDispatchStatusById)
+            .filter(([, status]) => isPlotDispatchStatusActive(status))
+            .map(([bookingId]) => bookingId);
+
+        if (!activeIds.length) return undefined;
+
+        const pollActiveStatuses = () => {
+            activeIds.forEach((bookingId) => syncPlotDispatchStatus(bookingId));
+        };
+
+        pollActiveStatuses();
+        const interval = setInterval(pollActiveStatuses, 15000);
+        return () => clearInterval(interval);
+    }, [isSocketConnected, plotBasedDispatchEnabled, plotDispatchStatusById, syncPlotDispatchStatus]);
+
+    useEffect(() => () => {
+        if (highlightTimeoutRef.current) {
+            clearTimeout(highlightTimeoutRef.current);
+        }
+    }, []);
+
+    useEffect(() => {
         if (!socket) return;
 
         const safeMap = (prev, mapFn) =>
@@ -185,6 +409,22 @@ const OverViewDetails = ({
                 if (safe.find((b) => b.id === booking.id)) return safe;
                 return [booking, ...safe];
             });
+
+            if (
+                plotBasedDispatchEnabled &&
+                !booking.driver &&
+                !booking.pending_driver_id &&
+                booking.booking_status === "pending"
+            ) {
+                if (booking.plot_dispatch_status || booking.dispatcher_action) {
+                    applyPlotDispatchUpdate(
+                        { booking, ...(booking.plot_dispatch_status || {}) },
+                        PLOT_DISPATCH_SOCKET_EVENTS.STARTED
+                    );
+                } else {
+                    syncPlotDispatchStatus(booking.id);
+                }
+            }
         };
 
         const mapBookings = (prev, mapFn) => applyTabFilter(safeMap(prev, mapFn));
@@ -308,6 +548,7 @@ const OverViewDetails = ({
                 data = rawData;
             }
 
+            applyPlotDispatchUpdate(data, PLOT_DISPATCH_SOCKET_EVENTS.FAILED);
             const { updatedBooking, bookingId } = updateBookingFromDispatchFailure(data);
 
             showNotification({
@@ -318,6 +559,47 @@ const OverViewDetails = ({
                 ),
                 type: "failed",
             });
+        };
+
+        const handlePlotDispatchEvent = (eventName) => (rawData) => {
+            console.log(`${eventName}:`, rawData);
+            applyPlotDispatchUpdate(rawData, eventName);
+        };
+
+        const handleManualDispatchRequired = (rawData) => {
+            console.log("manual-dispatch-required:", rawData);
+            const status = applyPlotDispatchUpdate(rawData, PLOT_DISPATCH_SOCKET_EVENTS.MANUAL_REQUIRED);
+            const bookingId = getPlotDispatchBookingId(parsePlotDispatchPayload(rawData));
+            if (bookingId) {
+                showNotification({
+                    booking_id: bookingId,
+                    message:
+                        parsePlotDispatchPayload(rawData)?.message ||
+                        "No driver accepted — available for manual dispatch",
+                    type: "failed",
+                });
+            }
+            return status;
+        };
+
+        const handleRefreshBookingsList = (rawData) => {
+            const payload = parsePlotDispatchPayload(rawData);
+            const highlightId =
+                payload?.highlight_booking_id ??
+                payload?.highlightBookingId ??
+                payload?.booking_id ??
+                payload?.bookingId;
+
+            if (highlightId) {
+                setHighlightedBookingId(highlightId);
+                clearHighlightLater(highlightId);
+            }
+
+            if (payload?.booking) {
+                applyPlotDispatchUpdate(payload, PLOT_DISPATCH_SOCKET_EVENTS.STATUS);
+            }
+
+            setRefreshTrigger((prev) => prev + 1);
         };
 
         const handleBookingCancelled = (data) => {
@@ -433,6 +715,12 @@ const OverViewDetails = ({
             if (!booking?.id) return;
 
             console.log("booking-updated-event:", booking);
+            if (plotBasedDispatchEnabled && (booking.plot_dispatch_status || booking.dispatcher_action)) {
+                applyPlotDispatchUpdate(
+                    { booking, ...(booking.plot_dispatch_status || {}) },
+                    PLOT_DISPATCH_SOCKET_EVENTS.STATUS
+                );
+            }
             setBookings((prev) => {
                 const safe = prev.filter(Boolean);
                 const exists = safe.some((b) => b.id === booking.id);
@@ -454,6 +742,13 @@ const OverViewDetails = ({
             console.log(`${event}:`, args);
         });
 
+        const handlePlotDispatchStatus = handlePlotDispatchEvent(PLOT_DISPATCH_SOCKET_EVENTS.STATUS);
+        const handlePlotDispatchStarted = handlePlotDispatchEvent(PLOT_DISPATCH_SOCKET_EVENTS.STARTED);
+        const handlePlotDispatchBackupAdvanced = handlePlotDispatchEvent(PLOT_DISPATCH_SOCKET_EVENTS.BACKUP_ADVANCED);
+        const handlePlotDispatchDriverRejected = handlePlotDispatchEvent(PLOT_DISPATCH_SOCKET_EVENTS.DRIVER_REJECTED);
+        const handlePlotDispatchAccepted = handlePlotDispatchEvent(PLOT_DISPATCH_SOCKET_EVENTS.ACCEPTED);
+        const handlePlotDispatchExhausted = handlePlotDispatchEvent(PLOT_DISPATCH_SOCKET_EVENTS.EXHAUSTED);
+
         socket.on("new-booking-event", handleNewBooking);
         socket.on("driver-assignment-pending", handleDriverAssignmentPending);
         socket.on("job-accepted-by-driver", handleJobAccepted);
@@ -461,6 +756,13 @@ const OverViewDetails = ({
         socket.on("auto-dispatch-failed", handleAutoDispatchFailed);
         socket.on("nearest-dispatch-failed", handleNearestDispatchFailed);
         socket.on("plot-dispatch-failed", handlePlotDispatchFailed);
+        socket.on(PLOT_DISPATCH_SOCKET_EVENTS.STATUS, handlePlotDispatchStatus);
+        socket.on(PLOT_DISPATCH_SOCKET_EVENTS.STARTED, handlePlotDispatchStarted);
+        socket.on(PLOT_DISPATCH_SOCKET_EVENTS.BACKUP_ADVANCED, handlePlotDispatchBackupAdvanced);
+        socket.on(PLOT_DISPATCH_SOCKET_EVENTS.DRIVER_REJECTED, handlePlotDispatchDriverRejected);
+        socket.on(PLOT_DISPATCH_SOCKET_EVENTS.ACCEPTED, handlePlotDispatchAccepted);
+        socket.on(PLOT_DISPATCH_SOCKET_EVENTS.EXHAUSTED, handlePlotDispatchExhausted);
+        socket.on(PLOT_DISPATCH_SOCKET_EVENTS.MANUAL_REQUIRED, handleManualDispatchRequired);
         socket.on("booking-cancelled-event", handleBookingCancelled);
         socket.on("booking-cancelled", handleBookingCancelled);
         socket.on("cancel-booking-event", handleBookingCancelled);
@@ -474,9 +776,7 @@ const OverViewDetails = ({
         socket.on("follow-on-job-removed", handleFollowOnRemoved);
         socket.on("send-reminder", handleSendReminder);
         socket.on("booking-updated-event", handleBookingUpdated);
-        socket.on("refresh-bookings-list", () => {
-            setRefreshTrigger((prev) => prev + 1);
-        });
+        socket.on("refresh-bookings-list", handleRefreshBookingsList);
 
         return () => {
             socket.offAny();
@@ -487,6 +787,13 @@ const OverViewDetails = ({
             socket.off("auto-dispatch-failed", handleAutoDispatchFailed);
             socket.off("nearest-dispatch-failed", handleNearestDispatchFailed);
             socket.off("plot-dispatch-failed", handlePlotDispatchFailed);
+            socket.off(PLOT_DISPATCH_SOCKET_EVENTS.STATUS, handlePlotDispatchStatus);
+            socket.off(PLOT_DISPATCH_SOCKET_EVENTS.STARTED, handlePlotDispatchStarted);
+            socket.off(PLOT_DISPATCH_SOCKET_EVENTS.BACKUP_ADVANCED, handlePlotDispatchBackupAdvanced);
+            socket.off(PLOT_DISPATCH_SOCKET_EVENTS.DRIVER_REJECTED, handlePlotDispatchDriverRejected);
+            socket.off(PLOT_DISPATCH_SOCKET_EVENTS.ACCEPTED, handlePlotDispatchAccepted);
+            socket.off(PLOT_DISPATCH_SOCKET_EVENTS.EXHAUSTED, handlePlotDispatchExhausted);
+            socket.off(PLOT_DISPATCH_SOCKET_EVENTS.MANUAL_REQUIRED, handleManualDispatchRequired);
             socket.off("booking-cancelled-event", handleBookingCancelled);
             socket.off("booking-cancelled", handleBookingCancelled);
             socket.off("cancel-booking-event", handleBookingCancelled);
@@ -497,10 +804,20 @@ const OverViewDetails = ({
             socket.off("follow-on-job-removed", handleFollowOnRemoved);
             socket.off("send-reminder", handleSendReminder);
             socket.off("booking-updated-event", handleBookingUpdated);
-            socket.off("refresh-bookings-list");
+            socket.off("refresh-bookings-list", handleRefreshBookingsList);
         };
 
-    }, [socket, showNotification, filter, applyTabFilter, nearestDriverDispatchEnabled, plotBasedDispatchEnabled]);
+    }, [
+        socket,
+        showNotification,
+        filter,
+        applyTabFilter,
+        nearestDriverDispatchEnabled,
+        plotBasedDispatchEnabled,
+        applyPlotDispatchUpdate,
+        clearHighlightLater,
+        syncPlotDispatchStatus,
+    ]);
 
     const getButtonRef = (id) => {
         if (!buttonRefs.current[id]) buttonRefs.current[id] = { current: null };
@@ -574,7 +891,14 @@ const OverViewDetails = ({
     return (
         <div className="mt-9 w-full">
             <CardContainer className="bg-[#F5F5F5]">
-                <div className="p-3 sm:p-4 lg:p-5 flex lg:flex-row md:flex-row flex-col sm:items-center gap-3 sm:gap-5 justify-between mb-4 sm:mb-0">
+                <div className="p-3 sm:p-4 lg:p-5">
+                {plotBasedDispatchEnabled && (
+                    <PlotDispatchActiveStrip
+                        activeDispatches={activePlotDispatches}
+                        onOpenDetails={handleOpenPlotDispatchPanel}
+                    />
+                )}
+                <div className="flex lg:flex-row md:flex-row flex-col sm:items-center gap-3 sm:gap-5 justify-between mb-4 sm:mb-0">
                     <div className="md:w-full w-[calc(100%-54px)] sm:flex-1">
                         <SearchBar
                             className="w-full md:max-w-[400px]"
@@ -610,6 +934,7 @@ const OverViewDetails = ({
                             }}
                         />
                     </div>
+                </div>
                 </div>
 
                 <div className="border-t">
@@ -662,6 +987,10 @@ const OverViewDetails = ({
                                                 onOpenAllocateModal={handleOpenAllocateModal}
                                                 onOpenFollowOnModal={handleOpenFollowOnModal}
                                                 onOpenEditBooking={onOpenEditBooking}
+                                                plotDispatchStatusById={plotDispatchStatusById}
+                                                highlightedBookingId={highlightedBookingId}
+                                                onOpenPlotDispatchPanel={handleOpenPlotDispatchPanel}
+                                                plotBasedDispatchEnabled={plotBasedDispatchEnabled}
                                             />
                                         );
                                     }
@@ -805,6 +1134,19 @@ const OverViewDetails = ({
                         />
                     </div>
                 </div>
+            )}
+
+            {plotDispatchPanel && (
+                <PlotDispatchStatusPanel
+                    booking={plotDispatchPanel.booking}
+                    status={plotDispatchPanel.status}
+                    onClose={() => setPlotDispatchPanel(null)}
+                    onManualAssign={(booking) => {
+                        setPlotDispatchPanel(null);
+                        handleOpenAllocateModal(booking, "allocate_driver");
+                    }}
+                    onRedispatch={handlePlotDispatchRedispatch}
+                />
             )}
 
             {/* Driver assignment / reminder notifications — vertical stack */}

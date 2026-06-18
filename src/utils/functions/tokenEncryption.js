@@ -170,6 +170,35 @@ export const removeTenantData = () => {
   }
 };
 
+export const OVERVIEW_DRIVER_STORAGE_BASE_KEYS = [
+  'onJobDrivers_persistent',
+  'driverData_persistent',
+  'waitingDrivers_persistent',
+];
+
+/**
+ * Returns a localStorage key scoped to the current tenant.
+ * @param {string} baseKey
+ * @returns {string}
+ */
+export const getTenantScopedStorageKey = (baseKey) => {
+  const tenantId = getTenantId();
+  return tenantId ? `${baseKey}:${tenantId}` : baseKey;
+};
+
+/**
+ * Removes legacy overview driver keys that were not tenant-scoped.
+ */
+export const clearLegacyOverviewDriverStorage = () => {
+  try {
+    OVERVIEW_DRIVER_STORAGE_BASE_KEYS.forEach((key) => {
+      localStorage.removeItem(key);
+    });
+  } catch (error) {
+    console.error('Failed to clear legacy overview driver storage:', error);
+  }
+};
+
 /**
  * Checks if user is authenticated by verifying token existence
  * @returns {boolean} - True if token exists and is valid
@@ -190,6 +219,8 @@ export const isAuthenticated = () => {
  */
 export const clearAllAuthData = () => {
   try {
+    clearLegacyOverviewDriverStorage();
+
     // Remove encrypted token
     localStorage.removeItem('admin_token');
     

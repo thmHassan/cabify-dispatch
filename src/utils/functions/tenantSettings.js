@@ -104,6 +104,21 @@ export const formatDistanceWithUnit = (value) => {
     return `${value} ${unitLabel}`;
 };
 
+export const displayDistanceToMeters = (displayValue) => {
+    const value = Number(displayValue);
+    if (Number.isNaN(value) || value <= 0) return null;
+    if (isMilesUnit()) {
+        return Math.round(value * 1609.344);
+    }
+    return Math.round(value * 1000);
+};
+
+export const resolveBookingDistanceMeters = (fareDistanceMeters, displayDistance) => {
+    const fareMeters = Number(fareDistanceMeters);
+    if (Number.isFinite(fareMeters) && fareMeters > 0) return fareMeters;
+    return displayDistanceToMeters(displayDistance);
+};
+
 export const formatPhoneDisplay = (countryCode, phoneNo) => {
     const dial = countryCode || getTenantDialCode();
     const phone = phoneNo || "";

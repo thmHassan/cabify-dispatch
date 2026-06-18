@@ -100,6 +100,30 @@ textarea:focus-visible,
   animation: pending-booking-blink 1.25s ease-in-out infinite;
 }
 
+.plot-dispatch-highlight {
+  background-color: rgb(255 251 235);
+  box-shadow: inset 4px 0 0 0 rgb(245 158 11);
+}
+
+.plot-dispatch-in-progress-row {
+  opacity: 0.72;
+}
+
+@keyframes plot-dispatch-pulse {
+  0%,
+  100% {
+    background-color: rgb(239 246 255);
+  }
+
+  50% {
+    background-color: rgb(219 234 254);
+  }
+}
+
+.plot-dispatch-active-row {
+  animation: plot-dispatch-pulse 1.5s ease-in-out infinite;
+}
+
 /* Ensure base state also doesn't animate between fields */
 input:not([type="hidden"]),
 select,

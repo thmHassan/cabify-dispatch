@@ -292,6 +292,11 @@ export const startAutoDispatch = (bookingId, dispatcherName) => {
     });
 };
 
+export const getPlotDispatchStatus = async (bookingId) => {
+    const numericBookingId = Number(bookingId);
+    return socketApi.get(`/bookings/${numericBookingId}/plot-dispatch-status`);
+};
+
 export const recordDispatcherAction = (bookingId, action, dispatcherName) => {
     return socketApi.post(`/bookings/${bookingId}/record-action`, {
         action: action,

@@ -8,6 +8,7 @@ import {
     getTenantDialCode,
     kmValueToDisplayDistance,
     metersToDisplayDistance,
+    resolveBookingDistanceMeters,
     setCachedDistanceUnit,
 } from "../../../../../../utils/functions/tenantSettings";
 import { apiGetSubCompany } from "../../../../../../services/SubCompanyServices";
@@ -689,7 +690,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
             setFareCalculated(true);
             setFareData({
                 calculate_fare: baseFare,
-                distance: parseFloat(formValues.distance) || null,
+                distance: parseFloat(booking.distance) || null,
             });
         } else {
             setFareCalculated(false);
@@ -1376,7 +1377,8 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
             formData.append('extra_charge', values.extra_charges || '');
             formData.append('toll', values.congestion_toll || '');
             formData.append('booking_amount', values.total_charges?.toString() || '0');
-            formData.append('distance', fareData?.distance?.toString() || '');
+            const distanceMeters = resolveBookingDistanceMeters(fareData?.distance, values.distance);
+            formData.append("distance", distanceMeters != null ? String(distanceMeters) : "");
             const response = await apiCreateBooking(formData);
             if (response?.data?.success === 1) {
                 const createdCount = getMultiBookingCreatedCount(response.data);
@@ -1554,7 +1556,8 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
             formData.append("extra_charge", values.extra_charges || "");
             formData.append("toll", values.congestion_toll || "");
             formData.append("booking_amount", values.total_charges?.toString() || "0");
-            formData.append("distance", fareData?.distance?.toString() || values.distance?.toString() || "");
+            const distanceMeters = resolveBookingDistanceMeters(fareData?.distance, values.distance);
+            formData.append("distance", distanceMeters != null ? String(distanceMeters) : "");
 
             const dispatcherName = getDispatcherName();
             if (dispatcherName) formData.append("dispatcher_name", dispatcherName);

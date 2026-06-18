@@ -39,6 +39,7 @@ function App() {
           }}
           toastOptions={{
             duration: 3000,
+            pauseOnHover: true,
             style: {
               background: "#fff",
               color: "#363636",
