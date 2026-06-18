@@ -90,6 +90,7 @@ export const syncMultiBookingReferenceDate = ({
 const isApiSuccess = (data) => data?.success === 1 || data?.success === true;
 
 export const NEAREST_DISPATCH_ACTIVE_PREFIX = "NEAREST_DISPATCH_ACTIVE|";
+export const PLOT_DISPATCH_ACTIVE_PREFIX = "PLOT_DISPATCH_ACTIVE|";
 
 export const isNearestDispatchInProgress = (booking) => {
     const action = booking?.dispatcher_action;
@@ -106,6 +107,44 @@ export const isNearestDispatchInProgress = (booking) => {
     }
 
     return /Broadcast to \d+ driver\(s\) within/i.test(action);
+};
+
+export const isPlotDispatchInProgress = (booking) => {
+    const action = booking?.dispatcher_action;
+    if (typeof action !== "string" || !action.trim()) {
+        return false;
+    }
+
+    if (action.startsWith(PLOT_DISPATCH_ACTIVE_PREFIX)) {
+        return true;
+    }
+
+    if (/started plot[- ]based dispatch/i.test(action)) {
+        return true;
+    }
+
+    if (/broadcast to \d+ driver\(s\) in (plot|backup)/i.test(action)) {
+        return true;
+    }
+
+    if (/dispatched to (primary |backup )?plot/i.test(action)) {
+        return true;
+    }
+
+    return /plot dispatch.*in progress/i.test(action);
+};
+
+export const isPlotDispatchExhausted = (booking) => {
+    const action = booking?.dispatcher_action || "";
+    const status = String(booking?.booking_status || "").toLowerCase();
+
+    if (status === "unassigned") {
+        return true;
+    }
+
+    return /no driver accepted|plot dispatch failed|all plots exhausted|available for manual/i.test(
+        action
+    );
 };
 
 export const isScheduledPreBooking = (booking) => {
@@ -174,13 +213,56 @@ export const shouldHideFromTodaysBookingForNearestDispatch = (
     return false;
 };
 
+export const shouldHideFromTodaysBookingForPlotDispatch = (
+    booking,
+    plotBasedDispatchEnabled = false
+) => {
+    if (!booking || !plotBasedDispatchEnabled) {
+        return false;
+    }
+
+    if (isScheduledPreBooking(booking)) {
+        return false;
+    }
+
+    if (isPlotDispatchExhausted(booking)) {
+        return false;
+    }
+
+    if (isPlotDispatchInProgress(booking)) {
+        return true;
+    }
+
+    const action = booking?.dispatcher_action || "";
+    if (/no driver accepted|manual dispatch|available for manual/i.test(action)) {
+        return false;
+    }
+
+    if (
+        !action &&
+        isAsapPickupBooking(booking) &&
+        booking.booking_status === "pending" &&
+        !booking.driver &&
+        !booking.pending_driver_id
+    ) {
+        return true;
+    }
+
+    return false;
+};
+
 export const filterBookingsForOverviewTab = (bookings, filter, options = {}) => {
     if (!Array.isArray(bookings) || !filter) return bookings || [];
 
     if (filter === "todays_booking" || filter === "pre_bookings") {
-        const { nearestDriverDispatchEnabled = false } = options;
+        const {
+            nearestDriverDispatchEnabled = false,
+            plotBasedDispatchEnabled = false,
+        } = options;
         const canRefineClientSide =
-            bookings.some(bookingHasSchedulingMetadata) || nearestDriverDispatchEnabled;
+            bookings.some(bookingHasSchedulingMetadata) ||
+            nearestDriverDispatchEnabled ||
+            plotBasedDispatchEnabled;
 
         if (!canRefineClientSide) return bookings;
 
@@ -325,7 +407,10 @@ export const extractUpdatedBookingFromResponse = (responseData, fallbackBooking 
 };
 
 export const shouldShowBookingInOverviewTab = (booking, filter, options = {}) => {
-    const { nearestDriverDispatchEnabled = false } = options;
+    const {
+        nearestDriverDispatchEnabled = false,
+        plotBasedDispatchEnabled = false,
+    } = options;
 
     if (!filter || filter === "recent_jobs" || filter === "completed" || filter === "no_show" || filter === "cancelled") {
         return true;
@@ -340,7 +425,11 @@ export const shouldShowBookingInOverviewTab = (booking, filter, options = {}) =>
             return false;
         }
 
-        return !shouldHideFromTodaysBookingForNearestDispatch(booking, nearestDriverDispatchEnabled);
+        if (shouldHideFromTodaysBookingForNearestDispatch(booking, nearestDriverDispatchEnabled)) {
+            return false;
+        }
+
+        return !shouldHideFromTodaysBookingForPlotDispatch(booking, plotBasedDispatchEnabled);
     }
 
     return true;

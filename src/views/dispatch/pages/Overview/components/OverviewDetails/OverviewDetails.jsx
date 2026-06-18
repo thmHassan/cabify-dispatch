@@ -23,11 +23,16 @@ import {
     NEAREST_DISPATCH_FAILURE_FALLBACK,
     sanitizeNearestDispatchMessage,
 } from "../../../../../../utils/notifications/nearestDispatchMessages";
+import {
+    PLOT_DISPATCH_FAILURE_FALLBACK,
+    sanitizePlotDispatchMessage,
+} from "../../../../../../utils/notifications/plotDispatchMessages";
 import FollowOnJobModal from "./Followonjobmodal";
 
 const statusColor = {
     pending: "text-orange-500",
     pending_acceptance: "text-yellow-500",
+    unassigned: "text-amber-600",
     ongoing: "text-blue-500",
     arrived: "text-purple-500",
     started: "text-cyan-500",
@@ -47,12 +52,13 @@ const OverViewDetails = ({
     onSeedConsumed,
     onOpenEditBooking,
     nearestDriverDispatchEnabled = false,
+    plotBasedDispatchEnabled = false,
 }) => {
     const navigate = useNavigate();
-    const overviewTabOptions = { nearestDriverDispatchEnabled };
+    const overviewTabOptions = { nearestDriverDispatchEnabled, plotBasedDispatchEnabled };
     const applyTabFilter = useCallback(
         (bookings) => filterBookingsForOverviewTab((bookings || []).filter(Boolean), filter, overviewTabOptions),
-        [filter, nearestDriverDispatchEnabled]
+        [filter, nearestDriverDispatchEnabled, plotBasedDispatchEnabled]
     );
     const [openMenu, setOpenMenu] = useState(null);
     const [showAllocateModal, setShowAllocateModal] = useState(false);
@@ -228,44 +234,7 @@ const OverViewDetails = ({
             });
         };
 
-        const handleAutoDispatchFailed = (data) => {
-            console.log("auto-dispatch-failed:", data);
-            if (!data?.booking_id) return;
-            const updatedBooking = data?.booking ?? null;
-            if (updatedBooking?.id) {
-                setBookings((prev) => {
-                    const safe = prev.filter(Boolean);
-                    const exists = safe.some((b) => b.id === updatedBooking.id);
-
-                    if (!exists) {
-                        return shouldShowBookingInOverviewTab(updatedBooking, filter, overviewTabOptions)
-                            ? [updatedBooking, ...safe]
-                            : safe;
-                    }
-
-                    return applyTabFilter(
-                        safe.map((b) => (b.id === updatedBooking.id ? { ...b, ...updatedBooking } : b))
-                    );
-                });
-            } else {
-                setRefreshTrigger((prev) => prev + 1);
-            }
-            showNotification({
-                booking_id: data.booking_id,
-                message: data.message || "Ride not selected during auto dispatch. Please book manually.",
-                type: "failed",
-            });
-        };
-
-        const handleNearestDispatchFailed = (rawData) => {
-            console.log("nearest-dispatch-failed:", rawData);
-            let data;
-            try {
-                data = typeof rawData === "string" ? JSON.parse(rawData) : rawData;
-            } catch {
-                data = rawData;
-            }
-
+        const updateBookingFromDispatchFailure = (data) => {
             const updatedBooking = data?.booking ?? null;
             const bookingId = data?.booking_id || data?.bookingId || updatedBooking?.id;
 
@@ -290,11 +259,62 @@ const OverViewDetails = ({
                 setRefreshTrigger((prev) => prev + 1);
             }
 
+            return { updatedBooking, bookingId };
+        };
+
+        const handleAutoDispatchFailed = (data) => {
+            console.log("auto-dispatch-failed:", data);
+            if (!data?.booking_id && !data?.booking?.id) return;
+
+            const { updatedBooking, bookingId } = updateBookingFromDispatchFailure(data);
+
+            showNotification({
+                booking_id: bookingId || data.booking_id,
+                booking: updatedBooking,
+                message:
+                    data.message ||
+                    "Ride not selected during auto dispatch. Please book manually.",
+                type: "failed",
+            });
+        };
+
+        const handleNearestDispatchFailed = (rawData) => {
+            console.log("nearest-dispatch-failed:", rawData);
+            let data;
+            try {
+                data = typeof rawData === "string" ? JSON.parse(rawData) : rawData;
+            } catch {
+                data = rawData;
+            }
+
+            const { updatedBooking, bookingId } = updateBookingFromDispatchFailure(data);
+
             showNotification({
                 booking_id: bookingId,
                 booking: updatedBooking,
                 message: sanitizeNearestDispatchMessage(
                     data?.message || data?.reason || NEAREST_DISPATCH_FAILURE_FALLBACK
+                ),
+                type: "failed",
+            });
+        };
+
+        const handlePlotDispatchFailed = (rawData) => {
+            console.log("plot-dispatch-failed:", rawData);
+            let data;
+            try {
+                data = typeof rawData === "string" ? JSON.parse(rawData) : rawData;
+            } catch {
+                data = rawData;
+            }
+
+            const { updatedBooking, bookingId } = updateBookingFromDispatchFailure(data);
+
+            showNotification({
+                booking_id: bookingId,
+                booking: updatedBooking,
+                message: sanitizePlotDispatchMessage(
+                    data?.message || data?.reason || PLOT_DISPATCH_FAILURE_FALLBACK
                 ),
                 type: "failed",
             });
@@ -440,6 +460,7 @@ const OverViewDetails = ({
         socket.on("job-rejected-by-driver", handleJobRejected);
         socket.on("auto-dispatch-failed", handleAutoDispatchFailed);
         socket.on("nearest-dispatch-failed", handleNearestDispatchFailed);
+        socket.on("plot-dispatch-failed", handlePlotDispatchFailed);
         socket.on("booking-cancelled-event", handleBookingCancelled);
         socket.on("booking-cancelled", handleBookingCancelled);
         socket.on("cancel-booking-event", handleBookingCancelled);
@@ -453,6 +474,9 @@ const OverViewDetails = ({
         socket.on("follow-on-job-removed", handleFollowOnRemoved);
         socket.on("send-reminder", handleSendReminder);
         socket.on("booking-updated-event", handleBookingUpdated);
+        socket.on("refresh-bookings-list", () => {
+            setRefreshTrigger((prev) => prev + 1);
+        });
 
         return () => {
             socket.offAny();
@@ -462,6 +486,7 @@ const OverViewDetails = ({
             socket.off("job-rejected-by-driver", handleJobRejected);
             socket.off("auto-dispatch-failed", handleAutoDispatchFailed);
             socket.off("nearest-dispatch-failed", handleNearestDispatchFailed);
+            socket.off("plot-dispatch-failed", handlePlotDispatchFailed);
             socket.off("booking-cancelled-event", handleBookingCancelled);
             socket.off("booking-cancelled", handleBookingCancelled);
             socket.off("cancel-booking-event", handleBookingCancelled);
@@ -472,9 +497,10 @@ const OverViewDetails = ({
             socket.off("follow-on-job-removed", handleFollowOnRemoved);
             socket.off("send-reminder", handleSendReminder);
             socket.off("booking-updated-event", handleBookingUpdated);
+            socket.off("refresh-bookings-list");
         };
 
-    }, [socket, showNotification, filter, applyTabFilter, nearestDriverDispatchEnabled]);
+    }, [socket, showNotification, filter, applyTabFilter, nearestDriverDispatchEnabled, plotBasedDispatchEnabled]);
 
     const getButtonRef = (id) => {
         if (!buttonRefs.current[id]) buttonRefs.current[id] = { current: null };

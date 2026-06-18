@@ -3,6 +3,9 @@ import {
     NEAREST_DISPATCH_FAILURE_FALLBACK,
     sanitizeNearestDispatchMessage,
 } from "./nearestDispatchMessages";
+import {
+    sanitizePlotDispatchMessage,
+} from "./plotDispatchMessages";
 
 export const parseSocketPayload = (rawData) => {
   if (!rawData) return null;
@@ -102,6 +105,17 @@ export const buildNotificationFromSocket = (event, rawData) => {
           data.reason ||
           data.failure_reason ||
           NEAREST_DISPATCH_FAILURE_FALLBACK
+        ),
+      };
+
+    case "plot-dispatch-failed":
+      return {
+        ...base,
+        title: "Plot Dispatch Failed",
+        description: sanitizePlotDispatchMessage(
+          data.message ||
+          data.reason ||
+          data.failure_reason
         ),
       };
 
@@ -213,6 +227,7 @@ export const NAVBAR_SOCKET_EVENTS = [
   "send-reminder",
   "notification-ride",
   "nearest-dispatch-failed",
+  "plot-dispatch-failed",
   "new-booking-event",
   "driver-assignment-pending",
   "job-accepted-by-driver",

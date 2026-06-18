@@ -33,6 +33,7 @@ import {
     MAP_PROVIDER_DEFAULT,
     MAP_PROVIDER_GOOGLE,
 } from "../../../../../../services/mapConfigurationService";
+import { apiGetBackupPlot } from "../../../../../../services/PlotService";
 import { unlockBodyScroll } from "../../../../../../utils/functions/common.function";
 import toast from 'react-hot-toast';
 import { getDispatcherId, getDispatcherName } from "../../../../../../utils/auth";
@@ -53,6 +54,10 @@ import {
     syncMultiBookingReferenceDate,
 } from "../../../../../../utils/functions/bookingDateFilter";
 import { mapBookingToFormValues } from "../../../../../../utils/functions/bookingFormMapper";
+import {
+    dispatchSystemListHasPlotBased,
+    isManualDispatchOnlySystem,
+} from "../../../../../../utils/functions/dispatchSystem";
 import History from "./components/History";
 import successSound from "../../../../../../assets/audio/meldix-success-340660.mp3";
 
@@ -351,6 +356,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
     const [editBookingLoading, setEditBookingLoading] = useState(false);
     const [isMultiBooking, setIsMultiBooking] = useState(false);
     const [isManualDispatchOnly, setIsManualDispatchOnly] = useState(false);
+    const [isPlotBasedDispatchEnabled, setIsPlotBasedDispatchEnabled] = useState(false);
     const [loadingDispatchSystem, setLoadingDispatchSystem] = useState(true);
     const dispatcherId = getDispatcherId();
     const [alertModal, setAlertModal] = useState({ isOpen: false, message: '' });
@@ -458,17 +464,36 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
             }
         };
         loadMapAndSettings();
-
-        const fetchPlots = async () => {
-            try {
-                const res = await apiGetAllPlot({ page: 1, limit: 100 });
-                if (res.data?.success) setPlotsData(res.data.data?.data || res.data.data || []);
-            } catch (err) { console.error("Fetch plots error:", err); }
-        };
-        fetchPlots();
     }, []);
 
     useEffect(() => {
+        const normalizePlotList = (response) => {
+            const payload = response?.data;
+            if (!payload) return [];
+            if (Array.isArray(payload)) return payload;
+            if (Array.isArray(payload.data)) return payload.data;
+            if (Array.isArray(payload.data?.data)) return payload.data.data;
+            if (Array.isArray(payload.list?.data)) return payload.list.data;
+            return [];
+        };
+
+        const fetchPlotsForDispatch = async (plotBasedDispatchEnabled) => {
+            try {
+                if (plotBasedDispatchEnabled) {
+                    const res = await apiGetBackupPlot({ page: 1, perPage: 1000 });
+                    if (res?.data?.success === 1 || res?.data?.success === true) {
+                        setPlotsData(normalizePlotList(res));
+                    }
+                    return;
+                }
+
+                const res = await apiGetAllPlot({ page: 1, limit: 100 });
+                if (res.data?.success) setPlotsData(res.data.data?.data || res.data.data || []);
+            } catch (err) {
+                console.error("Fetch plots error:", err);
+            }
+        };
+
         const checkDispatchSystem = async () => {
             try {
                 setLoadingDispatchSystem(true);
@@ -483,12 +508,17 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
                         data = (data && typeof data === 'object' && Object.keys(data).length > 0) ? [data] : [];
                     }
                 }
-                setIsManualDispatchOnly(data.some((item) => {
-                    const isManual = item.dispatch_system === "manual_dispatch_only";
-                    const isEnabled = item.status === "enable" || item.status === "enabled" || item.status === 1 || item.status === true;
-                    return isManual && isEnabled;
-                }));
-            } catch { setIsManualDispatchOnly(false); }
+                const plotBasedDispatchEnabled = dispatchSystemListHasPlotBased(data);
+
+                setIsPlotBasedDispatchEnabled(plotBasedDispatchEnabled);
+                setIsManualDispatchOnly(data.some(isManualDispatchOnlySystem));
+
+                await fetchPlotsForDispatch(plotBasedDispatchEnabled);
+            } catch {
+                setIsManualDispatchOnly(false);
+                setIsPlotBasedDispatchEnabled(false);
+                await fetchPlotsForDispatch(false);
+            }
             finally { setLoadingDispatchSystem(false); }
         };
         checkDispatchSystem();
@@ -1035,6 +1065,17 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
         formData.append("account_id", value);
     };
 
+    const shouldSendDriverOnSubmit = (values, { isEdit = false } = {}) => {
+        if (!values.auto_dispatch) return false;
+        if (!isEdit && isPlotBasedDispatchEnabled && !isManualDispatchOnly) return false;
+        return true;
+    };
+
+    const shouldShowDriverField = (values, isEdit = false) =>
+        (values.auto_dispatch || isManualDispatchOnly) &&
+        !values.bidding &&
+        (isManualDispatchOnly || !isPlotBasedDispatchEnabled || isEdit);
+
     const handleCalculateFares = async (values, setFieldValue) => {
         const errors = validateCalculateFares(values);
         if (Object.keys(errors).length > 0) { setCalculateErrors(errors); setFareLoading(false); return; }
@@ -1317,7 +1358,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
             formData.append('journey_type', values.journey_type || '');
             appendAccountFields(formData, values.account);
             formData.append('vehicle', values.request_for_vehicle ? (values.vehicle || '') : '');
-            formData.append('driver', values.auto_dispatch ? (values.driver || '') : '');
+            formData.append('driver', shouldSendDriverOnSubmit(values, { isEdit: false }) ? (values.driver || '') : '');
             formData.append('request_for_vehicle', values.request_for_vehicle ? 'yes' : 'no');
             formData.append('passenger', values.passenger || '0');
             formData.append('luggage', values.luggage || '0');
@@ -1495,7 +1536,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
             formData.append("journey_type", values.journey_type || "");
             appendAccountFields(formData, values.account);
             formData.append("vehicle", values.request_for_vehicle ? (values.vehicle || "") : "");
-            formData.append("driver", values.auto_dispatch ? (values.driver || "") : "");
+            formData.append("driver", shouldSendDriverOnSubmit(values, { isEdit: true }) ? (values.driver || "") : "");
             formData.append("request_for_vehicle", values.request_for_vehicle ? "yes" : "no");
             formData.append("passenger", values.passenger || "0");
             formData.append("luggage", values.luggage || "0");
@@ -1948,7 +1989,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
                                             </div>
                                             <FieldError message={bookingErrors.booking_system} />
                                             <div className="grid grid-cols-2 gap-2">
-                                                {(values.auto_dispatch || isManualDispatchOnly) && !values.bidding && (
+                                                {shouldShowDriverField(values, isEditMode) && (
                                                     <FormField label="Driver">
                                                         <select name="driver" value={values.driver || ""}
                                                             onChange={(e) => {

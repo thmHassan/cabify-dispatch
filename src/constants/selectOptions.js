@@ -1,6 +1,7 @@
 export const OVERVIEW_STATUS_OPTIONS = [
   { value: "", label: "All Status" },
   { value: "pending", label: "Pending" },
+  { value: "unassigned", label: "Unassigned" },
   { value: "ongoing", label: "Ongoing" },
   // { value: "arrived", label: "Arrived" },
   // { value: "started", label: "Started" },

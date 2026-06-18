@@ -21,7 +21,7 @@ import { fetchMapConfiguration, MAP_PROVIDER_DEFAULT, MAP_PROVIDER_GOOGLE } from
 import { getDashboardCards, apiGetAllPlot, apiUpdateDriverRank } from "../../../../services/AddBookingServices";
 import { apiLogoutDriver, apiGetDriverManagement } from "../../../../services/DriverManagementService";
 import toast from "react-hot-toast";
-import { apiGetPlot } from "../../../../services/PlotService";
+import { apiGetBackupPlot, apiGetPlot } from "../../../../services/PlotService";
 import CallQueueModel from "./components/CallQueueModel/CallQueueModel";
 import SendDriverMessageModal from "./components/SendDriverMessageModal";
 import RedCarIcon from "../../../../components/svg/RedCarIcon";
@@ -30,6 +30,11 @@ import AppLogoIcon from "../../../../components/svg/AppLogoIcon";
 import { renderToString } from "react-dom/server";
 import { formatCurrency } from "../../../../utils/functions/formatters";
 import { sanitizeNearestDispatchMessage } from "../../../../utils/notifications/nearestDispatchMessages";
+import { sanitizePlotDispatchMessage } from "../../../../utils/notifications/plotDispatchMessages";
+import {
+  dispatchSystemListHasNearestDriver,
+  dispatchSystemListHasPlotBased,
+} from "../../../../utils/functions/dispatchSystem";
 
 const GOOGLE_KEY = "AIzaSyDTlV1tPVuaRbtvBQu4-kjDhTV54tR4cDU";
 
@@ -77,13 +82,22 @@ const normalizeDispatchSystemList = (response) => {
   return data;
 };
 
-const isDispatchSystemEnabled = (item) =>
-  item?.status === "enable" || item?.status === "enabled" || item?.status === 1 || item?.status === true;
+const isNearestDriverDispatchEnabled = (items) => dispatchSystemListHasNearestDriver(items);
 
-const isNearestDriverDispatchEnabled = (items) =>
-  items.some(
-    (item) => item.dispatch_system === "auto_dispatch_nearest_driver" && isDispatchSystemEnabled(item)
-  );
+const isPlotBasedDispatchEnabled = (items) => dispatchSystemListHasPlotBased(items);
+
+const normalizePlotList = (response) => {
+  const payload = response?.data;
+  if (!payload) return [];
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload.data)) return payload.data;
+  if (Array.isArray(payload.data?.data)) return payload.data.data;
+  if (Array.isArray(payload.list?.data)) return payload.list.data;
+  return [];
+};
+
+const isPlotApiSuccess = (response) =>
+  response?.data?.success === 1 || response?.data?.success === true;
 
 const assignDefaultRanks = (drivers) => {
   const byPlot = new Map();
@@ -195,6 +209,9 @@ const isOnJobBookingStatus = (status) =>
 
 const isNearestDispatchAcceptAction = (action) =>
   /nearest dispatch.*accepted by driver/i.test(String(action || ""));
+
+const isPlotDispatchAcceptAction = (action) =>
+  /plot[- ]based dispatch.*accepted by driver/i.test(String(action || ""));
 
 const shouldRemoveDriverFromOnJob = (status) =>
   ["completed", "cancelled", "no_show"].includes(String(status || "").toLowerCase());
@@ -1168,10 +1185,14 @@ const Overview = () => {
   const [updatingRankId, setUpdatingRankId] = useState(null);
   const [loggingOutDriverId, setLoggingOutDriverId] = useState(null);
   const [hidePlotAndRank, setHidePlotAndRank] = useState(false);
+  const [plotBasedDispatchEnabled, setPlotBasedDispatchEnabled] = useState(false);
+  const [dispatchSystemLoaded, setDispatchSystemLoaded] = useState(false);
   const nearestDriverDispatchEnabledRef = useRef(false);
+  const plotBasedDispatchEnabledRef = useRef(false);
   useEffect(() => {
     nearestDriverDispatchEnabledRef.current = hidePlotAndRank;
-  }, [hidePlotAndRank]);
+    plotBasedDispatchEnabledRef.current = plotBasedDispatchEnabled;
+  }, [hidePlotAndRank, plotBasedDispatchEnabled]);
 
   useEffect(() => {
     const fetchDispatchSystem = async () => {
@@ -1179,8 +1200,12 @@ const Overview = () => {
         const response = await apiGetDispatchSystem();
         const data = normalizeDispatchSystemList(response);
         setHidePlotAndRank(isNearestDriverDispatchEnabled(data));
+        setPlotBasedDispatchEnabled(isPlotBasedDispatchEnabled(data));
       } catch {
         setHidePlotAndRank(false);
+        setPlotBasedDispatchEnabled(false);
+      } finally {
+        setDispatchSystemLoaded(true);
       }
     };
     fetchDispatchSystem();
@@ -1226,14 +1251,39 @@ const Overview = () => {
   }, []);
 
   useEffect(() => {
+    if (!dispatchSystemLoaded) return;
+
     const fetchPlots = async () => {
-      try { const res = await apiGetAllPlot({ page: 1, limit: 100 }); if (res.data?.success) setPlotsData(res.data.data?.data || res.data.data || []); } catch (err) { console.error("Fetch plotsData error:", err); }
+      if (plotBasedDispatchEnabled) {
+        try {
+          const res = await apiGetBackupPlot({ page: 1, perPage: 1000 });
+          if (isPlotApiSuccess(res)) {
+            setPlotsData(normalizePlotList(res));
+            setListPlots([]);
+          }
+        } catch (err) {
+          console.error("Fetch backup plots error:", err);
+        }
+        return;
+      }
+
+      try {
+        const res = await apiGetAllPlot({ page: 1, limit: 100 });
+        if (isPlotApiSuccess(res)) setPlotsData(res.data.data?.data || res.data.data || []);
+      } catch (err) {
+        console.error("Fetch plotsData error:", err);
+      }
+
+      try {
+        const res = await apiGetPlot({ page: 1, perPage: 1000 });
+        if (isPlotApiSuccess(res)) setListPlots(res.data.list?.data || []);
+      } catch (err) {
+        console.error("Fetch listPlots error:", err);
+      }
     };
-    const fetchListPlots = async () => {
-      try { const res = await apiGetPlot({ page: 1, perPage: 1000 }); if (res.data?.success) setListPlots(res.data.list?.data || []); } catch (err) { console.error("Fetch listPlots error:", err); }
-    };
-    fetchPlots(); fetchListPlots();
-  }, []);
+
+    fetchPlots();
+  }, [dispatchSystemLoaded, plotBasedDispatchEnabled]);
 
   useEffect(() => { socketRef.current = socket; }, [socket]);
 
@@ -1568,8 +1618,12 @@ const Overview = () => {
         nearestDriverDispatchEnabledRef.current &&
         isNearestDispatchAcceptAction(booking.dispatcher_action);
 
+      const isPlotAccept =
+        plotBasedDispatchEnabledRef.current &&
+        isPlotDispatchAcceptAction(booking.dispatcher_action);
+
       if (
-        (isOnJobBookingStatus(status) || (isNearestAccept && booking.driver)) &&
+        (isOnJobBookingStatus(status) || ((isNearestAccept || isPlotAccept) && booking.driver)) &&
         driver
       ) {
         promoteDriverToOnJob({
@@ -1579,7 +1633,7 @@ const Overview = () => {
         return;
       }
 
-      if (isOnJobBookingStatus(status) || isNearestAccept) {
+      if (isOnJobBookingStatus(status) || isNearestAccept || isPlotAccept) {
         syncWaitingDriversFromApi();
         return;
       }
@@ -1836,6 +1890,40 @@ const Overview = () => {
       fetchDashboardCards();
     };
 
+    const handlePlotDispatchFailed = (rawData) => {
+      let data;
+      try {
+        data = typeof rawData === "string" ? JSON.parse(rawData) : rawData;
+      } catch {
+        data = rawData;
+      }
+      showRideNotification({
+        ...data,
+        isFailedDispatch: true,
+        message: sanitizePlotDispatchMessage(data?.message || data?.reason),
+        reason: sanitizePlotDispatchMessage(data?.message || data?.reason),
+      });
+      fetchDashboardCards();
+      setRefreshTrigger((prev) => prev + 1);
+    };
+
+    const handleAutoDispatchFailed = (rawData) => {
+      let data;
+      try {
+        data = typeof rawData === "string" ? JSON.parse(rawData) : rawData;
+      } catch {
+        data = rawData;
+      }
+      showRideNotification({
+        ...data,
+        isFailedDispatch: true,
+        message: data?.message || "Ride not selected during auto dispatch. Please book manually.",
+        reason: data?.message || "Ride not selected during auto dispatch. Please book manually.",
+      });
+      fetchDashboardCards();
+      setRefreshTrigger((prev) => prev + 1);
+    };
+
     const handleDriverOffline = (rawData) => {
       let data;
       try {
@@ -1856,6 +1944,9 @@ const Overview = () => {
     socket.on("on-job-driver-event", handleOnJobDriver);
     socket.on("notification-ride", handleNotificationRide);
     socket.on("nearest-dispatch-failed", handleNearestDispatchFailed);
+    socket.on("plot-dispatch-failed", handlePlotDispatchFailed);
+    socket.on("auto-dispatch-failed", handleAutoDispatchFailed);
+    socket.on("driver-assignment-pending", handleNotificationRide);
     socket.on("job-accepted-by-driver", handleJobAccepted);
     socket.on("job-cancelled-by-driver", handleJobCancelled);
     socket.on("driver-location-update", handleDriverLocationUpdate);
@@ -1863,6 +1954,10 @@ const Overview = () => {
     socket.on("booking-cancelled", handleBookingCancelled);
     socket.on("cancel-booking-event", handleBookingCancelled);
     socket.on("booking-updated-event", handleBookingUpdated);
+    socket.on("refresh-bookings-list", () => {
+      setRefreshTrigger((prev) => prev + 1);
+      fetchDashboardCards();
+    });
     socket.on("booking-status-updated", handleBookingStatusUpdated);
     socket.on("driver-offline-event", handleDriverOffline);
     socket.on("driver-offline", handleDriverOffline);
@@ -1874,6 +1969,9 @@ const Overview = () => {
       socket.off("on-job-driver-event", handleOnJobDriver);
       socket.off("notification-ride", handleNotificationRide);
       socket.off("nearest-dispatch-failed", handleNearestDispatchFailed);
+      socket.off("plot-dispatch-failed", handlePlotDispatchFailed);
+      socket.off("auto-dispatch-failed", handleAutoDispatchFailed);
+      socket.off("driver-assignment-pending", handleNotificationRide);
       socket.off("job-accepted-by-driver", handleJobAccepted);
       socket.off("job-cancelled-by-driver", handleJobCancelled);
       socket.off("driver-location-update", handleDriverLocationUpdate);
@@ -1881,6 +1979,7 @@ const Overview = () => {
       socket.off("booking-cancelled", handleBookingCancelled);
       socket.off("cancel-booking-event", handleBookingCancelled);
       socket.off("booking-updated-event", handleBookingUpdated);
+      socket.off("refresh-bookings-list");
       socket.off("booking-status-updated", handleBookingStatusUpdated);
       socket.off("driver-offline-event", handleDriverOffline);
       socket.off("driver-offline", handleDriverOffline);
@@ -2232,6 +2331,7 @@ const Overview = () => {
           onSeedConsumed={handleSeedConsumed}
           onOpenEditBooking={handleOpenEditBooking}
           nearestDriverDispatchEnabled={hidePlotAndRank}
+          plotBasedDispatchEnabled={plotBasedDispatchEnabled}
         />
       </div>
 
