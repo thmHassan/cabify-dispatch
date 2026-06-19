@@ -17,7 +17,7 @@ import {
   apiGetCompanyApiKeys,
   apiGetDispatchSystem,
 } from "../../../../services/SettingsConfigurationServices";
-import { fetchMapConfiguration, MAP_PROVIDER_DEFAULT, MAP_PROVIDER_GOOGLE } from "../../../../services/mapConfigurationService";
+import { fetchMapConfiguration, MAP_PROVIDER_BARIKOI, MAP_PROVIDER_DEFAULT, MAP_PROVIDER_GOOGLE, buildBarikoiRasterStyle } from "../../../../services/mapConfigurationService";
 import { getDashboardCards, apiGetAllPlot, apiUpdateDriverRank } from "../../../../services/AddBookingServices";
 import { apiLogoutDriver, apiGetDriverManagement } from "../../../../services/DriverManagementService";
 import toast from "react-hot-toast";
@@ -616,15 +616,17 @@ const getMapType = (data) => {
   const mapsApi = data?.maps_api?.trim().toLowerCase();
   const countryOfUse = data?.country_of_use?.trim().toUpperCase();
   if (mapsApi === "default") return "default";
-  if (mapsApi === "barikoi") return "default";
+  if (mapsApi === "barikoi") return "barikoi";
   if (mapsApi === "google") return "google";
-  if (countryOfUse === "BD") return "default";
+  if (countryOfUse === "BD") return "barikoi";
   return "google";
 };
 
 const getApiKeys = (stateApiKeys) => ({
   googleKey: stateApiKeys?.googleKey || null,
   mapifyStyle: stateApiKeys?.mapifyStyle || null,
+  barikoiStyle: stateApiKeys?.barikoiStyle || null,
+  barikoiKey: stateApiKeys?.barikoiKey || null,
 });
 
 const getCountryCenter = (code) => {
@@ -975,7 +977,8 @@ const GoogleMapSection = ({ mapRef, mapInstance, markers, driverData, setDriverD
 
 const DefaultMapSection = ({ mapRef, mapInstance, markers, driverData, setDriverData, socket, countryCenter, plotsData, apiKeys, waitingDrivers, onJobDrivers }) => {
   const [mapReady, setMapReady] = useState(false);
-  const { mapifyStyle } = getApiKeys(apiKeys);
+  const { mapifyStyle, barikoiStyle } = getApiKeys(apiKeys);
+  const mapStyle = mapifyStyle || barikoiStyle;
   const plotsRendered = useRef(false);
 
   const renderPlots = (map) => {
@@ -1002,7 +1005,7 @@ const DefaultMapSection = ({ mapRef, mapInstance, markers, driverData, setDriver
   useEffect(() => { if (mapReady && mapInstance.current && plotsData?.length > 0) renderPlots(mapInstance.current); }, [mapReady, plotsData]);
 
   useEffect(() => {
-    if (!mapifyStyle) return;
+    if (!mapStyle) return;
     let mounted = true;
     const init = async () => {
       try { await loadDefaultMapLibre(); } catch (err) { console.error("MapLibre load failed:", err); return; }
@@ -1037,7 +1040,7 @@ const DefaultMapSection = ({ mapRef, mapInstance, markers, driverData, setDriver
           } catch { }
         }
       };
-      initMap(mapifyStyle);
+      initMap(mapStyle);
     };
     init();
     return () => {
@@ -1047,7 +1050,7 @@ const DefaultMapSection = ({ mapRef, mapInstance, markers, driverData, setDriver
         mapInstance.current = null;
       }
     };
-  }, [mapifyStyle]);
+  }, [mapStyle]);
 
   useEffect(() => {
     if (!mapRef.current) return;
@@ -1219,7 +1222,14 @@ const Overview = () => {
   const [seedBookings, setSeedBookings] = useState([]);
   const [mapType, setMapType] = useState(null);
   const [mapError, setMapError] = useState(null);
-  const [apiKeys, setApiKeys] = useState({ googleKey: null, mapifyStyle: null, searchApi: "google", countryOfUse: null });
+  const [apiKeys, setApiKeys] = useState({
+    googleKey: null,
+    mapifyStyle: null,
+    barikoiStyle: null,
+    barikoiKey: null,
+    searchApi: "google",
+    countryOfUse: null,
+  });
   const countryCenter = React.useMemo(() => getCountryCenter(apiKeys.countryOfUse), [apiKeys.countryOfUse]);
   const [plotsData, setPlotsData] = useState([]);
   const [listPlots, setListPlots] = useState([]);
@@ -1301,10 +1311,16 @@ const Overview = () => {
 
         setMapError(null);
         setMapType(mapConfig.provider);
+        const companyKeys = keysRes.data?.success ? keysRes.data.data : null;
+        const barikoiKey = mapConfig.barikoiKey || companyKeys?.barikoi_api_key || null;
         setApiKeys((prev) => ({
           ...prev,
           googleKey: mapConfig.provider === MAP_PROVIDER_GOOGLE ? mapConfig.googleKey : null,
           mapifyStyle: mapConfig.provider === MAP_PROVIDER_DEFAULT ? mapConfig.mapifyStyle : null,
+          barikoiStyle: mapConfig.provider === MAP_PROVIDER_BARIKOI
+            ? (mapConfig.barikoiStyle || (barikoiKey ? buildBarikoiRasterStyle(barikoiKey) : null))
+            : null,
+          barikoiKey,
         }));
       } catch (err) {
         console.error("Fetch map configuration error:", err);
@@ -2273,8 +2289,8 @@ const Overview = () => {
                   <p className="text-sm text-red-600">{mapError}</p>
                 </div>
               )}
-              {!mapError && mapType === MAP_PROVIDER_DEFAULT && apiKeys.mapifyStyle && (
-                <DefaultMapSection key={`default-${apiKeys.countryOfUse || "na"}`} {...mapProps} />
+              {!mapError && (mapType === MAP_PROVIDER_DEFAULT || mapType === MAP_PROVIDER_BARIKOI) && (apiKeys.mapifyStyle || apiKeys.barikoiStyle) && (
+                <DefaultMapSection key={`${mapType}-${apiKeys.countryOfUse || "na"}`} {...mapProps} />
               )}
               {!mapError && mapType === MAP_PROVIDER_GOOGLE && apiKeys.googleKey && (
                 <GoogleMapSection key={`google-${apiKeys.googleKey}-${apiKeys.countryOfUse}`} {...mapProps} />

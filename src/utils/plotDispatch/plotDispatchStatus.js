@@ -1,4 +1,7 @@
-import { PLOT_DISPATCH_ACTIVE_PREFIX } from "../functions/bookingDateFilter";
+import {
+    isPlotDispatchExhausted,
+    isPlotDispatchInProgress,
+} from "../functions/bookingDateFilter";
 
 export const PLOT_DISPATCH_SOCKET_EVENTS = {
     STATUS: "plot-dispatch-status",
@@ -235,6 +238,29 @@ export const mergePlotDispatchIntoBooking = (booking, status) => {
             receivedAt: status.receivedAt,
         },
     };
+};
+
+export const shouldPollPlotDispatchStatus = (booking, statusById = {}) => {
+    if (!booking?.id) return false;
+
+    const tracked = statusById[booking.id];
+    if (tracked && isPlotDispatchStatusActive(tracked)) {
+        return true;
+    }
+
+    if (booking.plot_dispatch_status) {
+        return true;
+    }
+
+    if (isPlotDispatchInProgress(booking)) {
+        return true;
+    }
+
+    if (isPlotDispatchExhausted(booking)) {
+        return false;
+    }
+
+    return false;
 };
 
 export const inferPhaseFromEvent = (eventName, payload) => {

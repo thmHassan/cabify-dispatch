@@ -54,6 +54,7 @@ const EditableBookingRow = ({
     highlightedBookingId = null,
     onOpenPlotDispatchPanel,
     plotBasedDispatchEnabled = false,
+    getLocationDisplay,
 }) => {
     const showEdit = canEditBookingRow(booking, filter) && Boolean(onOpenEditBooking);
     const blinkPending = shouldBlinkPendingTodaysRow(booking, filter);
@@ -77,6 +78,13 @@ const EditableBookingRow = ({
         !isHighlighted && !plotDispatchActive && !blinkPending ? "bg-white hover:bg-gray-50" : "",
     ].filter(Boolean).join(" ");
 
+    const pickupDisplay = getLocationDisplay
+        ? getLocationDisplay(booking, "pickup_location")
+        : (booking.pickup_location ?? "N/A");
+    const destinationDisplay = getLocationDisplay
+        ? getLocationDisplay(booking, "destination_location")
+        : (booking.destination_location ?? "N/A");
+
     return (
         <div className={rowClassName}>
             <Col w="w-[80px]">{index + 1}</Col>
@@ -91,12 +99,12 @@ const EditableBookingRow = ({
 
             <Col w="w-[180px]">{booking.phone_no ?? "N/A"}</Col>
 
-            <Col w="w-[220px]" className="truncate" title={booking.pickup_location}>
-                {booking.pickup_location ?? "N/A"}
+            <Col w="w-[220px]" className="truncate" title={pickupDisplay}>
+                {pickupDisplay}
             </Col>
 
-            <Col w="w-[220px]" className="truncate" title={booking.destination_location}>
-                {booking.destination_location ?? "N/A"}
+            <Col w="w-[220px]" className="truncate" title={destinationDisplay}>
+                {destinationDisplay}
             </Col>
 
             <Col w="w-[130px]">

@@ -9,6 +9,7 @@ import ScrollToTop from "./components/shared/ScrollToTop";
 import Loading from "./components/shared/Loading/Loading";
 import { Toaster } from "react-hot-toast";
 import { SocketProvider } from "./components/routes/SocketProvider";
+import MapConfigurationBootstrap from "./components/shared/MapConfigurationBootstrap";
 
 const environment = import.meta.env.VITE_NODE_ENV;
 
@@ -23,6 +24,7 @@ function App() {
         <ScrollToTop>
           <Suspense fallback={<Loading />}>
             <SocketProvider>
+              <MapConfigurationBootstrap />
               <AllRoutes />
             </SocketProvider>
           </Suspense>

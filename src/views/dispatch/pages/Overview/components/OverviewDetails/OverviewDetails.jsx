@@ -41,8 +41,10 @@ import {
     normalizePlotDispatchStatus,
     PLOT_DISPATCH_SOCKET_EVENTS,
     parsePlotDispatchPayload,
+    shouldPollPlotDispatchStatus,
 } from "../../../../../../utils/plotDispatch/plotDispatchStatus";
 import { getDispatcherName } from "../../../../../../utils/auth";
+import { useResolvedBookingLocations } from "../../../../../../hooks/useResolvedBookingLocations";
 import toast from "react-hot-toast";
 
 const statusColor = {
@@ -84,6 +86,7 @@ const OverViewDetails = ({
     const socket = useSocket();
     const isSocketConnected = useSocketStatus();
     const [bookings, setBookings] = useState([]);
+    const { getLocationDisplay } = useResolvedBookingLocations(bookings);
     const buttonRefs = useRef({});
     const [page, setPage] = useState(1);
     const [limit] = useState(10);
@@ -102,6 +105,7 @@ const OverViewDetails = ({
     const pendingSeedBookingsRef = useRef([]);
     const bookingsRef = useRef([]);
     const highlightTimeoutRef = useRef(null);
+    const plotDispatchEndpointUnavailableRef = useRef(false);
 
     useEffect(() => {
         bookingsRef.current = bookings;
@@ -231,18 +235,44 @@ const OverViewDetails = ({
         return status;
     }, [applyTabFilter, clearHighlightLater, filter, overviewTabOptions, showNotification]);
 
-    const syncPlotDispatchStatus = useCallback(async (bookingId) => {
+    const syncPlotDispatchStatus = useCallback(async (bookingId, { force = false } = {}) => {
         if (!bookingId || !plotBasedDispatchEnabled) return null;
+        if (!force && plotDispatchEndpointUnavailableRef.current) return null;
+
+        const booking = bookingsRef.current.find((b) => Number(b.id) === Number(bookingId));
+        if (!force && booking && !shouldPollPlotDispatchStatus(booking, plotDispatchStatusById)) {
+            return null;
+        }
+
         try {
             const res = await getPlotDispatchStatus(bookingId);
             const payload = res?.data?.data ?? res?.data;
             if (!payload) return null;
             return applyPlotDispatchUpdate(payload, PLOT_DISPATCH_SOCKET_EVENTS.STATUS);
         } catch (error) {
+            const status = error?.response?.status;
+            const body = error?.response?.data;
+            const isMissingRoute =
+                status === 404 &&
+                typeof body === "string" &&
+                body.includes("Cannot GET");
+
+            if (isMissingRoute) {
+                plotDispatchEndpointUnavailableRef.current = true;
+                console.warn(
+                    "Plot dispatch status endpoint is not available on socket-api; relying on socket events only."
+                );
+                return null;
+            }
+
+            if (status === 404) {
+                return null;
+            }
+
             console.warn(`Plot dispatch status poll failed for booking ${bookingId}:`, error.message);
             return null;
         }
-    }, [applyPlotDispatchUpdate, plotBasedDispatchEnabled]);
+    }, [applyPlotDispatchUpdate, plotBasedDispatchEnabled, plotDispatchStatusById]);
 
     const handleOpenPlotDispatchPanel = useCallback((booking, status) => {
         setPlotDispatchPanel({ booking, status });
@@ -352,16 +382,11 @@ const OverViewDetails = ({
     }, [page, search, selectedStatus, selectedSubCompany, filter, refreshTrigger, externalRefreshTrigger]);
 
     useEffect(() => {
-        if (!plotBasedDispatchEnabled) return undefined;
+        if (!plotBasedDispatchEnabled || plotDispatchEndpointUnavailableRef.current) return undefined;
 
-        const candidates = bookingsRef.current.filter((booking) => {
-            const tracked = plotDispatchStatusById[booking.id];
-            return !tracked && (
-                booking.booking_status === "pending" &&
-                !booking.driver &&
-                !booking.pending_driver_id
-            );
-        });
+        const candidates = bookingsRef.current.filter((booking) =>
+            shouldPollPlotDispatchStatus(booking, plotDispatchStatusById)
+        );
 
         candidates.slice(0, 5).forEach((booking) => {
             syncPlotDispatchStatus(booking.id);
@@ -422,7 +447,7 @@ const OverViewDetails = ({
                         PLOT_DISPATCH_SOCKET_EVENTS.STARTED
                     );
                 } else {
-                    syncPlotDispatchStatus(booking.id);
+                    syncPlotDispatchStatus(booking.id, { force: true });
                 }
             }
         };
@@ -991,6 +1016,7 @@ const OverViewDetails = ({
                                                 highlightedBookingId={highlightedBookingId}
                                                 onOpenPlotDispatchPanel={handleOpenPlotDispatchPanel}
                                                 plotBasedDispatchEnabled={plotBasedDispatchEnabled}
+                                                getLocationDisplay={getLocationDisplay}
                                             />
                                         );
                                     }
@@ -1017,12 +1043,12 @@ const OverViewDetails = ({
                                             <Col w="w-[100px]">{b.passenger ?? 1}</Col>
                                             <Col w="w-[180px]">{b.phone_no ?? "N/A"}</Col>
 
-                                            <Col w="w-[220px]" className="truncate" title={b.pickup_location}>
-                                                {b.pickup_location ?? "N/A"}
+                                            <Col w="w-[220px]" className="truncate" title={getLocationDisplay(b, "pickup_location")}>
+                                                {getLocationDisplay(b, "pickup_location")}
                                             </Col>
 
-                                            <Col w="w-[220px]" className="truncate" title={b.destination_location}>
-                                                {b.destination_location ?? "N/A"}
+                                            <Col w="w-[220px]" className="truncate" title={getLocationDisplay(b, "destination_location")}>
+                                                {getLocationDisplay(b, "destination_location")}
                                             </Col>
 
                                             <Col w="w-[130px]">

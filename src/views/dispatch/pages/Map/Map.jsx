@@ -11,10 +11,12 @@ import GreenCarIcon from "../../../../components/svg/GreenCarIcon";
 import AppLogoIcon from "../../../../components/svg/AppLogoIcon";
 import { getTenantData } from "../../../../utils/functions/tokenEncryption";
 import { apiGetCompanyApiKeys } from "../../../../services/SettingsConfigurationServices";
-import { fetchMapConfiguration, MAP_PROVIDER_DEFAULT, MAP_PROVIDER_GOOGLE } from "../../../../services/mapConfigurationService";
+import { fetchMapConfiguration, MAP_PROVIDER_BARIKOI, MAP_PROVIDER_DEFAULT, MAP_PROVIDER_GOOGLE, buildBarikoiRasterStyle } from "../../../../services/mapConfigurationService";
 import { apiGetPlot } from "../../../../services/PlotService";
 import { apiMapifyGeocoding, normalizeMapifyFeatures } from "../../../../services/MapSearchService";
 import MapSearchBox from "./components/MapSearchBox";
+import { useMapDriverSync } from "../../../../hooks/useMapDriverSync";
+import { getDriverKey, pruneDriverMarkers } from "../../../../utils/functions/driverMapSync";
 
 const GOOGLE_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "";
 
@@ -248,8 +250,7 @@ const makeGoogleIcon = (status) => {
   };
 };
 
-const GoogleMapView = ({ mapRef, mapInstance, markers, driverData, setDriverData, selectedStatus, searchQuery, socket, apiKeys, plotsData }) => {
-  const socketRef = useRef(socket);
+const GoogleMapView = ({ mapRef, mapInstance, markers, driverData, activeDriverIds, selectedStatus, searchQuery, apiKeys, plotsData }) => {
   const plotPolygons = useRef([]);
 
   const renderPlots = () => {
@@ -271,7 +272,9 @@ const GoogleMapView = ({ mapRef, mapInstance, markers, driverData, setDriverData
     if (mapInstance.current && plotsData) renderPlots();
   }, [plotsData, mapInstance.current]);
 
-  useEffect(() => { socketRef.current = socket; }, [socket]);
+  useEffect(() => {
+    pruneDriverMarkers(markers, activeDriverIds, { isGoogle: true });
+  }, [activeDriverIds, markers]);
 
   useEffect(() => {
     let mounted = true;
@@ -291,7 +294,8 @@ const GoogleMapView = ({ mapRef, mapInstance, markers, driverData, setDriverData
 
   const updateOrAddMarker = useCallback((data) => {
     if (!mapInstance.current) return;
-    const driverId = data.id || data.driver_id || data.dispatcher_id || data.client_id;
+    const driverId = getDriverKey(data);
+    if (!driverId) return;
     const latitude = data.latitude !== undefined ? data.latitude : data.lat;
     const longitude = data.longitude !== undefined ? data.longitude : data.lng;
     if (latitude == null || longitude == null || isNaN(latitude) || isNaN(longitude)) return;
@@ -320,32 +324,21 @@ const GoogleMapView = ({ mapRef, mapInstance, markers, driverData, setDriverData
   }, []);
 
   useEffect(() => {
-    if (mapInstance.current && driverData) {
-      Object.values(driverData).forEach(updateOrAddMarker);
-    }
-  }, [mapInstance.current, driverData, updateOrAddMarker]);
+    if (!mapInstance.current || !driverData) return;
 
-  useEffect(() => {
-    const handle = (rawData) => {
-      const data = parseDriverData(rawData);
-      if (data) {
-        const driverId = data.id || data.driver_id || data.dispatcher_id || data.client_id;
-        const latitude = data.latitude !== undefined ? data.latitude : data.lat;
-        const longitude = data.longitude !== undefined ? data.longitude : data.lng;
-        const position = { lat: Number(latitude), lng: Number(longitude) };
-        setDriverData(prev => ({
-          ...prev,
-          [driverId]: { ...prev[driverId], ...data, position }
-        }));
-        updateOrAddMarker(data);
-      }
-    };
-    if (socketRef.current) socketRef.current.on("driver-location-update", handle);
-    return () => { if (socketRef.current) socketRef.current.off("driver-location-update", handle); };
-  }, [mapInstance.current, updateOrAddMarker, setDriverData]);
+    Object.values(driverData).forEach((data) => {
+      const driverId = getDriverKey(data);
+      if (!driverId || !activeDriverIds.has(driverId)) return;
+      updateOrAddMarker(data);
+    });
+  }, [mapInstance.current, driverData, activeDriverIds, updateOrAddMarker]);
 
   useEffect(() => {
     Object.entries(markers.current).forEach(([id, marker]) => {
+      if (!activeDriverIds.has(String(id))) {
+        marker.setVisible(false);
+        return;
+      }
       const driver = driverData[id];
       if (!driver) return;
       let visible = selectedStatus.value === "all" || (driver.driving_status || driver.status) === selectedStatus.value;
@@ -356,15 +349,14 @@ const GoogleMapView = ({ mapRef, mapInstance, markers, driverData, setDriverData
       }
       marker.setVisible(visible);
     });
-  }, [selectedStatus, searchQuery, driverData]);
+  }, [selectedStatus, searchQuery, driverData, activeDriverIds]);
 
   return <div ref={mapRef} className="w-full h-[550px] rounded-xl border border-gray-300 shadow-sm" />;
 };
 
-const DefaultMapView = ({ mapRef, mapInstance, markers, driverData, setDriverData, selectedStatus, searchQuery, socket, apiKeys, plotsData }) => {
+const DefaultMapView = ({ mapRef, mapInstance, markers, driverData, activeDriverIds, selectedStatus, searchQuery, apiKeys, plotsData }) => {
   const [isLoaded, setIsLoaded] = useState(false);
-  const socketRef = useRef(socket);
-  useEffect(() => { socketRef.current = socket; }, [socket]);
+  const mapStyle = apiKeys.mapifyStyle || apiKeys.barikoiStyle;
 
   useEffect(() => {
     if (!mapRef.current) return;
@@ -412,7 +404,7 @@ const DefaultMapView = ({ mapRef, mapInstance, markers, driverData, setDriverDat
   }, [isLoaded, plotsData]);
 
   useEffect(() => {
-    if (!apiKeys.mapifyStyle) return;
+    if (!mapStyle) return;
     let mounted = true;
 
     const init = async () => {
@@ -478,7 +470,7 @@ const DefaultMapView = ({ mapRef, mapInstance, markers, driverData, setDriverDat
         }
       };
 
-      tryInit(apiKeys.mapifyStyle);
+      tryInit(mapStyle);
     };
 
     init();
@@ -495,7 +487,7 @@ const DefaultMapView = ({ mapRef, mapInstance, markers, driverData, setDriverDat
         setIsLoaded(false);
       }
     };
-  }, [apiKeys.mapifyStyle]);
+  }, [mapStyle]);
 
   useEffect(() => {
     if (isLoaded && mapInstance.current) {
@@ -506,8 +498,8 @@ const DefaultMapView = ({ mapRef, mapInstance, markers, driverData, setDriverDat
 
   const updateOrAddMarker = useCallback((data) => {
     if (!mapInstance.current || !isLoaded) return;
-    const driverId = data.id || data.driver_id || data.dispatcher_id || data.client_id;
-    if (driverId == null) return;
+    const driverId = getDriverKey(data);
+    if (!driverId) return;
     const latitude = data.latitude !== undefined ? data.latitude : data.lat;
     const longitude = data.longitude !== undefined ? data.longitude : data.lng;
     if (latitude == null || longitude == null || isNaN(latitude) || isNaN(longitude)) return;
@@ -552,33 +544,26 @@ const DefaultMapView = ({ mapRef, mapInstance, markers, driverData, setDriverDat
   }, [isLoaded]);
 
   useEffect(() => {
-    if (isLoaded && mapInstance.current && driverData) {
-      Object.values(driverData).forEach(updateOrAddMarker);
-    }
-  }, [isLoaded, mapInstance.current, driverData, updateOrAddMarker]);
+    pruneDriverMarkers(markers, activeDriverIds, { isGoogle: false });
+  }, [activeDriverIds, isLoaded, markers]);
 
   useEffect(() => {
-    const handle = (rawData) => {
-      const data = parseDriverData(rawData);
-      if (data) {
-        const driverId = data.id || data.driver_id || data.dispatcher_id || data.client_id;
-        const latitude = data.latitude !== undefined ? data.latitude : data.lat;
-        const longitude = data.longitude !== undefined ? data.longitude : data.lng;
-        const position = { lat: Number(latitude), lng: Number(longitude) };
-        setDriverData(prev => ({
-          ...prev,
-          [driverId]: { ...prev[driverId], ...data, position }
-        }));
-        updateOrAddMarker(data);
-      }
-    };
-    if (socketRef.current) socketRef.current.on("driver-location-update", handle);
-    return () => { if (socketRef.current) socketRef.current.off("driver-location-update", handle); };
-  }, [isLoaded, mapInstance.current, updateOrAddMarker, setDriverData]);
+    if (!isLoaded || !mapInstance.current || !driverData) return;
+
+    Object.values(driverData).forEach((data) => {
+      const driverId = getDriverKey(data);
+      if (!driverId || !activeDriverIds.has(driverId)) return;
+      updateOrAddMarker(data);
+    });
+  }, [isLoaded, mapInstance.current, driverData, activeDriverIds, updateOrAddMarker]);
 
   useEffect(() => {
     if (!isLoaded) return;
     Object.entries(markers.current).forEach(([id, marker]) => {
+      if (!activeDriverIds.has(String(id))) {
+        try { marker.getElement().style.display = "none"; } catch { }
+        return;
+      }
       const driver = driverData[id];
       if (!driver) return;
       let visible = selectedStatus.value === "all" || (driver.driving_status || driver.status) === selectedStatus.value;
@@ -589,7 +574,7 @@ const DefaultMapView = ({ mapRef, mapInstance, markers, driverData, setDriverDat
       }
       try { marker.getElement().style.display = visible ? "flex" : "none"; } catch { }
     });
-  }, [selectedStatus, searchQuery, driverData, isLoaded]);
+  }, [selectedStatus, searchQuery, driverData, activeDriverIds, isLoaded]);
 
   return (
     <div
@@ -615,22 +600,17 @@ const Map = () => {
   const [searchError, setSearchError] = useState("");
   const [showSearchResults, setShowSearchResults] = useState(false);
   const [selectedStatus, setSelectedStatus] = useState(MAP_STATUS_OPTIONS[0]);
-  const [driverData, setDriverData] = useState(() => {
-    try { const saved = localStorage.getItem("driverDataCache"); return saved ? JSON.parse(saved) : {}; }
-    catch { return {}; }
-  });
-
 
   const [mapType, setMapType] = useState(null);
   const [mapError, setMapError] = useState(null);
   const [apiKeys, setApiKeys] = useState({
     googleKey: null,
     mapifyStyle: null,
+    barikoiStyle: null,
+    barikoiKey: null,
     countryOfUse: getTenantData()?.data?.country_of_use || "IN",
   });
   const [plotsData, setPlotsData] = useState([]);
-  const plotsDataRef = useRef(plotsData);
-  useEffect(() => { plotsDataRef.current = plotsData; }, [plotsData]);
 
   useEffect(() => {
     const loadMapConfig = async () => {
@@ -653,10 +633,16 @@ const Map = () => {
 
         setMapError(null);
         setMapType(mapConfig.provider);
+        const companyKeys = keysRes.data?.success ? keysRes.data.data : null;
+        const barikoiKey = mapConfig.barikoiKey || companyKeys?.barikoi_api_key || null;
         setApiKeys((prev) => ({
           ...prev,
           googleKey: mapConfig.provider === MAP_PROVIDER_GOOGLE ? mapConfig.googleKey : null,
           mapifyStyle: mapConfig.provider === MAP_PROVIDER_DEFAULT ? mapConfig.mapifyStyle : null,
+          barikoiStyle: mapConfig.provider === MAP_PROVIDER_BARIKOI
+            ? (mapConfig.barikoiStyle || (barikoiKey ? buildBarikoiRasterStyle(barikoiKey) : null))
+            : null,
+          barikoiKey,
         }));
       } catch (err) {
         console.error("Fetch map configuration error:", err);
@@ -678,56 +664,17 @@ const Map = () => {
     fetchPlots();
   }, []);
 
-  useEffect(() => {
-    const timer = setTimeout(() => localStorage.setItem("driverDataCache", JSON.stringify(driverData)), 2000);
-    return () => clearTimeout(timer);
-  }, [driverData]);
-
   const socket = useSocket();
+  const {
+    driverData,
+    activeDriverIds,
+  } = useMapDriverSync({ socket, plotsData });
   const mapRef = useRef(null);
   const mapInstance = useRef(null);
   const markers = useRef({});
   const searchMarkerRef = useRef(null);
   const searchPopupRef = useRef(null);
   const searchAbortRef = useRef(null);
-
-  useEffect(() => {
-    if (!socket) return;
-    const handleStatusUpdate = (rawData, status) => {
-      let data;
-      try { data = typeof rawData === "string" ? JSON.parse(rawData) : rawData; } catch { data = rawData; }
-      const driverId = data?.id || data?.driver_id || data?.dispatcher_id;
-      if (driverId) {
-      setDriverData(prev => {
-          let lat = data.latitude || data.lat, lng = data.longitude || data.lng;
-          if ((lat == null || lng == null) && (data.plot_id || data.plot)) {
-            const pId = data.plot_id || data.plot;
-            const plot = plotsDataRef.current.find(p => p.id == pId || p.plot_id == pId);
-            if (plot) {
-              const coords = parseCoordinates(plot);
-              if (coords.length > 0) {
-                lat = coords.reduce((s, c) => s + c.lat, 0) / coords.length;
-                lng = coords.reduce((s, c) => s + c.lng, 0) / coords.length;
-              }
-            }
-          }
-          if (prev[driverId]) return { ...prev, [driverId]: { ...prev[driverId], ...data, status, driving_status: status, position: (lat && lng) ? { lat: Number(lat), lng: Number(lng) } : prev[driverId].position } };
-          else if (lat && lng) return { ...prev, [driverId]: { ...data, position: { lat: Number(lat), lng: Number(lng) }, status, driving_status: status } };
-          return prev;
-        });
-      }
-    };
-    socket.on("waiting-driver-event", (d) => handleStatusUpdate(d, "idle"));
-    socket.on("on-job-driver-event", (d) => handleStatusUpdate(d, "busy"));
-    socket.on("job-accepted-by-driver", (d) => handleStatusUpdate(d, "busy"));
-    socket.on("job-cancelled-by-driver", (d) => handleStatusUpdate(d, "idle"));
-    return () => {
-      socket.off("waiting-driver-event");
-      socket.off("on-job-driver-event");
-      socket.off("job-accepted-by-driver");
-      socket.off("job-cancelled-by-driver");
-    };
-  }, [socket]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -850,7 +797,17 @@ const Map = () => {
     };
   }, [clearSearchMarker]);
 
-  const sharedProps = { mapRef, mapInstance, markers, driverData, setDriverData, selectedStatus, searchQuery, socket, apiKeys, plotsData };
+  const sharedProps = {
+    mapRef,
+    mapInstance,
+    markers,
+    driverData,
+    activeDriverIds,
+    selectedStatus,
+    searchQuery,
+    apiKeys,
+    plotsData,
+  };
 
   return (
     <div className="px-4 py-5 sm:p-6 lg:p-10 min-h-[calc(100vh-85px)]">
@@ -888,7 +845,7 @@ const Map = () => {
           <div className="w-full h-[550px] rounded-xl border border-gray-300 shadow-sm flex items-center justify-center bg-gray-50 px-4 text-center">
             <p className="text-sm text-red-600">{mapError}</p>
           </div>
-        ) : mapType === MAP_PROVIDER_DEFAULT ? (
+        ) : (mapType === MAP_PROVIDER_DEFAULT || mapType === MAP_PROVIDER_BARIKOI) ? (
           <DefaultMapView {...sharedProps} />
         ) : mapType === MAP_PROVIDER_GOOGLE ? (
           <GoogleMapView {...sharedProps} />

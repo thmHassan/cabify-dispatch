@@ -72,8 +72,8 @@ export const mapBookingToFormValues = (booking, { mode = "copy" } = {}) => {
     );
 
     return {
-        pickup_point: booking.pickup_location || "",
-        destination: booking.destination_location || "",
+        pickup_location: booking.pickup_location || "",
+        destination_location: booking.destination_location || "",
         via_points: viaPoints,
         via_latitude: viaLatitudes,
         via_longitude: viaLongitudes,

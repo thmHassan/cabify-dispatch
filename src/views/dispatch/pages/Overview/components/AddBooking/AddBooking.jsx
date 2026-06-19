@@ -29,10 +29,13 @@ import {
     apiGetDispatchSystem,
     apiGetCompanyApiKeys,
 } from "../../../../../../services/SettingsConfigurationServices";
+import { ensureMapConfigurationLoaded } from "../../../../../../services/mapConfigCache";
 import {
     fetchMapConfiguration,
+    MAP_PROVIDER_BARIKOI,
     MAP_PROVIDER_DEFAULT,
     MAP_PROVIDER_GOOGLE,
+    buildBarikoiRasterStyle,
 } from "../../../../../../services/mapConfigurationService";
 import { apiGetBackupPlot } from "../../../../../../services/PlotService";
 import { unlockBodyScroll } from "../../../../../../utils/functions/common.function";
@@ -40,9 +43,12 @@ import toast from 'react-hot-toast';
 import { getDispatcherId, getDispatcherName } from "../../../../../../utils/auth";
 import { apiGetRideHistory, apiGetUser } from "../../../../../../services/UserService";
 import {
+    fetchMapifyAddressFromCoords,
     fetchMapifyLocationSuggestions,
+    isReverseGeocodingAvailable,
 } from "../../../../../../services/MapSearchService";
 import { debounce } from "lodash";
+import { isCoordinateString } from "../../../../../../utils/functions/locationDisplay";
 import {
     extractCreatedBookings,
     extractUpdatedBookingFromResponse,
@@ -137,8 +143,8 @@ const REMINDER_TIME_OPTIONS = [
     { value: "50", label: "50 minutes" },
 ];
 
-const FormSection = ({ title, description, children, className = "" }) => (
-    <section className={`rounded-xl border border-[#E5E7EB] bg-white p-2.5 lg:p-2 shadow-sm overflow-hidden ${className}`}>
+const FormSection = ({ title, description, children, className = "", overflowVisible = false }) => (
+    <section className={`rounded-xl border border-[#E5E7EB] bg-white p-2.5 lg:p-2 shadow-sm ${overflowVisible ? "overflow-visible" : "overflow-hidden"} ${className}`}>
         {title && (
             <div className="mb-2 lg:mb-1.5 border-b border-[#F3F4F6] pb-1.5">
                 <h3 className="text-sm lg:text-xs font-semibold text-[#111827]">{title}</h3>
@@ -266,7 +272,7 @@ const fetchRouteDistance = async (pickup, destination, viaCoords, mapsApi, apiKe
 
     if (mapsApi === "google") {
         distance = await fetchGoogleRouteDistance(pickup, destination, viaCoords);
-    } else if ((mapsApi === "barikoi" || mapsApi === "default") && !hasVia) {
+    } else if ((mapsApi === MAP_PROVIDER_BARIKOI || mapsApi === "barikoi") && !hasVia) {
         distance = await fetchBarikoiRouteDistance(pickup, destination, apiKeys?.barikoiKey);
     }
 
@@ -278,7 +284,7 @@ const fetchRouteDistance = async (pickup, destination, viaCoords, mapsApi, apiKe
 };
 
 const DEFAULT_FORM_VALUES = {
-    pickup_point: "", destination: "", via_points: [],
+    pickup_location: "", destination_location: "", via_points: [],
     via_latitude: [], via_longitude: [],
     pickup_latitude: "", pickup_longitude: "",
     destination_latitude: "", destination_longitude: "",
@@ -361,7 +367,12 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
     const [loadingDispatchSystem, setLoadingDispatchSystem] = useState(true);
     const dispatcherId = getDispatcherId();
     const [alertModal, setAlertModal] = useState({ isOpen: false, message: '' });
-    const [apiKeys, setApiKeys] = useState({ googleKey: null, mapifyStyle: null });
+    const [apiKeys, setApiKeys] = useState({
+        googleKey: null,
+        mapifyStyle: null,
+        barikoiStyle: null,
+        barikoiKey: null,
+    });
     const [userSuggestions, setUserSuggestions] = useState([]);
     const [showUserSuggestions, setShowUserSuggestions] = useState(false);
     const [loadingUsers, setLoadingUsers] = useState(false);
@@ -430,7 +441,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
             try {
                 const [keysRes, mapConfig] = await Promise.all([
                     apiGetCompanyApiKeys(),
-                    fetchMapConfiguration(),
+                    ensureMapConfigurationLoaded(fetchMapConfiguration),
                 ]);
 
                 if (keysRes.data?.success) {
@@ -454,9 +465,15 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
 
                 setMapError(null);
                 setMapsApi(mapConfig.provider);
+                const companyKeys = keysRes.data?.success ? keysRes.data.data : null;
+                const barikoiKey = mapConfig.barikoiKey || companyKeys?.barikoi_api_key || null;
                 setApiKeys({
                     googleKey: mapConfig.provider === MAP_PROVIDER_GOOGLE ? mapConfig.googleKey : null,
                     mapifyStyle: mapConfig.provider === MAP_PROVIDER_DEFAULT ? mapConfig.mapifyStyle : null,
+                    barikoiStyle: mapConfig.provider === MAP_PROVIDER_BARIKOI
+                        ? (mapConfig.barikoiStyle || (barikoiKey ? buildBarikoiRasterStyle(barikoiKey) : null))
+                        : null,
+                    barikoiKey,
                 });
             } catch (err) {
                 console.error("Fetch map configuration error:", err);
@@ -591,31 +608,46 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
 
     useEffect(() => {
         const storedData = localStorage.getItem('copiedBookingData');
-        if (storedData) {
+        if (!storedData) return undefined;
+
+        let cancelled = false;
+
+        const loadCopiedBooking = async () => {
             try {
+                await ensureMapConfigurationLoaded(fetchMapConfiguration);
                 const parsedData = JSON.parse(storedData);
-                setInitialFormValues({
+                const resolvedFormValues = await resolveFormLocationLabels({
                     ...parsedData,
                     request_for_vehicle: Boolean(
                         parsedData.request_for_vehicle ?? parsedData.vehicle
                     ),
                 });
-                if (parsedData.pickup_latitude && parsedData.pickup_longitude) {
-                    const c = { lat: parseFloat(parsedData.pickup_latitude), lng: parseFloat(parsedData.pickup_longitude) };
+
+                if (cancelled) return;
+
+                setInitialFormValues(resolvedFormValues);
+
+                if (resolvedFormValues.pickup_latitude && resolvedFormValues.pickup_longitude) {
+                    const c = {
+                        lat: parseFloat(resolvedFormValues.pickup_latitude),
+                        lng: parseFloat(resolvedFormValues.pickup_longitude),
+                    };
                     setStablePickupCoords(c);
-                    fetchPlotName(parsedData.pickup_latitude, parsedData.pickup_longitude).then(setPickupPlotData);
+                    fetchPlotName(resolvedFormValues.pickup_latitude, resolvedFormValues.pickup_longitude).then(setPickupPlotData);
                 }
-                if (parsedData.destination_latitude && parsedData.destination_longitude) {
-                    const c = { lat: parseFloat(parsedData.destination_latitude), lng: parseFloat(parsedData.destination_longitude) };
+                if (resolvedFormValues.destination_latitude && resolvedFormValues.destination_longitude) {
+                    const c = {
+                        lat: parseFloat(resolvedFormValues.destination_latitude),
+                        lng: parseFloat(resolvedFormValues.destination_longitude),
+                    };
                     setStableDestinationCoords(c);
-                    fetchPlotName(parsedData.destination_latitude, parsedData.destination_longitude).then(setDestinationPlotData);
+                    fetchPlotName(resolvedFormValues.destination_latitude, resolvedFormValues.destination_longitude).then(setDestinationPlotData);
                 }
-                if (parsedData.via_latitude?.length > 0) {
+                if (resolvedFormValues.via_latitude?.length > 0) {
                     const viaC = [];
-                    // Limit to 2 via stops when loading copied data
-                    const limitedViaLat = parsedData.via_latitude.slice(0, 2);
+                    const limitedViaLat = resolvedFormValues.via_latitude.slice(0, 2);
                     limitedViaLat.forEach((lat, i) => {
-                        const lng = parsedData.via_longitude[i];
+                        const lng = resolvedFormValues.via_longitude[i];
                         if (lat && lng) {
                             viaC[i] = { lat: parseFloat(lat), lng: parseFloat(lng) };
                             fetchPlotName(lat, lng).then(pd => setViaPlotData(prev => ({ ...prev, [i]: pd })));
@@ -624,55 +656,61 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
                     setStableViaCoords(viaC);
                 }
 
-                // Also limit via_points if they exist
-                if (parsedData.via_points) parsedData.via_points = parsedData.via_points.slice(0, 2);
-                if (parsedData.via_plot_id) parsedData.via_plot_id = parsedData.via_plot_id.slice(0, 2);
+                if (resolvedFormValues.via_points) resolvedFormValues.via_points = resolvedFormValues.via_points.slice(0, 2);
+                if (resolvedFormValues.via_plot_id) resolvedFormValues.via_plot_id = resolvedFormValues.via_plot_id.slice(0, 2);
 
                 localStorage.removeItem('copiedBookingData');
             } catch {
                 localStorage.removeItem('copiedBookingData');
                 toast.error("Failed to load booking data");
             }
-        }
+        };
+
+        loadCopiedBooking();
+
+        return () => {
+            cancelled = true;
+        };
     }, []);
 
-    const populateFormFromBooking = useCallback((booking) => {
+    const populateFormFromBooking = useCallback(async (booking) => {
         if (!booking?.id) return;
 
         const formValues = mapBookingToFormValues(booking, { mode: "edit" });
         if (!formValues) return;
 
-        setInitialFormValues(formValues);
+        const resolvedFormValues = await resolveFormLocationLabels(formValues);
+        setInitialFormValues(resolvedFormValues);
         setIsMultiBooking(false);
 
-        if (formValues.pickup_latitude && formValues.pickup_longitude) {
+        if (resolvedFormValues.pickup_latitude && resolvedFormValues.pickup_longitude) {
             const c = {
-                lat: parseFloat(formValues.pickup_latitude),
-                lng: parseFloat(formValues.pickup_longitude),
+                lat: parseFloat(resolvedFormValues.pickup_latitude),
+                lng: parseFloat(resolvedFormValues.pickup_longitude),
             };
             setStablePickupCoords(c);
-            fetchPlotName(formValues.pickup_latitude, formValues.pickup_longitude).then(setPickupPlotData);
+            fetchPlotName(resolvedFormValues.pickup_latitude, resolvedFormValues.pickup_longitude).then(setPickupPlotData);
         } else {
             setStablePickupCoords(null);
             setPickupPlotData(null);
         }
 
-        if (formValues.destination_latitude && formValues.destination_longitude) {
+        if (resolvedFormValues.destination_latitude && resolvedFormValues.destination_longitude) {
             const c = {
-                lat: parseFloat(formValues.destination_latitude),
-                lng: parseFloat(formValues.destination_longitude),
+                lat: parseFloat(resolvedFormValues.destination_latitude),
+                lng: parseFloat(resolvedFormValues.destination_longitude),
             };
             setStableDestinationCoords(c);
-            fetchPlotName(formValues.destination_latitude, formValues.destination_longitude).then(setDestinationPlotData);
+            fetchPlotName(resolvedFormValues.destination_latitude, resolvedFormValues.destination_longitude).then(setDestinationPlotData);
         } else {
             setStableDestinationCoords(null);
             setDestinationPlotData(null);
         }
 
-        if (formValues.via_latitude?.length > 0) {
+        if (resolvedFormValues.via_latitude?.length > 0) {
             const viaC = [];
-            formValues.via_latitude.slice(0, 2).forEach((lat, i) => {
-                const lng = formValues.via_longitude[i];
+            resolvedFormValues.via_latitude.slice(0, 2).forEach((lat, i) => {
+                const lng = resolvedFormValues.via_longitude[i];
                 if (lat && lng) {
                     viaC[i] = { lat: parseFloat(lat), lng: parseFloat(lng) };
                     fetchPlotName(lat, lng).then((pd) => setViaPlotData((prev) => ({ ...prev, [i]: pd })));
@@ -684,8 +722,8 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
             setViaPlotData({});
         }
 
-        const totalAmount = parseFloat(formValues.total_charges) || 0;
-        const baseFare = parseFloat(formValues.fares) || totalAmount;
+        const totalAmount = parseFloat(resolvedFormValues.total_charges) || 0;
+        const baseFare = parseFloat(resolvedFormValues.fares) || totalAmount;
         if (totalAmount || baseFare) {
             setFareCalculated(true);
             setFareData({
@@ -919,10 +957,10 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
     };
 
     const selectLocation = async (item, type, setFieldValue, index = null) => {
-        const displayValue = item.inputValue || item.label;
-        if (type === "pickup") { setFieldValue("pickup_point", displayValue); setShowPickup(false); }
-        else if (type === "destination") { setFieldValue("destination", displayValue); setShowDestination(false); }
-        else { setFieldValue(`via_points[${index}]`, displayValue); setShowVia(v => ({ ...v, [index]: false })); }
+        let displayValue = item.inputValue || item.label;
+        if (type === "pickup") setShowPickup(false);
+        else if (type === "destination") setShowDestination(false);
+        else setShowVia(v => ({ ...v, [index]: false }));
 
         setLocationSearchError(type, index, "");
 
@@ -930,6 +968,15 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
         if (item.source === "google") latLng = await getLatLngFromPlaceId(item.place_id);
         else if (item.source === "barikoi") latLng = { lat: item.lat, lng: item.lng };
         else if (item.source === "mapify") latLng = { lat: item.lat, lng: item.lng };
+
+        if (latLng && mapsApi === MAP_PROVIDER_DEFAULT) {
+            const resolved = await fetchMapifyAddressFromCoords({ lat: latLng.lat, lon: latLng.lng });
+            if (resolved) displayValue = resolved;
+        }
+
+        if (type === "pickup") setFieldValue("pickup_location", displayValue);
+        else if (type === "destination") setFieldValue("destination_location", displayValue);
+        else setFieldValue(`via_points[${index}]`, displayValue);
 
         let plotData = { found: false, id: null, name: "Plot Not Found" };
         if (latLng) {
@@ -1005,8 +1052,8 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
 
     const validateCalculateFares = (values) => {
         const errors = {};
-        if (!values.pickup_point?.trim()) errors.pickup_point = "Pickup point is required";
-        if (!values.destination?.trim()) errors.destination = "Destination is required";
+        if (!values.pickup_location?.trim()) errors.pickup_location = "Pickup point is required";
+        if (!values.destination_location?.trim()) errors.destination_location = "Destination is required";
         if (values.request_for_vehicle && !values.vehicle) errors.vehicle = "Vehicle type is required";
         if (!values.journey_type) errors.journey_type = "Journey type is required";
         return errors;
@@ -1014,8 +1061,8 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
 
     const validateCreateBooking = (values) => {
         const errors = {};
-        if (!values.pickup_point?.trim()) errors.pickup_point = "Pickup point is required";
-        if (!values.destination?.trim()) errors.destination = "Destination is required";
+        if (!values.pickup_location?.trim()) errors.pickup_location = "Pickup point is required";
+        if (!values.destination_location?.trim()) errors.destination_location = "Destination is required";
         if (values.request_for_vehicle && !values.vehicle) errors.vehicle = "Vehicle type is required";
         if (!values.journey_type) errors.journey_type = "Journey type is required";
         if (!values.auto_dispatch && !values.bidding) {
@@ -1060,6 +1107,67 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
         return getCoordinatesFromAddress(address);
     };
 
+    const ensureHumanReadableLocation = async (locationValue, latitude, longitude) => {
+        if (locationValue?.trim() && !isCoordinateString(locationValue)) return locationValue;
+
+        if (latitude && longitude && isReverseGeocodingAvailable()) {
+            const address = await fetchMapifyAddressFromCoords({
+                lat: parseFloat(latitude),
+                lon: parseFloat(longitude),
+            });
+            if (address) return address;
+        }
+
+        return locationValue || "";
+    };
+
+    const resolveFormLocationLabels = async (formValues) => {
+        const next = { ...formValues };
+
+        if (
+            (!formValues.pickup_location?.trim() || isCoordinateString(formValues.pickup_location)) &&
+            formValues.pickup_latitude &&
+            formValues.pickup_longitude
+        ) {
+            const pickupLabel = await ensureHumanReadableLocation(
+                formValues.pickup_location,
+                formValues.pickup_latitude,
+                formValues.pickup_longitude
+            );
+            if (pickupLabel) next.pickup_location = pickupLabel;
+        }
+
+        if (
+            (!formValues.destination_location?.trim() || isCoordinateString(formValues.destination_location)) &&
+            formValues.destination_latitude &&
+            formValues.destination_longitude
+        ) {
+            const destinationLabel = await ensureHumanReadableLocation(
+                formValues.destination_location,
+                formValues.destination_latitude,
+                formValues.destination_longitude
+            );
+            if (destinationLabel) next.destination_location = destinationLabel;
+        }
+
+        if (formValues.via_points?.length > 0) {
+            const viaPoints = [...formValues.via_points];
+            await Promise.all(
+                viaPoints.map(async (viaPoint, index) => {
+                    const lat = formValues.via_latitude?.[index];
+                    const lng = formValues.via_longitude?.[index];
+                    if (!isCoordinateString(viaPoint) || !lat || !lng) return;
+
+                    const viaLabel = await ensureHumanReadableLocation(viaPoint, lat, lng);
+                    if (viaLabel) viaPoints[index] = viaLabel;
+                })
+            );
+            next.via_points = viaPoints;
+        }
+
+        return next;
+    };
+
     const appendAccountFields = (formData, accountId) => {
         const value = accountId ? String(accountId) : "";
         formData.append("account", value);
@@ -1085,14 +1193,14 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
         setFareError(null);
         try {
             const pickupCoords = await resolveLocationCoords(
-                values.pickup_point,
+                values.pickup_location,
                 values.pickup_latitude,
                 values.pickup_longitude
             );
             if (!pickupCoords) { toast.error("Could not get coordinates for pickup point"); setFareLoading(false); return; }
 
             const destinationCoords = await resolveLocationCoords(
-                values.destination,
+                values.destination_location,
                 values.destination_latitude,
                 values.destination_longitude
             );
@@ -1194,13 +1302,13 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
         const viaPlotDataValue = viaPlotData[index];
         const viaStable = stableViaCoords[index];
 
-        setFieldValue(`via_points[${index}]`, values.destination);
+        setFieldValue(`via_points[${index}]`, values.destination_location);
         setFieldValue(`via_latitude[${index}]`, values.destination_latitude);
         setFieldValue(`via_longitude[${index}]`, values.destination_longitude);
         setFieldValue(`via_plot_id[${index}]`, values.destination_plot_id);
         setViaPlotData(p => ({ ...p, [index]: destinationPlotData }));
 
-        setFieldValue('destination', viaPoint);
+        setFieldValue("destination_location", viaPoint);
         setFieldValue('destination_latitude', viaLat);
         setFieldValue('destination_longitude', viaLng);
         setFieldValue('destination_plot_id', viaPlotId);
@@ -1217,8 +1325,8 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
     };
 
     const swapPickupAndDestination = (setFieldValue, values) => {
-        setFieldValue("pickup_point", values.destination);
-        setFieldValue("destination", values.pickup_point);
+        setFieldValue("pickup_location", values.destination_location);
+        setFieldValue("destination_location", values.pickup_location);
         setFieldValue("pickup_latitude", values.destination_latitude);
         setFieldValue("pickup_longitude", values.destination_longitude);
         setFieldValue("destination_latitude", values.pickup_latitude);
@@ -1293,13 +1401,33 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
             formData.append('booking_date', bookingDate);
             formData.append('booking_type', values.booking_type || '');
             formData.append("dispatcher_id", dispatcherId);
-            const pickupCoords = await getCoordinatesFromAddress(values.pickup_point);
-            const destinationCoords = await getCoordinatesFromAddress(values.destination);
+            const pickupCoords = await resolveLocationCoords(
+                values.pickup_location,
+                values.pickup_latitude,
+                values.pickup_longitude
+            );
+            const destinationCoords = await resolveLocationCoords(
+                values.destination_location,
+                values.destination_latitude,
+                values.destination_longitude
+            );
+            const pickupLocationLabel = values.pickup_location?.trim()
+                || await ensureHumanReadableLocation(
+                    values.pickup_location,
+                    values.pickup_latitude,
+                    values.pickup_longitude
+                );
+            const destinationLocationLabel = values.destination_location?.trim()
+                || await ensureHumanReadableLocation(
+                    values.destination_location,
+                    values.destination_latitude,
+                    values.destination_longitude
+                );
 
             if (pickupCoords) {
                 formData.append('pickup_point', `${pickupCoords.latitude}, ${pickupCoords.longitude}`);
-                formData.append('pickup_location', values.pickup_point);
-                
+                formData.append('pickup_location', pickupLocationLabel);
+
                 let pickupPlotId = values.pickup_plot_id;
                 const plotRes = await fetchPlotName(pickupCoords.latitude, pickupCoords.longitude);
                 if (plotRes && plotRes.found && plotRes.id) {
@@ -1313,7 +1441,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
 
             if (destinationCoords) {
                 formData.append('destination_point', `${destinationCoords.latitude}, ${destinationCoords.longitude}`);
-                formData.append('destination_location', values.destination);
+                formData.append('destination_location', destinationLocationLabel);
                 
                 let destinationPlotId = values.destination_plot_id;
                 const plotRes = await fetchPlotName(destinationCoords.latitude, destinationCoords.longitude);
@@ -1333,9 +1461,14 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
                     if (viaPoint?.trim()) {
                         const viaCoords = await getCoordinatesFromAddress(viaPoint);
                         if (viaCoords) {
+                            const viaLocationLabel = await ensureHumanReadableLocation(
+                                viaPoint,
+                                values.via_latitude?.[i],
+                                values.via_longitude?.[i]
+                            );
                             formData.append(`via_point[${vi}][latitude]`, viaCoords.latitude.toString());
                             formData.append(`via_point[${vi}][longitude]`, viaCoords.longitude.toString());
-                            formData.append(`via_location[${vi}]`, viaPoint);
+                            formData.append(`via_location[${vi}]`, viaLocationLabel);
                             
                             let viaPlotId = values.via_plot_id?.[i];
                             const plotRes = await fetchPlotName(viaCoords.latitude, viaCoords.longitude);
@@ -1408,8 +1541,8 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
                         pickupTime: values.pickup_time_type === "time" && values.pickup_time
                             ? `${values.pickup_time}:00`
                             : null,
-                        pickupLocation: values.pickup_point || null,
-                        destinationLocation: values.destination || null,
+                        pickupLocation: pickupLocationLabel || null,
+                        destinationLocation: destinationLocationLabel || null,
                         phoneNo: values.phone_no || null,
                         passenger: values.passenger || 1,
                     }),
@@ -1466,19 +1599,31 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
             formData.append("dispatcher_id", dispatcherId);
 
             const pickupCoords = await resolveLocationCoords(
-                values.pickup_point,
+                values.pickup_location,
                 values.pickup_latitude,
                 values.pickup_longitude
             );
             const destinationCoords = await resolveLocationCoords(
-                values.destination,
+                values.destination_location,
                 values.destination_latitude,
                 values.destination_longitude
             );
+            const pickupLocationLabel = values.pickup_location?.trim()
+                || await ensureHumanReadableLocation(
+                    values.pickup_location,
+                    values.pickup_latitude,
+                    values.pickup_longitude
+                );
+            const destinationLocationLabel = values.destination_location?.trim()
+                || await ensureHumanReadableLocation(
+                    values.destination_location,
+                    values.destination_latitude,
+                    values.destination_longitude
+                );
 
             if (pickupCoords) {
                 formData.append("pickup_point", `${pickupCoords.latitude}, ${pickupCoords.longitude}`);
-                formData.append("pickup_location", values.pickup_point || "");
+                formData.append("pickup_location", pickupLocationLabel || "");
 
                 let pickupPlotId = values.pickup_plot_id;
                 const plotRes = await fetchPlotName(pickupCoords.latitude, pickupCoords.longitude);
@@ -1491,7 +1636,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
 
             if (destinationCoords) {
                 formData.append("destination_point", `${destinationCoords.latitude}, ${destinationCoords.longitude}`);
-                formData.append("destination_location", values.destination || "");
+                formData.append("destination_location", destinationLocationLabel || "");
 
                 let destinationPlotId = values.destination_plot_id;
                 const plotRes = await fetchPlotName(destinationCoords.latitude, destinationCoords.longitude);
@@ -1515,9 +1660,15 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
                     );
                     if (!viaCoords) continue;
 
+                    const viaLocationLabel = await ensureHumanReadableLocation(
+                        viaPoint,
+                        values.via_latitude?.[i],
+                        values.via_longitude?.[i]
+                    );
+
                     formData.append(`via_point[${vi}][latitude]`, viaCoords.latitude.toString());
                     formData.append(`via_point[${vi}][longitude]`, viaCoords.longitude.toString());
-                    formData.append(`via_location[${vi}]`, viaPoint);
+                    formData.append(`via_location[${vi}]`, viaLocationLabel);
 
                     let viaPlotId = values.via_plot_id?.[i];
                     const plotRes = await fetchPlotName(viaCoords.latitude, viaCoords.longitude);
@@ -1668,7 +1819,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
 
             <Formik
                 initialValues={initialFormValues}
-                key={editBooking?.id ? `edit-${editBooking.id}` : initialFormValues.pickup_point || "new"}
+                key={editBooking?.id ? `edit-${editBooking.id}` : initialFormValues.pickup_location || "new"}
                 onSubmit={isEditMode ? handleUpdateBooking : handleCreateBooking}
                 enableReinitialize
             >
@@ -2060,27 +2211,27 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
                                     </div>
 
                                     {/* Row 2: Route */}
-                                    <div className="lg:col-span-3 lg:row-start-2 min-w-0">
-                                        <FormSection title="Route">
+                                    <div className="lg:col-span-3 lg:row-start-2 min-w-0 overflow-visible">
+                                        <FormSection title="Route" overflowVisible>
                                             <div className="space-y-2">
                                                 <div className="flex flex-col gap-2 lg:flex-row lg:items-start">
                                                     <div className="flex-1">
-                                                        <InputBox label="Pickup" value={values.pickup_point} plot={pickupPlotData?.name || ""}
+                                                        <InputBox label="Pickup" value={values.pickup_location} plot={pickupPlotData?.name || ""}
                                                             suggestions={pickupSuggestions} show={showPickup} placeholder="Search pickup..."
                                                             loading={pickupSearchLoading} error={pickupSearchError}
-                                                            hasError={!!(calculateErrors.pickup_point || bookingErrors.pickup_point)}
+                                                            hasError={!!(calculateErrors.pickup_location || bookingErrors.pickup_location)}
                                                             onChange={(v) => {
-                                                                setFieldValue("pickup_point", v);
+                                                                setFieldValue("pickup_location", v);
                                                                 if (!v) {
                                                                     setStablePickupCoords(null);
                                                                     setFieldValue("pickup_latitude", "");
                                                                     setFieldValue("pickup_longitude", "");
                                                                     setPickupSearchError("");
                                                                 }
-                                                                searchLocation(v, "pickup"); clearFieldErrors("pickup_point");
+                                                                searchLocation(v, "pickup"); clearFieldErrors("pickup_location");
                                                             }}
                                                             onSelect={(i) => selectLocation(i, "pickup", setFieldValue)} />
-                                                        <FieldError message={calculateErrors.pickup_point || bookingErrors.pickup_point} />
+                                                        <FieldError message={calculateErrors.pickup_location || bookingErrors.pickup_location} />
                                                     </div>
                                                     {values.via_points.length < 2 && (
                                                         <button type="button" onClick={() => {
@@ -2125,22 +2276,23 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
                                                         Reverse route
                                                     </button>
                                                 </div>
-                                                <InputBox label="Destination" value={values.destination} plot={destinationPlotData?.name || ""}
+                                                <InputBox label="Destination" value={values.destination_location} plot={destinationPlotData?.name || ""}
                                                     suggestions={destinationSuggestions} show={showDestination} placeholder="Search destination..."
                                                     loading={destinationSearchLoading} error={destinationSearchError}
-                                                    hasError={!!(calculateErrors.destination || bookingErrors.destination)}
+                                                    dropup
+                                                    hasError={!!(calculateErrors.destination_location || bookingErrors.destination_location)}
                                                     onChange={(v) => {
-                                                        setFieldValue("destination", v);
+                                                        setFieldValue("destination_location", v);
                                                         if (!v) {
                                                             setStableDestinationCoords(null);
                                                             setFieldValue("destination_latitude", "");
                                                             setFieldValue("destination_longitude", "");
                                                             setDestinationSearchError("");
                                                         }
-                                                        searchLocation(v, "destination"); clearFieldErrors("destination");
+                                                        searchLocation(v, "destination"); clearFieldErrors("destination_location");
                                                     }}
                                                     onSelect={(i) => selectLocation(i, "destination", setFieldValue)} />
-                                                <FieldError message={calculateErrors.destination || bookingErrors.destination} />
+                                                <FieldError message={calculateErrors.destination_location || bookingErrors.destination_location} />
                                             </div>
                                         </FormSection>
                                     </div>
@@ -2262,6 +2414,7 @@ const InputBox = ({
     hasError,
     loading = false,
     error = "",
+    dropup = false,
 }) => (
     <div className="relative w-full">
         <label className={formLabelClass}>{label}</label>
@@ -2274,7 +2427,7 @@ const InputBox = ({
                     className={`${formInputClass} ${hasError ? formInputErrorClass : ""}`}
                 />
                 {(show || loading || error) && (
-                    <ul className="absolute left-0 right-0 top-full z-50 mt-1 max-h-60 overflow-auto rounded-lg border border-[#E5E7EB] bg-white shadow-lg">
+                    <ul className={`absolute left-0 right-0 z-[100] max-h-60 overflow-auto rounded-lg border border-[#E5E7EB] bg-white shadow-lg ${dropup ? "bottom-full mb-1" : "top-full mt-1"}`}>
                         {loading && (
                             <li className="px-3 py-2 text-sm text-[#6B7280]">Searching...</li>
                         )}
