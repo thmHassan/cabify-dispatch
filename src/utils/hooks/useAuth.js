@@ -20,11 +20,13 @@ import {
   storeEncryptedToken,
   clearAllAuthData,
   isAuthenticated,
+  removeTenantData,
   storeTenantId,
   storeTenantData,
 } from "../functions/tokenEncryption";
 import { disconnectSocket } from "../../services/socketConntection";
 import { setCachedTenantCurrency } from "../functions/formatters";
+import { resetMapConfigurationCache } from "../../services/mapConfigCache";
 
 const API_ERROR_MAP = {
   "Database header is missing.": "Company ID is missing.",
@@ -76,6 +78,9 @@ function useAuth() {
   };
 
   const adminSignIn = async (values) => {
+    resetMapConfigurationCache();
+    removeTenantData();
+
     let resp;
     try {
       resp = await apiAdminSignIn(values);
@@ -149,6 +154,7 @@ function useAuth() {
       console.error("Logout API error:", error);
     } finally {
       disconnectSocket();
+      resetMapConfigurationCache();
       clearAllAuthData();
       dispatch(signOutSuccess());
       dispatch(clearUser());

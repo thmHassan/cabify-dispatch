@@ -2,6 +2,7 @@ import axios from "axios";
 import appConfig from "../components/configs/app.config";
 import { REQUEST_HEADER_AUTH_KEY, TOKEN_TYPE, REQUEST_HEADER_DATABASE_KEY } from "../constants/api.constant";
 import store, { setUser, signOutSuccess } from "../store";
+import { resetMapConfigurationCache } from "./mapConfigCache";
 import {
   clearAllAuthData,
   getDecryptedToken,
@@ -49,6 +50,7 @@ BaseService.interceptors.response.use(
     console.log(response, "response========");
 
     if (response && unauthorizedCode.includes(response.status)) {
+      resetMapConfigurationCache();
       store.dispatch(signOutSuccess());
       store.dispatch(
         setUser({

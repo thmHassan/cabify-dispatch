@@ -1,7 +1,8 @@
 import { Form, Formik } from "formik";
 import { useEffect, useState, useMemo, useCallback } from "react";
 import Maps from "./components/maps";
-import { getTenantData } from "../../../../../../utils/functions/tokenEncryption";
+import { getTenantData, getTenantId } from "../../../../../../utils/functions/tokenEncryption";
+import { useAppSelector } from "../../../../../../store";
 import {
     formatDistanceWithUnit,
     getTenantCountryIso,
@@ -306,6 +307,8 @@ const DEFAULT_FORM_VALUES = {
 };
 
 const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
+    const signedIn = useAppSelector((state) => state.auth.session.signedIn);
+    const tenantScope = signedIn ? getTenantId() : null;
     const isEditMode = Boolean(editBooking?.id);
     const todayWeekday = getTodayWeekdayLabel();
     const rawTenant = getTenantData();
@@ -437,35 +440,44 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
     };
 
     useEffect(() => {
+        if (!tenantScope) {
+            setMapError(null);
+            setMapsApi(null);
+            return undefined;
+        }
+
         const loadMapAndSettings = async () => {
             try {
-                const [keysRes, mapConfig] = await Promise.all([
-                    apiGetCompanyApiKeys(),
-                    ensureMapConfigurationLoaded(fetchMapConfiguration),
-                ]);
+                const mapConfig = await ensureMapConfigurationLoaded(fetchMapConfiguration);
+                if (!mapConfig) return;
+                let companyKeys = null;
 
-                if (keysRes.data?.success) {
-                    const data = keysRes.data.data;
-                    if (data.search_api) {
-                        setSearchApi(data.search_api.toLowerCase());
+                try {
+                    const keysRes = await apiGetCompanyApiKeys();
+                    if (keysRes.data?.success) {
+                        companyKeys = keysRes.data.data;
+                        if (companyKeys.search_api) {
+                            setSearchApi(companyKeys.search_api.toLowerCase());
+                        }
+                        if (companyKeys.country_of_use) {
+                            setCountryCode(companyKeys.country_of_use.toLowerCase());
+                        }
+                        if (companyKeys.units) {
+                            setCachedDistanceUnit(companyKeys.units);
+                        }
                     }
-                    if (data.country_of_use) {
-                        setCountryCode(data.country_of_use.toLowerCase());
-                    }
-                    if (data.units) {
-                        setCachedDistanceUnit(data.units);
-                    }
+                } catch (keysError) {
+                    console.warn("Fetch company API keys error:", keysError);
                 }
 
                 if (!mapConfig.ok) {
-                    setMapError(mapConfig.message);
+                    setMapError(mapConfig.message || "Unable to load map configuration");
                     setMapsApi(null);
                     return;
                 }
 
                 setMapError(null);
                 setMapsApi(mapConfig.provider);
-                const companyKeys = keysRes.data?.success ? keysRes.data.data : null;
                 const barikoiKey = mapConfig.barikoiKey || companyKeys?.barikoi_api_key || null;
                 setApiKeys({
                     googleKey: mapConfig.provider === MAP_PROVIDER_GOOGLE ? mapConfig.googleKey : null,
@@ -477,12 +489,12 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
                 });
             } catch (err) {
                 console.error("Fetch map configuration error:", err);
-                setMapError("Unable to load map configuration");
+                setMapError(err?.message || "Unable to load map configuration");
                 setMapsApi(null);
             }
         };
         loadMapAndSettings();
-    }, []);
+    }, [tenantScope]);
 
     useEffect(() => {
         const normalizePlotList = (response) => {

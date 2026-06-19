@@ -9,9 +9,11 @@ import { renderToString } from "react-dom/server";
 import RedCarIcon from "../../../../components/svg/RedCarIcon";
 import GreenCarIcon from "../../../../components/svg/GreenCarIcon";
 import AppLogoIcon from "../../../../components/svg/AppLogoIcon";
-import { getTenantData } from "../../../../utils/functions/tokenEncryption";
+import { getTenantData, getTenantId } from "../../../../utils/functions/tokenEncryption";
+import { useAppSelector } from "../../../../store";
 import { apiGetCompanyApiKeys } from "../../../../services/SettingsConfigurationServices";
 import { fetchMapConfiguration, MAP_PROVIDER_BARIKOI, MAP_PROVIDER_DEFAULT, MAP_PROVIDER_GOOGLE, buildBarikoiRasterStyle } from "../../../../services/mapConfigurationService";
+import { ensureMapConfigurationLoaded } from "../../../../services/mapConfigCache";
 import { apiGetPlot } from "../../../../services/PlotService";
 import { apiMapifyGeocoding, normalizeMapifyFeatures } from "../../../../services/MapSearchService";
 import MapSearchBox from "./components/MapSearchBox";
@@ -593,6 +595,8 @@ const DefaultMapView = ({ mapRef, mapInstance, markers, driverData, activeDriver
 };
 
 const Map = () => {
+  const signedIn = useAppSelector((state) => state.auth.session.signedIn);
+  const tenantScope = signedIn ? getTenantId() : null;
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [searchResults, setSearchResults] = useState([]);
@@ -613,27 +617,36 @@ const Map = () => {
   const [plotsData, setPlotsData] = useState([]);
 
   useEffect(() => {
+    if (!tenantScope) {
+      setMapError(null);
+      setMapType(null);
+      return undefined;
+    }
+
     const loadMapConfig = async () => {
       try {
-        const [keysRes, mapConfig] = await Promise.all([
-          apiGetCompanyApiKeys(),
-          fetchMapConfiguration(),
-        ]);
+        const mapConfig = await ensureMapConfigurationLoaded(fetchMapConfiguration);
+        if (!mapConfig) return;
+        let companyKeys = null;
 
-        if (keysRes.data?.success) {
-          const data = keysRes.data.data;
-          setApiKeys((prev) => ({ ...prev, countryOfUse: data.country_of_use || "IN" }));
+        try {
+          const keysRes = await apiGetCompanyApiKeys();
+          if (keysRes.data?.success) {
+            companyKeys = keysRes.data.data;
+            setApiKeys((prev) => ({ ...prev, countryOfUse: companyKeys.country_of_use || "IN" }));
+          }
+        } catch (keysError) {
+          console.warn("Fetch company API keys error:", keysError);
         }
 
         if (!mapConfig.ok) {
-          setMapError(mapConfig.message);
+          setMapError(mapConfig.message || "Unable to load map configuration");
           setMapType(null);
           return;
         }
 
         setMapError(null);
         setMapType(mapConfig.provider);
-        const companyKeys = keysRes.data?.success ? keysRes.data.data : null;
         const barikoiKey = mapConfig.barikoiKey || companyKeys?.barikoi_api_key || null;
         setApiKeys((prev) => ({
           ...prev,
@@ -646,13 +659,13 @@ const Map = () => {
         }));
       } catch (err) {
         console.error("Fetch map configuration error:", err);
-        setMapError("Unable to load map configuration");
+        setMapError(err?.message || "Unable to load map configuration");
         setMapType(null);
       }
     };
 
     loadMapConfig();
-  }, []);
+  }, [tenantScope]);
 
   useEffect(() => {
     const fetchPlots = async () => {

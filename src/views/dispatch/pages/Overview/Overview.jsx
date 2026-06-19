@@ -18,6 +18,7 @@ import {
   apiGetDispatchSystem,
 } from "../../../../services/SettingsConfigurationServices";
 import { fetchMapConfiguration, MAP_PROVIDER_BARIKOI, MAP_PROVIDER_DEFAULT, MAP_PROVIDER_GOOGLE, buildBarikoiRasterStyle } from "../../../../services/mapConfigurationService";
+import { ensureMapConfigurationLoaded } from "../../../../services/mapConfigCache";
 import { getDashboardCards, apiGetAllPlot, apiUpdateDriverRank } from "../../../../services/AddBookingServices";
 import { apiLogoutDriver, apiGetDriverManagement } from "../../../../services/DriverManagementService";
 import toast from "react-hot-toast";
@@ -43,6 +44,7 @@ import {
 import {
   clearLegacyOverviewDriverStorage,
   getTenantScopedStorageKey,
+  getTenantId,
 } from "../../../../utils/functions/tokenEncryption";
 
 const GOOGLE_KEY = "AIzaSyDTlV1tPVuaRbtvBQu4-kjDhTV54tR4cDU";
@@ -1213,6 +1215,8 @@ const usePersistedWaitingDrivers = () => {
 };
 
 const Overview = () => {
+  const signedIn = useAppSelector((state) => state.auth.session.signedIn);
+  const tenantScope = signedIn ? getTenantId() : null;
   const [isBookingModelOpen, setIsBookingModelOpen] = useState({ type: "new", isOpen: false, booking: null });
   const [isMessageModelOpen, setIsMessageModelOpen] = useState({ type: "new", isOpen: false });
   const [selectedMessageDriver, setSelectedMessageDriver] = useState(null);
@@ -1287,31 +1291,40 @@ const Overview = () => {
   }, []);
 
   useEffect(() => {
+    if (!tenantScope) {
+      setMapError(null);
+      setMapType(null);
+      return undefined;
+    }
+
     const fetchMapConfig = async () => {
       try {
-        const [keysRes, mapConfig] = await Promise.all([
-          apiGetCompanyApiKeys(),
-          fetchMapConfiguration(),
-        ]);
+        const mapConfig = await ensureMapConfigurationLoaded(fetchMapConfiguration);
+        if (!mapConfig) return;
+        let companyKeys = null;
 
-        if (keysRes.data?.success) {
-          const data = keysRes.data.data;
-          setApiKeys((prev) => ({
-            ...prev,
-            searchApi: data.search_api || "google",
-            countryOfUse: data.country_of_use || null,
-          }));
+        try {
+          const keysRes = await apiGetCompanyApiKeys();
+          if (keysRes.data?.success) {
+            companyKeys = keysRes.data.data;
+            setApiKeys((prev) => ({
+              ...prev,
+              searchApi: companyKeys.search_api || "google",
+              countryOfUse: companyKeys.country_of_use || null,
+            }));
+          }
+        } catch (keysError) {
+          console.warn("Fetch company API keys error:", keysError);
         }
 
         if (!mapConfig.ok) {
-          setMapError(mapConfig.message);
+          setMapError(mapConfig.message || "Unable to load map configuration");
           setMapType(null);
           return;
         }
 
         setMapError(null);
         setMapType(mapConfig.provider);
-        const companyKeys = keysRes.data?.success ? keysRes.data.data : null;
         const barikoiKey = mapConfig.barikoiKey || companyKeys?.barikoi_api_key || null;
         setApiKeys((prev) => ({
           ...prev,
@@ -1324,12 +1337,12 @@ const Overview = () => {
         }));
       } catch (err) {
         console.error("Fetch map configuration error:", err);
-        setMapError("Unable to load map configuration");
+        setMapError(err?.message || "Unable to load map configuration");
         setMapType(null);
       }
     };
     fetchMapConfig();
-  }, []);
+  }, [tenantScope]);
 
   useEffect(() => {
     if (!dispatchSystemLoaded) return;
