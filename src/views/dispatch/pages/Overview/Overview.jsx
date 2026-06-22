@@ -19,6 +19,11 @@ import {
 import { MAP_PROVIDER_BARIKOI, MAP_PROVIDER_DEFAULT, MAP_PROVIDER_GOOGLE } from "../../../../services/mapConfigurationService";
 import useMapConfiguration from "../../../../hooks/useMapConfiguration";
 import { destroySharedMapInstance } from "../../../../utils/functions/mapInstanceCleanup";
+import {
+  parsePlotCoordinates,
+  renderGoogleMapPlots,
+  scheduleMapLibrePlotRender,
+} from "../../../../utils/functions/plotMapGeometry";
 import AppLogoLoader from "../../../../components/shared/AppLogoLoader/AppLogoLoader";
 import { getDashboardCards, apiGetAllPlot, apiUpdateDriverRank } from "../../../../services/AddBookingServices";
 import { apiLogoutDriver, apiGetDriverManagement } from "../../../../services/DriverManagementService";
@@ -744,23 +749,7 @@ const parseDriverData = (rawData) => {
   }
 };
 
-const parseCoordinates = (plot) => {
-  if (!plot) return [];
-  try {
-    if (plot.features) {
-      const feature = typeof plot.features === "string" ? JSON.parse(plot.features) : plot.features;
-      let geometry = feature.geometry;
-      if (typeof geometry === "string") geometry = JSON.parse(geometry);
-      let coords = geometry?.coordinates;
-      if (typeof coords === "string") coords = JSON.parse(coords);
-      if (Array.isArray(coords) && Array.isArray(coords[0])) return coords[0].map((p) => ({ lat: Number(p[1]), lng: Number(p[0]) }));
-    }
-    let coords = plot.coordinates;
-    if (typeof coords === "string") coords = JSON.parse(coords);
-    if (Array.isArray(coords)) return coords.map((c) => ({ lat: Number(c.lat), lng: Number(c.lng) }));
-  } catch (error) { console.error("Parse coordinates error:", error); }
-  return [];
-};
+const parseCoordinates = parsePlotCoordinates;
 
 const getDriverCoordinates = (driver, driverData = {}) => {
   const merged = { ...driverData[getDriverKey(driver)], ...driver };
@@ -826,20 +815,24 @@ const GoogleMapSection = ({ mapRef, mapInstance, markers, driverData, setDriverD
   const { googleKey } = getApiKeys(apiKeys);
   const [isMapReady, setIsMapReady] = useState(false);
   const plotPolygons = useRef([]);
+  const plotsDataRef = useRef(plotsData);
+
+  useEffect(() => {
+    plotsDataRef.current = plotsData;
+  }, [plotsData]);
 
   const renderPlots = () => {
-    if (!mapInstance.current || !plotsData) return;
-    plotPolygons.current.forEach(p => p.setMap(null));
-    plotPolygons.current = [];
-    plotsData.forEach(plot => {
-      const coords = parseCoordinates(plot);
-      if (coords.length === 0) return;
-      const polygon = new window.google.maps.Polygon({ paths: coords, strokeColor: "#1F41BB", strokeOpacity: 0.8, strokeWeight: 2, fillColor: "#1F41BB", fillOpacity: 0.1, map: mapInstance.current });
-      plotPolygons.current.push(polygon);
-    });
+    if (!mapInstance.current) return;
+    plotPolygons.current = renderGoogleMapPlots(
+      mapInstance.current,
+      plotsDataRef.current,
+      plotPolygons.current
+    );
   };
 
-  useEffect(() => { if (mapInstance.current && plotsData) renderPlots(); }, [plotsData]);
+  useEffect(() => {
+    if (isMapReady) renderPlots();
+  }, [isMapReady, plotsData]);
 
   const fitMapToMarkers = () => {
     if (!mapInstance.current || Object.keys(markers.current).length === 0) return;
@@ -859,6 +852,11 @@ const GoogleMapSection = ({ mapRef, mapInstance, markers, driverData, setDriverD
         styles: [{ featureType: "poi", elementType: "labels", stylers: [{ visibility: "off" }] }],
       });
       setIsMapReady(true);
+      plotPolygons.current = renderGoogleMapPlots(
+        mapInstance.current,
+        plotsDataRef.current,
+        plotPolygons.current
+      );
     }).catch((err) => console.error("Google Map load failed:", err));
     return () => {
       mounted = false;
@@ -986,30 +984,14 @@ const DefaultMapSection = ({ mapRef, mapInstance, markers, driverData, setDriver
   const [mapReady, setMapReady] = useState(false);
   const { mapifyStyle, barikoiStyle } = getApiKeys(apiKeys);
   const mapStyle = mapifyStyle || barikoiStyle;
-  const plotsRendered = useRef(false);
+  const plotsDataRef = useRef(plotsData);
 
-  const renderPlots = (map) => {
-    if (!map || !plotsData || plotsData.length === 0) return;
-    const doRender = () => {
-      try {
-        ["plots-labels", "plots-outline", "plots-fill"].forEach(id => { if (map.getLayer(id)) map.removeLayer(id); });
-        if (map.getSource("plots")) map.removeSource("plots");
-        const features = plotsData.map(plot => {
-          const coords = parseCoordinates(plot);
-          if (coords.length === 0) return null;
-          return { type: "Feature", properties: { name: plot.plot_name || "Plot" }, geometry: { type: "Polygon", coordinates: [coords.map(c => [c.lng, c.lat])] } };
-        }).filter(Boolean);
-        if (features.length === 0) return;
-        map.addSource("plots", { type: "geojson", data: { type: "FeatureCollection", features } });
-        map.addLayer({ id: "plots-fill", type: "fill", source: "plots", paint: { "fill-color": "#1F41BB", "fill-opacity": 0.15 } });
-        map.addLayer({ id: "plots-outline", type: "line", source: "plots", paint: { "line-color": "#1F41BB", "line-width": 2.5, "line-opacity": 0.9 } });
-        plotsRendered.current = true;
-      } catch (err) { console.warn("Plot render error:", err); }
-    };
-    if (map.isStyleLoaded()) doRender(); else map.once("idle", doRender);
-  };
-
-  useEffect(() => { if (mapReady && mapInstance.current && plotsData?.length > 0) renderPlots(mapInstance.current); }, [mapReady, plotsData]);
+  useEffect(() => {
+    plotsDataRef.current = plotsData;
+    if (mapReady && mapInstance.current) {
+      scheduleMapLibrePlotRender(mapInstance.current, plotsDataRef.current);
+    }
+  }, [plotsData, mapReady]);
 
   useEffect(() => {
     if (!mapStyle) return;
@@ -1026,7 +1008,21 @@ const DefaultMapSection = ({ mapRef, mapInstance, markers, driverData, setDriver
         try {
           const map = new window.maplibregl.Map({ container, style, center: [countryCenter.lng, countryCenter.lat], zoom: 8, attributionControl: true, fadeDuration: 0 });
           map.addControl(new window.maplibregl.NavigationControl(), "top-right");
-          map.on("load", () => { if (!mounted) return; map.resize(); setTimeout(() => { if (mounted && map) { map.resize(); setMapReady(true); } }, 150); });
+          map.on("load", () => {
+            if (!mounted) return;
+            map.resize();
+            scheduleMapLibrePlotRender(map, plotsDataRef.current);
+            setTimeout(() => {
+              if (mounted && map) {
+                map.resize();
+                setMapReady(true);
+                scheduleMapLibrePlotRender(map, plotsDataRef.current);
+              }
+            }, 150);
+          });
+          map.on("style.load", () => {
+            scheduleMapLibrePlotRender(map, plotsDataRef.current);
+          });
           map.on("error", (e) => {
             const msg = e?.error?.message || String(e);
             const isAuthError = msg.includes("403") || msg.includes("401");
@@ -1042,7 +1038,14 @@ const DefaultMapSection = ({ mapRef, mapInstance, markers, driverData, setDriver
           console.error("MapLibre Map instantiation failed:", err);
           try {
             const map = new window.maplibregl.Map({ container, style: buildOsmFallbackStyle(), center: [countryCenter.lng, countryCenter.lat], zoom: 8 });
-            map.on("load", () => { map.resize(); setMapReady(true); });
+            map.on("load", () => {
+              map.resize();
+              scheduleMapLibrePlotRender(map, plotsDataRef.current);
+              setMapReady(true);
+            });
+            map.on("style.load", () => {
+              scheduleMapLibrePlotRender(map, plotsDataRef.current);
+            });
             mapInstance.current = map;
           } catch { }
         }

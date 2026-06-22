@@ -14,8 +14,8 @@ import useMapConfiguration from "../../../../hooks/useMapConfiguration";
 import { destroySharedMapInstance } from "../../../../utils/functions/mapInstanceCleanup";
 import AppLogoLoader from "../../../../components/shared/AppLogoLoader/AppLogoLoader";
 import { apiGetPlot } from "../../../../services/PlotService";
-import { apiMapifyGeocoding, normalizeMapifyFeatures } from "../../../../services/MapSearchService";
-import MapSearchBox from "./components/MapSearchBox";
+// import { fetchMapifyPlaceSearch } from "../../../../services/MapSearchService";
+// import MapSearchBox from "./components/MapSearchBox";
 import { useMapDriverSync } from "../../../../hooks/useMapDriverSync";
 import { getDriverKey, pruneDriverMarkers } from "../../../../utils/functions/driverMapSync";
 
@@ -603,13 +603,16 @@ const Map = () => {
     mapConfigLoading,
     apiKeys,
     tenantScope,
+    // mapSearchPreferences,
+    // saveMapSearchPreferences,
+    // handleBoundaryCountryChange,
   } = useMapConfiguration();
   const [searchQuery, setSearchQuery] = useState("");
-  const [debouncedQuery, setDebouncedQuery] = useState("");
-  const [searchResults, setSearchResults] = useState([]);
-  const [searchLoading, setSearchLoading] = useState(false);
-  const [searchError, setSearchError] = useState("");
-  const [showSearchResults, setShowSearchResults] = useState(false);
+  // const [debouncedQuery, setDebouncedQuery] = useState("");
+  // const [searchResults, setSearchResults] = useState([]);
+  // const [searchLoading, setSearchLoading] = useState(false);
+  // const [searchError, setSearchError] = useState("");
+  // const [showSearchResults, setShowSearchResults] = useState(false);
   const [selectedStatus, setSelectedStatus] = useState(MAP_STATUS_OPTIONS[0]);
   const [plotsData, setPlotsData] = useState([]);
 
@@ -633,12 +636,13 @@ const Map = () => {
   const markers = useRef({});
   const searchMarkerRef = useRef(null);
   const searchPopupRef = useRef(null);
-  const searchAbortRef = useRef(null);
+  // const searchAbortRef = useRef(null);
 
   useEffect(() => {
     destroySharedMapInstance(mapInstance, markers, mapRef);
   }, [mapType, mapConfigLoading]);
 
+  /*
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedQuery(searchQuery.trim());
@@ -689,14 +693,15 @@ const Map = () => {
       setSearchError("");
       try {
         const origin = getMapSearchOrigin();
-        const res = await apiMapifyGeocoding({
+        const boundaryCountry = mapSearchPreferences.boundaryCountry || apiKeys.countryOfUse;
+        const results = await fetchMapifyPlaceSearch({
           query: debouncedQuery,
           lat: origin.lat,
           lon: origin.lon,
-          boundaryCountry: apiKeys.countryOfUse,
+          nearbySearch: mapSearchPreferences.nearbySearch,
+          boundaryCountry,
           signal: controller.signal,
         });
-        const results = normalizeMapifyFeatures(res?.data);
         setSearchResults(results);
         setShowSearchResults(true);
       } catch (error) {
@@ -711,7 +716,14 @@ const Map = () => {
     run();
 
     return () => controller.abort();
-  }, [debouncedQuery, mapType, getMapSearchOrigin, apiKeys.countryOfUse]);
+  }, [
+    debouncedQuery,
+    mapType,
+    getMapSearchOrigin,
+    apiKeys.countryOfUse,
+    mapSearchPreferences.nearbySearch,
+    mapSearchPreferences.boundaryCountry,
+  ]);
 
   const handleSelectSearchResult = useCallback((item) => {
     setSearchQuery(item.name || "");
@@ -759,6 +771,7 @@ const Map = () => {
       clearSearchMarker();
     };
   }, [clearSearchMarker]);
+  */
 
   const sharedProps = {
     mapRef,
@@ -780,6 +793,7 @@ const Map = () => {
       </div>
       <CardContainer className="p-4 bg-[#F5F5F5]">
         <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-5 justify-between mb-4 pb-4">
+          {/* Map place search + nearby search controls disabled on /map
           {mapType === MAP_PROVIDER_DEFAULT && !mapConfigLoading && (
             <MapSearchBox
               value={searchQuery}
@@ -793,8 +807,13 @@ const Map = () => {
               showResults={showSearchResults && Boolean(searchQuery.trim())}
               onSelect={handleSelectSearchResult}
               onClear={handleClearSearch}
+              nearbySearch={mapSearchPreferences.nearbySearch}
+              boundaryCountry={mapSearchPreferences.boundaryCountry || apiKeys.countryOfUse}
+              onNearbySearchChange={saveMapSearchPreferences}
+              onBoundaryCountryChange={handleBoundaryCountryChange}
             />
           )}
+          */}
           <CustomSelect
             variant={2}
             options={MAP_STATUS_OPTIONS}

@@ -7,10 +7,11 @@ import {
     GET_MAPIFY_GEOCODING,
     GET_MAPIFY_TILES_BRIGHT,
     GET_THIRD_PARTY_INFORMATION,
+    POST_MAP_SEARCH_PREFERENCES,
 } from "../constants/api.route.constant";
 import appConfig from "../components/configs/app.config";
 import ApiService from "./ApiService";
-import { configureMapifyEndpoints } from "./MapSearchService";
+import { configureMapifyEndpoints, normalizeMapSearchPreferences } from "./MapSearchService";
 import { setCachedMapConfiguration } from "./mapConfigCache";
 import { getTenantId, getTenantData } from "../utils/functions/tokenEncryption";
 
@@ -198,6 +199,9 @@ const getMapifyGeocodingEndpoint = (info) =>
 const getMapifyReverseGeocodingEndpoint = (info) =>
     resolveApiUrl(info?.mapify_reverse_geocoding_endpoint || GET_MAPIFY_REVERSE_GEOCODING);
 
+const getMapifyPreferencesEndpoint = (info) =>
+    resolveApiUrl(info?.map_search_preferences_endpoint || POST_MAP_SEARCH_PREFERENCES);
+
 export const buildMapifyRasterStyle = (tilesEndpoint) => {
     const base = String(tilesEndpoint || "").replace(/\/$/, "");
     if (!base) return null;
@@ -315,6 +319,7 @@ const emptyMapConfig = (overrides = {}) => ({
     usesGoogleMap: false,
     raw: null,
     companyKeys: null,
+    mapSearchPreferences: null,
     ...overrides,
 });
 
@@ -349,6 +354,27 @@ const attachCompanyKeys = (config, keysRes) => ({
     ...config,
     companyKeys: extractCompanyKeys(keysRes),
 });
+
+const attachMapSearchPreferences = (config, keysRes, ...preferenceSources) => {
+    const fallbackCountry = extractCompanyKeys(keysRes)?.country_of_use || null;
+
+    for (const source of preferenceSources) {
+        if (source?.map_search_preferences) {
+            return {
+                ...config,
+                mapSearchPreferences: normalizeMapSearchPreferences(
+                    source.map_search_preferences,
+                    fallbackCountry
+                ),
+            };
+        }
+    }
+
+    return {
+        ...config,
+        mapSearchPreferences: normalizeMapSearchPreferences(null, fallbackCountry),
+    };
+};
 
 const buildConfigFromInfo = (rawInfo) => {
     const info = normalizeMapInfo(rawInfo);
@@ -387,6 +413,7 @@ const buildConfigFromInfo = (rawInfo) => {
             searchEndpoint,
             geocodingEndpoint,
             reverseGeocodingEndpoint,
+            preferencesEndpoint: getMapifyPreferencesEndpoint(info),
         });
 
         const mapifyStyle = buildMapifyRasterStyle(tilesEndpoint);
@@ -521,7 +548,13 @@ export async function fetchMapConfiguration() {
             throw error;
         }
 
-        const config = attachCompanyKeys(buildConfigFromInfo(info), keysRes);
+        const builtConfig = buildConfigFromInfo(info);
+        const config = attachMapSearchPreferences(
+            attachCompanyKeys(builtConfig, keysRes),
+            keysRes,
+            thirdPartyRes?.data,
+            mapRes?.data,
+        );
 
         if (requestTenantId && getTenantId() !== requestTenantId) {
             const error = new Error("Tenant changed while loading map configuration.");
@@ -537,11 +570,14 @@ export async function fetchMapConfiguration() {
         }
 
         configureMapifyEndpoints(null);
-        const config = attachCompanyKeys(emptyMapConfig({
-            status: error?.response?.status,
-            message: getMapErrorMessage(error),
-            error,
-        }), null);
+        const config = attachMapSearchPreferences(
+            attachCompanyKeys(emptyMapConfig({
+                status: error?.response?.status,
+                message: getMapErrorMessage(error),
+                error,
+            }), null),
+            null,
+        );
 
         if (!requestTenantId || getTenantId() === requestTenantId) {
             setCachedMapConfiguration(config);

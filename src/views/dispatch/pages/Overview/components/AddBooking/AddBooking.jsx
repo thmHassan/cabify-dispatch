@@ -1,5 +1,5 @@
 import { Form, Formik } from "formik";
-import { useEffect, useState, useMemo, useCallback } from "react";
+import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import Maps from "./components/maps";
 import { getTenantData, getTenantId } from "../../../../../../utils/functions/tokenEncryption";
 import { useAppSelector } from "../../../../../../store";
@@ -46,7 +46,12 @@ import {
     fetchMapifyAddressFromCoords,
     fetchMapifyLocationSuggestions,
     isReverseGeocodingAvailable,
+    normalizeMapSearchPreferences,
+    apiSaveMapSearchPreferences,
+    apiGetMapSearchPreferences,
+    extractMapSearchPreferencesFromResponse,
 } from "../../../../../../services/MapSearchService";
+import MapNearbySearchControls, { toGoogleCountryCode } from "../../../../../../components/map/MapNearbySearchControls";
 import { debounce } from "lodash";
 import { isCoordinateString } from "../../../../../../utils/functions/locationDisplay";
 import {
@@ -65,6 +70,7 @@ import {
     dispatchSystemListHasPlotBased,
     isManualDispatchOnlySystem,
 } from "../../../../../../utils/functions/dispatchSystem";
+import { validatePlotBasedPickup } from "../../../../../../utils/functions/plotMapGeometry";
 import History from "./components/History";
 import successSound from "../../../../../../assets/audio/meldix-success-340660.mp3";
 
@@ -375,6 +381,14 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
         barikoiStyle: null,
         barikoiKey: null,
     });
+    const [mapSearchPreferences, setMapSearchPreferences] = useState({
+        nearbySearch: false,
+        boundaryCountry: null,
+    });
+    const [mapSearchPreferencesLoading, setMapSearchPreferencesLoading] = useState(true);
+    const [companyCountryOfUse, setCompanyCountryOfUse] = useState(
+        tenantCountryIso || "IN"
+    );
     const [userSuggestions, setUserSuggestions] = useState([]);
     const [showUserSuggestions, setShowUserSuggestions] = useState(false);
     const [loadingUsers, setLoadingUsers] = useState(false);
@@ -388,6 +402,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
     const [plotsData, setPlotsData] = useState([]);
     const searchAbortRef = useState({ pickup: null, destination: null, via: {} })[0];
     const searchDebounceRef = useState({ pickup: null, destination: null, via: {} })[0];
+    const activeLocationQueriesRef = useRef({ pickup: "", destination: "", via: {} });
 
     const clearCalcError = (key) => setCalculateErrors(prev => ({ ...prev, [key]: undefined }));
     const clearBookingError = (key) => setBookingErrors(prev => ({ ...prev, [key]: undefined }));
@@ -438,18 +453,56 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
         setUserSuggestions([]);
     };
 
+    const resolvePreferenceFallbackCountry = useCallback(() => (
+        companyCountryOfUse
+        || tenantCountryIso
+        || countryCode?.toUpperCase()
+        || "IN"
+    ).toUpperCase(), [companyCountryOfUse, tenantCountryIso, countryCode]);
+
+    const loadMapSearchPreferences = useCallback(async (fallbackCountry) => {
+        try {
+            const preferencesRes = await apiGetMapSearchPreferences();
+            const preferences = extractMapSearchPreferencesFromResponse(
+                preferencesRes,
+                fallbackCountry
+            );
+            setMapSearchPreferences(preferences);
+            return preferences;
+        } catch (prefError) {
+            console.warn("Failed to fetch map search preferences:", prefError);
+            return null;
+        }
+    }, []);
+
     useEffect(() => {
         if (!tenantScope) {
             setMapError(null);
             setMapsApi(null);
+            setMapSearchPreferencesLoading(false);
             return undefined;
         }
 
         const loadMapAndSettings = async () => {
+            setMapSearchPreferencesLoading(true);
             try {
-                const mapConfig = await ensureMapConfigurationLoaded(fetchMapConfiguration);
+                const fallbackCountry = (
+                    tenantCountryIso
+                    || countryCode?.toUpperCase()
+                    || "IN"
+                ).toUpperCase();
+
+                const [mapConfig, savedPreferences] = await Promise.all([
+                    ensureMapConfigurationLoaded(fetchMapConfiguration, { force: true }),
+                    loadMapSearchPreferences(fallbackCountry),
+                ]);
+
                 if (!mapConfig) return;
                 const companyKeys = mapConfig.companyKeys || null;
+                const resolvedFallback = (
+                    companyKeys?.country_of_use
+                    || fallbackCountry
+                ).toUpperCase();
 
                 if (companyKeys) {
                     if (companyKeys.search_api) {
@@ -457,6 +510,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
                     }
                     if (companyKeys.country_of_use) {
                         setCountryCode(companyKeys.country_of_use.toLowerCase());
+                        setCompanyCountryOfUse(companyKeys.country_of_use.toUpperCase());
                     }
                     if (companyKeys.units) {
                         setCachedDistanceUnit(companyKeys.units);
@@ -480,14 +534,26 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
                         : null,
                     barikoiKey,
                 });
+
+                if (!savedPreferences) {
+                    setMapSearchPreferences(
+                        mapConfig.mapSearchPreferences
+                        || normalizeMapSearchPreferences(
+                            mapConfig.raw?.map_search_preferences,
+                            resolvedFallback
+                        )
+                    );
+                }
             } catch (err) {
                 console.error("Fetch map configuration error:", err);
                 setMapError(err?.message || "Unable to load map configuration");
                 setMapsApi(null);
+            } finally {
+                setMapSearchPreferencesLoading(false);
             }
         };
         loadMapAndSettings();
-    }, [tenantScope]);
+    }, [tenantScope, loadMapSearchPreferences]);
 
     useEffect(() => {
         const normalizePlotList = (response) => {
@@ -787,6 +853,71 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
         return SEARCH_COUNTRY_CENTERS[code] || SEARCH_COUNTRY_CENTERS.DEFAULT;
     };
 
+    const resolveBoundaryCountry = useCallback(() => {
+        if (!mapSearchPreferences.nearbySearch) return null;
+        return (
+            mapSearchPreferences.boundaryCountry
+            || companyCountryOfUse
+            || tenantCountryIso
+            || countryCode?.toUpperCase()
+            || null
+        );
+    }, [
+        mapSearchPreferences.nearbySearch,
+        mapSearchPreferences.boundaryCountry,
+        companyCountryOfUse,
+        tenantCountryIso,
+        countryCode,
+    ]);
+
+    const persistMapSearchPreferences = useCallback(async (nextPreferences) => {
+        setMapSearchPreferences(nextPreferences);
+        try {
+            const response = await apiSaveMapSearchPreferences({
+                nearbySearch: nextPreferences.nearbySearch,
+                boundaryCountry: nextPreferences.boundaryCountry,
+            });
+            const savedPreferences = extractMapSearchPreferencesFromResponse(
+                response,
+                resolvePreferenceFallbackCountry()
+            );
+            setMapSearchPreferences(savedPreferences);
+            return true;
+        } catch (error) {
+            console.warn("Failed to save map search preferences:", error);
+            return false;
+        }
+    }, [resolvePreferenceFallbackCountry]);
+
+    const handleNearbySearchChange = useCallback(async (enabled) => {
+        const fallbackCountry = (
+            mapSearchPreferences.boundaryCountry
+            || companyCountryOfUse
+            || tenantCountryIso
+            || countryCode?.toUpperCase()
+            || "IN"
+        ).toUpperCase();
+
+        await persistMapSearchPreferences({
+            nearbySearch: Boolean(enabled),
+            boundaryCountry: enabled ? fallbackCountry : null,
+        });
+    }, [
+        companyCountryOfUse,
+        countryCode,
+        mapSearchPreferences.boundaryCountry,
+        persistMapSearchPreferences,
+        tenantCountryIso,
+    ]);
+
+    const getGoogleSearchCountry = useCallback(() => {
+        if (mapSearchPreferences.nearbySearch) {
+            const boundary = resolveBoundaryCountry();
+            return toGoogleCountryCode(boundary) || countryCode;
+        }
+        return countryCode;
+    }, [countryCode, mapSearchPreferences.nearbySearch, resolveBoundaryCountry]);
+
     const cancelPendingSearch = (type, index = null) => {
         if (type === "via") {
             const key = String(index);
@@ -829,25 +960,41 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
 
     const isMapifyLocationSearch = () => mapsApi === MAP_PROVIDER_DEFAULT;
 
+    const showNearbySearchControls = isMapifyLocationSearch()
+        || searchApi === "google"
+        || searchApi === "both";
+
     const searchLocation = async (query, type, index = null) => {
         const cleanedQuery = query?.trim() || "";
         cancelPendingSearch(type, index);
 
         if (cleanedQuery.length < 2) {
+            if (type === "via") {
+                activeLocationQueriesRef.current.via[index] = "";
+            } else {
+                activeLocationQueriesRef.current[type] = "";
+            }
             updateSuggestions([], type, index, false);
             setLocationSearchLoading(type, index, false);
             setLocationSearchError(type, index, "");
             return;
         }
 
+        if (type === "via") {
+            activeLocationQueriesRef.current.via[index] = cleanedQuery;
+        } else {
+            activeLocationQueriesRef.current[type] = cleanedQuery;
+        }
+
         if (!isMapifyLocationSearch()) {
             let list = [];
 
             if ((searchApi === "google" || searchApi === "both") && googleService) {
+                const googleCountry = getGoogleSearchCountry();
                 googleService.getPlacePredictions(
                     {
                         input: cleanedQuery,
-                        componentRestrictions: { country: countryCode },
+                        componentRestrictions: googleCountry ? { country: googleCountry } : undefined,
                     },
                     (predictions, status) => {
                         if (status === "OK") {
@@ -911,7 +1058,8 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
                     query: cleanedQuery,
                     lat: origin.lat,
                     lon: origin.lon,
-                    boundaryCountry: countryCode,
+                    nearbySearch: mapSearchPreferences.nearbySearch,
+                    boundaryCountry: resolveBoundaryCountry(),
                     signal: controller.signal,
                 });
                 updateSuggestions(suggestions, type, index, true);
@@ -938,6 +1086,40 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
         if (type === "via") searchDebounceRef.via[String(index)] = timer;
         else searchDebounceRef[type] = timer;
     };
+
+    const searchLocationRef = useRef(searchLocation);
+    searchLocationRef.current = searchLocation;
+
+    const refreshActiveLocationSearches = useCallback(() => {
+        const queries = activeLocationQueriesRef.current;
+        if (queries.pickup?.trim().length >= 2) {
+            searchLocationRef.current(queries.pickup, "pickup");
+        }
+        if (queries.destination?.trim().length >= 2) {
+            searchLocationRef.current(queries.destination, "destination");
+        }
+        Object.entries(queries.via || {}).forEach(([index, query]) => {
+            if (query?.trim().length >= 2) {
+                searchLocationRef.current(query, "via", Number(index));
+            }
+        });
+    }, []);
+
+    const handleNearbySearchCheckboxChange = useCallback(async (event) => {
+        await handleNearbySearchChange(event.target.checked);
+        refreshActiveLocationSearches();
+    }, [handleNearbySearchChange, refreshActiveLocationSearches]);
+
+    const handleBoundaryCountrySelectChange = useCallback(async (event) => {
+        const normalizedCountry = String(event.target.value ?? "").trim().toUpperCase();
+        if (!normalizedCountry) return;
+
+        await persistMapSearchPreferences({
+            nearbySearch: true,
+            boundaryCountry: normalizedCountry,
+        });
+        refreshActiveLocationSearches();
+    }, [persistMapSearchPreferences, refreshActiveLocationSearches]);
 
     const getLatLngFromPlaceId = (placeId) =>
         new Promise((resolve) => {
@@ -1034,7 +1216,8 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
                     query: address,
                     lat: origin.lat,
                     lon: origin.lon,
-                    boundaryCountry: countryCode,
+                    nearbySearch: mapSearchPreferences.nearbySearch,
+                    boundaryCountry: resolveBoundaryCountry(),
                 });
                 const first = suggestions[0];
                 if (first) {
@@ -1189,6 +1372,12 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
         (values.auto_dispatch || isManualDispatchOnly) &&
         !values.bidding &&
         (isManualDispatchOnly || !isPlotBasedDispatchEnabled || isEdit);
+
+    const requiresPlotBasedPickupValidation = (values) =>
+        isPlotBasedDispatchEnabled &&
+        !isManualDispatchOnly &&
+        Boolean(values.auto_dispatch) &&
+        !values.bidding;
 
     const handleCalculateFares = async (values, setFieldValue) => {
         const errors = validateCalculateFares(values);
@@ -1428,6 +1617,29 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
                     values.destination_latitude,
                     values.destination_longitude
                 );
+
+            if (requiresPlotBasedPickupValidation(values)) {
+                if (!pickupCoords) {
+                    const message = "Pickup location is required for plot-based dispatch.";
+                    setBookingErrors({ pickup_location: message });
+                    toast.error(message);
+                    return;
+                }
+
+                const plotValidation = await validatePlotBasedPickup({
+                    latitude: pickupCoords.latitude,
+                    longitude: pickupCoords.longitude,
+                    fetchPlotName,
+                    plotsData,
+                    drivers: driverRawList,
+                });
+
+                if (!plotValidation.ok) {
+                    setBookingErrors({ pickup_location: plotValidation.message });
+                    toast.error(plotValidation.message);
+                    return;
+                }
+            }
 
             if (pickupCoords) {
                 formData.append('pickup_point', `${pickupCoords.latitude}, ${pickupCoords.longitude}`);
@@ -2219,6 +2431,24 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
                                     <div className="lg:col-span-3 lg:row-start-2 min-w-0 overflow-visible">
                                         <FormSection title="Route" overflowVisible>
                                             <div className="space-y-2">
+                                                {showNearbySearchControls && (
+                                                    <div className="rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] px-3 py-2.5">
+                                                        <MapNearbySearchControls
+                                                            nearbySearch={mapSearchPreferences.nearbySearch}
+                                                            boundaryCountry={
+                                                                mapSearchPreferences.boundaryCountry
+                                                                || companyCountryOfUse
+                                                                || tenantCountryIso
+                                                                || ""
+                                                            }
+                                                            onNearbySearchChange={handleNearbySearchCheckboxChange}
+                                                            onBoundaryCountryChange={handleBoundaryCountrySelectChange}
+                                                            loading={mapSearchPreferencesLoading}
+                                                            disabled={mapSearchPreferencesLoading}
+                                                            compact
+                                                        />
+                                                    </div>
+                                                )}
                                                 <div className="flex flex-col gap-2 lg:flex-row lg:items-start">
                                                     <div className="flex-1">
                                                         <InputBox label="Pickup" value={values.pickup_location} plot={pickupPlotData?.name || ""}
@@ -2235,7 +2465,12 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
                                                                 }
                                                                 searchLocation(v, "pickup"); clearFieldErrors("pickup_location");
                                                             }}
-                                                            onSelect={(i) => selectLocation(i, "pickup", setFieldValue)} />
+                                                            onSelect={(i) => selectLocation(i, "pickup", setFieldValue)}
+                                                            onDismiss={() => {
+                                                                setShowPickup(false);
+                                                                setPickupSearchLoading(false);
+                                                                cancelPendingSearch("pickup");
+                                                            }} />
                                                         <FieldError message={calculateErrors.pickup_location || bookingErrors.pickup_location} />
                                                     </div>
                                                     {values.via_points.length < 2 && (
@@ -2296,7 +2531,12 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
                                                         }
                                                         searchLocation(v, "destination"); clearFieldErrors("destination_location");
                                                     }}
-                                                    onSelect={(i) => selectLocation(i, "destination", setFieldValue)} />
+                                                    onSelect={(i) => selectLocation(i, "destination", setFieldValue)}
+                                                    onDismiss={() => {
+                                                        setShowDestination(false);
+                                                        setDestinationSearchLoading(false);
+                                                        cancelPendingSearch("destination");
+                                                    }} />
                                                 <FieldError message={calculateErrors.destination_location || bookingErrors.destination_location} />
                                             </div>
                                         </FormSection>
@@ -2414,54 +2654,74 @@ const InputBox = ({
     suggestions,
     show,
     onSelect,
+    onDismiss,
     plot,
     placeholder,
     hasError,
     loading = false,
     error = "",
     dropup = false,
-}) => (
-    <div className="relative w-full">
-        <label className={formLabelClass}>{label}</label>
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr_90px] gap-1.5">
-            <div className="relative">
-                <input
-                    value={value}
-                    onChange={(e) => onChange(e.target.value)}
-                    placeholder={placeholder}
-                    className={`${formInputClass} ${hasError ? formInputErrorClass : ""}`}
-                />
-                {(show || loading || error) && (
-                    <ul className={`absolute left-0 right-0 z-[100] max-h-60 overflow-auto rounded-lg border border-[#E5E7EB] bg-white shadow-lg ${dropup ? "bottom-full mb-1" : "top-full mt-1"}`}>
-                        {loading && (
-                            <li className="px-3 py-2 text-sm text-[#6B7280]">Searching...</li>
-                        )}
-                        {!loading && error && (
-                            <li className="px-3 py-2 text-sm text-[#DC2626]">{error}</li>
-                        )}
-                        {!loading && !error && suggestions.length === 0 && show && (
-                            <li className="px-3 py-2 text-sm text-[#6B7280]">No locations found</li>
-                        )}
-                        {!loading && !error && suggestions.map((item, idx) => (
-                            <li
-                                key={item.id || `${item.label}-${idx}`}
-                                onClick={() => onSelect(item)}
-                                className="cursor-pointer px-3 py-2 text-sm hover:bg-[#F9FAFB]"
-                            >
-                                <div className="font-medium text-[#111827]">{item.label}</div>
-                                {item.subtitle ? (
-                                    <div className="text-xs text-[#6B7280]">{item.subtitle}</div>
-                                ) : null}
-                            </li>
-                        ))}
-                    </ul>
-                )}
+}) => {
+    const containerRef = useRef(null);
+
+    useEffect(() => {
+        if (!show) return undefined;
+
+        const handlePointerDown = (event) => {
+            if (!containerRef.current?.contains(event.target)) {
+                onDismiss?.();
+            }
+        };
+
+        document.addEventListener("mousedown", handlePointerDown);
+        return () => document.removeEventListener("mousedown", handlePointerDown);
+    }, [show, onDismiss]);
+
+    return (
+        <div ref={containerRef} className="relative w-full">
+            <label className={formLabelClass}>{label}</label>
+            <div className="grid grid-cols-1 lg:grid-cols-[1fr_90px] gap-1.5">
+                <div className="relative">
+                    <input
+                        value={value}
+                        onChange={(e) => onChange(e.target.value)}
+                        onBlur={() => onDismiss?.()}
+                        placeholder={placeholder}
+                        className={`${formInputClass} ${hasError ? formInputErrorClass : ""}`}
+                    />
+                    {(show || loading || error) && (
+                        <ul className={`absolute left-0 right-0 z-[100] max-h-60 overflow-auto rounded-lg border border-[#E5E7EB] bg-white shadow-lg ${dropup ? "bottom-full mb-1" : "top-full mt-1"}`}>
+                            {loading && (
+                                <li className="px-3 py-2 text-sm text-[#6B7280]">Searching...</li>
+                            )}
+                            {!loading && error && (
+                                <li className="px-3 py-2 text-sm text-[#DC2626]">{error}</li>
+                            )}
+                            {!loading && !error && suggestions.length === 0 && show && (
+                                <li className="px-3 py-2 text-sm text-[#6B7280]">No locations found</li>
+                            )}
+                            {!loading && !error && suggestions.map((item, idx) => (
+                                <li
+                                    key={item.id || `${item.label}-${idx}`}
+                                    onMouseDown={(event) => event.preventDefault()}
+                                    onClick={() => onSelect(item)}
+                                    className="cursor-pointer px-3 py-2 text-sm hover:bg-[#F9FAFB]"
+                                >
+                                    <div className="font-medium text-[#111827]">{item.label}</div>
+                                    {item.subtitle ? (
+                                        <div className="text-xs text-[#6B7280]">{item.subtitle}</div>
+                                    ) : null}
+                                </li>
+                            ))}
+                        </ul>
+                    )}
+                </div>
+                <input readOnly placeholder="Plot" value={plot || ""}
+                    className={`${formInputClass} bg-[#F9FAFB] text-[#6B7280]`} />
             </div>
-            <input readOnly placeholder="Plot" value={plot || ""}
-                className={`${formInputClass} bg-[#F9FAFB] text-[#6B7280]`} />
         </div>
-    </div>
-);
+    );
+};
 
 const ChargeInput = ({ label, name, value, onChange, readOnly = false }) => (
     <div>

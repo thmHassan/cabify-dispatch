@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useAppSelector } from "../store";
 import { getTenantId, getTenantData } from "../utils/functions/tokenEncryption";
 import {
@@ -12,6 +12,10 @@ import {
     ensureMapConfigurationLoaded,
     invalidateMapConfigurationCache,
 } from "../services/mapConfigCache";
+import {
+    apiSaveMapSearchPreferences,
+    normalizeMapSearchPreferences,
+} from "../services/MapSearchService";
 
 const getInitialCountryOfUse = () => {
     const tenant = getTenantData();
@@ -33,6 +37,17 @@ const buildApiKeysFromConfig = (mapConfig, companyKeys) => {
     };
 };
 
+const resolveMapSearchPreferences = (mapConfig, companyKeys) => {
+    const fallbackCountry = companyKeys?.country_of_use || getInitialCountryOfUse();
+    if (mapConfig?.mapSearchPreferences) {
+        return mapConfig.mapSearchPreferences;
+    }
+    return normalizeMapSearchPreferences(
+        mapConfig?.raw?.map_search_preferences,
+        fallbackCountry
+    );
+};
+
 export default function useMapConfiguration() {
     const signedIn = useAppSelector((state) => state.auth.session.signedIn);
     const tenantScope = signedIn ? getTenantId() : null;
@@ -48,6 +63,10 @@ export default function useMapConfiguration() {
         barikoiKey: null,
         searchApi: "google",
         countryOfUse: getInitialCountryOfUse(),
+    });
+    const [mapSearchPreferences, setMapSearchPreferences] = useState({
+        nearbySearch: false,
+        boundaryCountry: null,
     });
 
     useEffect(() => {
@@ -92,6 +111,7 @@ export default function useMapConfiguration() {
                 setMapError(null);
                 setMapType(mapConfig.provider);
                 setApiKeys(buildApiKeysFromConfig(mapConfig, companyKeys));
+                setMapSearchPreferences(resolveMapSearchPreferences(mapConfig, companyKeys));
             } catch (err) {
                 if (cancelled) return;
                 console.error("Fetch map configuration error:", err);
@@ -124,11 +144,43 @@ export default function useMapConfiguration() {
         return () => document.removeEventListener("visibilitychange", handleVisibility);
     }, [tenantScope]);
 
+    const saveMapSearchPreferences = useCallback(async (nextNearbySearch, nextBoundaryCountry) => {
+        const boundaryCountry = nextBoundaryCountry
+            ?? (mapSearchPreferences.boundaryCountry
+            || apiKeys.countryOfUse
+            || getInitialCountryOfUse());
+
+        const nextPreferences = {
+            nearbySearch: Boolean(nextNearbySearch),
+            boundaryCountry: nextNearbySearch ? boundaryCountry : null,
+        };
+
+        setMapSearchPreferences(nextPreferences);
+
+        try {
+            await apiSaveMapSearchPreferences({
+                nearbySearch: nextPreferences.nearbySearch,
+                boundaryCountry: nextPreferences.boundaryCountry,
+            });
+        } catch (error) {
+            console.warn("Failed to save map search preferences:", error);
+        }
+    }, [apiKeys.countryOfUse, mapSearchPreferences.boundaryCountry]);
+
+    const handleBoundaryCountryChange = useCallback((nextCountry) => {
+        const normalizedCountry = String(nextCountry ?? "").trim().toUpperCase();
+        if (!normalizedCountry) return;
+        saveMapSearchPreferences(true, normalizedCountry);
+    }, [saveMapSearchPreferences]);
+
     return {
         mapType,
         mapError,
         mapConfigLoading,
         apiKeys,
         tenantScope,
+        mapSearchPreferences,
+        saveMapSearchPreferences,
+        handleBoundaryCountryChange,
     };
 }

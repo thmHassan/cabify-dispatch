@@ -1,8 +1,9 @@
-import { METHOD_GET } from "../constants/method.constant";
+import { METHOD_GET, METHOD_POST } from "../constants/method.constant";
 import {
     GET_MAPIFY_GEOCODING,
     GET_MAPIFY_REVERSE_GEOCODING,
     GET_MAPIFY_SEARCH,
+    POST_MAP_SEARCH_PREFERENCES,
 } from "../constants/api.route.constant";
 import ApiService from "./ApiService";
 import { getCachedMapConfiguration, isMapifyEnabled } from "./mapConfigCache";
@@ -11,6 +12,7 @@ let mapifyEndpoints = {
     searchEndpoint: GET_MAPIFY_SEARCH,
     geocodingEndpoint: GET_MAPIFY_GEOCODING,
     reverseGeocodingEndpoint: GET_MAPIFY_REVERSE_GEOCODING,
+    preferencesEndpoint: POST_MAP_SEARCH_PREFERENCES,
 };
 
 export const configureMapifyEndpoints = (endpoints) => {
@@ -19,6 +21,7 @@ export const configureMapifyEndpoints = (endpoints) => {
             searchEndpoint: GET_MAPIFY_SEARCH,
             geocodingEndpoint: GET_MAPIFY_GEOCODING,
             reverseGeocodingEndpoint: GET_MAPIFY_REVERSE_GEOCODING,
+            preferencesEndpoint: POST_MAP_SEARCH_PREFERENCES,
         };
         return;
     }
@@ -28,6 +31,8 @@ export const configureMapifyEndpoints = (endpoints) => {
         geocodingEndpoint: endpoints.geocodingEndpoint || GET_MAPIFY_GEOCODING,
         reverseGeocodingEndpoint:
             endpoints.reverseGeocodingEndpoint || GET_MAPIFY_REVERSE_GEOCODING,
+        preferencesEndpoint:
+            endpoints.preferencesEndpoint || POST_MAP_SEARCH_PREFERENCES,
     };
 };
 
@@ -35,6 +40,8 @@ const getSearchEndpoint = () => mapifyEndpoints.searchEndpoint || GET_MAPIFY_SEA
 const getGeocodingEndpoint = () => mapifyEndpoints.geocodingEndpoint || GET_MAPIFY_GEOCODING;
 const getReverseGeocodingEndpoint = () =>
     mapifyEndpoints.reverseGeocodingEndpoint || GET_MAPIFY_REVERSE_GEOCODING;
+const getPreferencesEndpoint = () =>
+    mapifyEndpoints.preferencesEndpoint || POST_MAP_SEARCH_PREFERENCES;
 
 export const isReverseGeocodingAvailable = () => {
     const config = getCachedMapConfiguration();
@@ -45,8 +52,89 @@ export const isReverseGeocodingAvailable = () => {
 };
 
 const normalizeBoundaryCountry = (code) => {
-    const normalized = code?.trim().toUpperCase();
+    const normalized = String(code ?? "").trim().toUpperCase();
     return normalized || undefined;
+};
+
+const parseNearbySearchFlag = (value) => {
+    if (value === true || value === 1 || value === "1") return true;
+    if (value === false || value === 0 || value === "0") return false;
+    return Boolean(value);
+};
+
+export const normalizeMapSearchPreferences = (raw, fallbackCountry = null) => {
+    const prefs = raw?.map_search_preferences ?? raw;
+    if (!prefs || typeof prefs !== "object") {
+        return {
+            nearbySearch: false,
+            boundaryCountry: null,
+        };
+    }
+
+    const nearbySearch = parseNearbySearchFlag(
+        prefs.nearby_search_enabled ?? prefs.nearby_search
+    );
+    const boundaryCountry = normalizeBoundaryCountry(
+        prefs.search_boundary_country ?? prefs.boundary_country
+    ) || (nearbySearch ? normalizeBoundaryCountry(fallbackCountry) : null);
+
+    return {
+        nearbySearch,
+        boundaryCountry: nearbySearch ? boundaryCountry ?? null : null,
+    };
+};
+
+export const getMapSearchPreferencesFromConfig = (fallbackCountry = null) => {
+    const config = getCachedMapConfiguration();
+    if (config?.mapSearchPreferences) {
+        return config.mapSearchPreferences;
+    }
+    return normalizeMapSearchPreferences(
+        config?.raw?.map_search_preferences ?? config?.raw,
+        fallbackCountry
+    );
+};
+
+export const extractMapSearchPreferencesFromResponse = (response, fallbackCountry = null) => {
+    const payload = response?.data;
+    const root = payload?.data ?? payload;
+    const nested = root?.map_search_preferences;
+    const merged = {
+        ...(nested && typeof nested === "object" ? nested : {}),
+        nearby_search_enabled:
+            root?.nearby_search_enabled
+            ?? nested?.nearby_search_enabled
+            ?? nested?.nearby_search,
+        search_boundary_country:
+            root?.search_boundary_country
+            ?? nested?.search_boundary_country
+            ?? nested?.boundary_country,
+    };
+
+    return normalizeMapSearchPreferences(merged, fallbackCountry);
+};
+
+export async function apiGetMapSearchPreferences() {
+    return ApiService.fetchData({
+        url: getPreferencesEndpoint(),
+        method: METHOD_GET,
+        headers: {
+            Accept: "application/json",
+        },
+    });
+}
+
+const buildNearbySearchParams = ({ nearbySearch, boundaryCountry }) => {
+    if (nearbySearch) {
+        const params = { nearby_search: 1 };
+        const country = normalizeBoundaryCountry(boundaryCountry);
+        if (country) {
+            params.boundary_country = country;
+        }
+        return params;
+    }
+
+    return { nearby_search: 0 };
 };
 
 const unwrapMapifyPayload = (payload) => {
@@ -147,10 +235,30 @@ export const extractReverseGeocodeLabel = (payload) => {
     return null;
 };
 
-export async function apiMapifySearch({ query, lat, lon, size = 8, signal }) {
-    const params = { lat, lon, size };
+export async function apiMapifySearch({
+    query,
+    lat,
+    lon,
+    size = 8,
+    nearbySearch = false,
+    boundaryCountry,
+    signal,
+}) {
     const cleanedQuery = query?.trim();
-    if (cleanedQuery) params.q = cleanedQuery;
+    if (!cleanedQuery) {
+        throw new Error("Search query is required.");
+    }
+
+    const params = {
+        q: cleanedQuery,
+        ...buildNearbySearchParams({ nearbySearch, boundaryCountry }),
+    };
+
+    if (size != null) params.size = size;
+    if (lat != null && lon != null) {
+        params.lat = lat;
+        params.lon = lon;
+    }
 
     return ApiService.fetchData({
         url: getSearchEndpoint(),
@@ -163,14 +271,28 @@ export async function apiMapifySearch({ query, lat, lon, size = 8, signal }) {
     });
 }
 
-export async function apiMapifyGeocoding({ query, lat, lon, boundaryCountry, signal }) {
+export async function apiMapifyGeocoding({
+    query,
+    lat,
+    lon,
+    nearbySearch = false,
+    boundaryCountry,
+    signal,
+}) {
+    const cleanedQuery = query?.trim();
+    if (!cleanedQuery) {
+        throw new Error("Search query is required.");
+    }
+
     const params = {
-        q: query,
-        lat,
-        lon,
+        q: cleanedQuery,
+        ...buildNearbySearchParams({ nearbySearch, boundaryCountry }),
     };
-    const country = normalizeBoundaryCountry(boundaryCountry);
-    if (country) params.boundary_country = country;
+
+    if (lat != null && lon != null) {
+        params.lat = lat;
+        params.lon = lon;
+    }
 
     return ApiService.fetchData({
         url: getGeocodingEndpoint(),
@@ -193,6 +315,28 @@ export async function apiMapifyReverseGeocoding({ lat, lon, size = 1, signal }) 
             size,
         },
         signal,
+        headers: {
+            Accept: "application/json",
+        },
+    });
+}
+
+export async function apiSaveMapSearchPreferences({ nearbySearch, boundaryCountry }) {
+    const payload = {
+        nearby_search: Boolean(nearbySearch),
+    };
+
+    if (nearbySearch) {
+        const country = normalizeBoundaryCountry(boundaryCountry);
+        if (country) {
+            payload.boundary_country = country;
+        }
+    }
+
+    return ApiService.fetchData({
+        url: getPreferencesEndpoint(),
+        method: METHOD_POST,
+        data: payload,
         headers: {
             Accept: "application/json",
         },
@@ -234,22 +378,6 @@ export async function fetchMapifyAddressFromCoords({
         }
     }
 
-    if (!address) {
-        try {
-            const searchRes = await apiMapifySearch({
-                lat: latitude,
-                lon: longitude,
-                size,
-                signal,
-            });
-            address = extractReverseGeocodeLabel(searchRes?.data);
-        } catch (error) {
-            if (error?.name === "AbortError" || error?.code === "ERR_CANCELED") {
-                throw error;
-            }
-        }
-    }
-
     if (address) {
         reverseGeocodeCache.set(cacheKey, address);
     }
@@ -270,10 +398,11 @@ export const mapifyFeatureToSuggestion = (item) => ({
 export const mapifyFeaturesToSuggestions = (features) =>
     (features || []).map(mapifyFeatureToSuggestion);
 
-export async function fetchMapifyLocationSuggestions({
+export async function fetchMapifyPlaceSearch({
     query,
     lat,
     lon,
+    nearbySearch = false,
     boundaryCountry,
     signal,
     size = 8,
@@ -287,11 +416,13 @@ export async function fetchMapifyLocationSuggestions({
             lat,
             lon,
             size,
+            nearbySearch,
+            boundaryCountry,
             signal,
         });
         const searchItems = normalizeMapifyFeatures(searchRes?.data);
         if (searchItems.length > 0) {
-            return mapifyFeaturesToSuggestions(searchItems);
+            return searchItems;
         }
     } catch (err) {
         if (err?.name === "AbortError" || err?.code === "ERR_CANCELED") {
@@ -303,8 +434,30 @@ export async function fetchMapifyLocationSuggestions({
         query: cleanedQuery,
         lat,
         lon,
+        nearbySearch,
         boundaryCountry,
         signal,
     });
-    return mapifyFeaturesToSuggestions(normalizeMapifyFeatures(geoRes?.data));
+    return normalizeMapifyFeatures(geoRes?.data);
+}
+
+export async function fetchMapifyLocationSuggestions({
+    query,
+    lat,
+    lon,
+    nearbySearch = false,
+    boundaryCountry,
+    signal,
+    size = 8,
+}) {
+    const items = await fetchMapifyPlaceSearch({
+        query,
+        lat,
+        lon,
+        nearbySearch,
+        boundaryCountry,
+        signal,
+        size,
+    });
+    return mapifyFeaturesToSuggestions(items);
 }

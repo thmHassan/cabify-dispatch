@@ -6,6 +6,10 @@ import {
     MAP_PROVIDER_GOOGLE,
 } from "../../../../../../../services/mapConfigurationService";
 import { fetchMapifyAddressFromCoords } from "../../../../../../../services/MapSearchService";
+import {
+    renderGoogleMapPlots,
+    scheduleMapLibrePlotRender,
+} from "../../../../../../../utils/functions/plotMapGeometry";
 import AppLogoIcon from "../../../../../../../components/svg/AppLogoIcon";
 
 const MAP_MIN_HEIGHT = "280px";
@@ -162,16 +166,6 @@ const buildOsmFallbackStyle = () => ({
     ],
 });
 
-const parseCoordinates = (plot) => {
-    if (!plot) return [];
-    try {
-        let coords = plot.coordinates;
-        if (typeof coords === "string") coords = JSON.parse(coords);
-        if (!Array.isArray(coords)) return [];
-        return coords.map((c) => ({ lat: Number(c.lat), lng: Number(c.lng) }));
-    } catch { return []; }
-};
-
 const formatCoordinateFallback = (lat, lng) => `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
 
 const applyRouteLocationSelection = ({
@@ -254,8 +248,10 @@ const GoogleMap = ({
     const mapInstanceRef = useRef(null);
     const markersRef = useRef([]);
     const plotPolygons = useRef([]);
+    const plotsDataRef = useRef(plotsData);
     const directionsRendererRef = useRef(null);
     const [isLoaded, setIsLoaded] = useState(false);
+    const [mapReady, setMapReady] = useState(false);
     const [loadError, setLoadError] = useState(false);
     const clickCountRef = useRef(0);
     const mountedRef = useRef(true);
@@ -295,25 +291,22 @@ const GoogleMap = ({
         return createMapifyAddressResolver()(lat, lng);
     };
 
+    useEffect(() => {
+        plotsDataRef.current = plotsData;
+    }, [plotsData]);
+
     const renderPlots = () => {
-        if (!mapInstanceRef.current || !plotsData) return;
-        plotPolygons.current.forEach(p => p.setMap(null));
-        plotPolygons.current = [];
-        plotsData.forEach(plot => {
-            const coords = parseCoordinates(plot);
-            if (coords.length === 0) return;
-            const polygon = new window.google.maps.Polygon({
-                paths: coords, strokeColor: "#1F41BB", strokeOpacity: 0.8, strokeWeight: 2,
-                fillColor: "#1F41BB", fillOpacity: 0.1, map: mapInstanceRef.current,
-                clickable: false
-            });
-            plotPolygons.current.push(polygon);
-        });
+        if (!mapInstanceRef.current) return;
+        plotPolygons.current = renderGoogleMapPlots(
+            mapInstanceRef.current,
+            plotsDataRef.current,
+            plotPolygons.current
+        );
     };
 
     useEffect(() => {
-        if (mapInstanceRef.current && plotsData) renderPlots();
-    }, [isLoaded, plotsData]);
+        if (mapReady) renderPlots();
+    }, [mapReady, plotsData]);
 
     useEffect(() => {
         if (!isLoaded || !mapRef.current || mapInstanceRef.current) return;
@@ -384,7 +377,11 @@ const GoogleMap = ({
                     }
                 });
                 setTimeout(() => {
-                    if (!cancelled) resizeGoogleMap();
+                    if (!cancelled) {
+                        resizeGoogleMap();
+                        setMapReady(true);
+                        renderPlots();
+                    }
                 }, 200);
             } catch (err) {
                 console.error("Google map init error:", err);
@@ -398,8 +395,10 @@ const GoogleMap = ({
             markersRef.current.forEach((m) => { try { m?.setMap(null); } catch (e) { } });
             markersRef.current = [];
             plotPolygons.current.forEach(p => p.setMap(null));
+            plotPolygons.current = [];
             mapInstanceRef.current = null;
             directionsRendererRef.current = null;
+            setMapReady(false);
         };
     }, [isLoaded]);
 
@@ -499,6 +498,7 @@ const MapLibreBookingMap = ({
     const wrapperRef = useRef(null);
     const mapRef = useRef(null);
     const markersRef = useRef([]);
+    const plotsDataRef = useRef(plotsData);
     const [isLoaded, setIsLoaded] = useState(false);
     const [loadError, setLoadError] = useState(false);
     const [isFullscreen, setIsFullscreen] = useState(false);
@@ -535,44 +535,21 @@ const MapLibreBookingMap = ({
         }
     };
 
-    const renderPlots = (map) => {
-        if (!map || !plotsData || plotsData.length === 0) return;
-        const doRender = () => {
-            try {
-                ["plots-labels", "plots-outline", "plots-fill"].forEach(id => {
-                    if (map.getLayer(id)) map.removeLayer(id);
-                });
-                if (map.getSource("plots")) map.removeSource("plots");
-
-                const features = plotsData.map(plot => {
-                    const coords = parseCoordinates(plot);
-                    if (coords.length === 0) return null;
-                    return {
-                        type: "Feature",
-                        properties: { name: plot.plot_name || "Plot" },
-                        geometry: { type: "Polygon", coordinates: [coords.map(c => [c.lng, c.lat])] },
-                    };
-                }).filter(Boolean);
-
-                if (features.length === 0) return;
-
-                map.addSource("plots", { type: "geojson", data: { type: "FeatureCollection", features } });
-                map.addLayer({ id: "plots-fill", type: "fill", source: "plots", paint: { "fill-color": "#1F41BB", "fill-opacity": 0.15 } });
-                map.addLayer({ id: "plots-outline", type: "line", source: "plots", paint: { "line-color": "#1F41BB", "line-width": 2.5, "line-opacity": 0.9 } });
-            } catch (err) {
-                console.warn("Plot render error:", err);
-            }
-        };
-
-        if (map.isStyleLoaded()) doRender();
-        else map.once("idle", doRender);
-    };
-
     useEffect(() => {
-        if (isLoaded && mapRef.current && plotsData?.length > 0) {
-            renderPlots(mapRef.current);
+        plotsDataRef.current = plotsData;
+        if (mapRef.current) {
+            scheduleMapLibrePlotRender(mapRef.current, plotsDataRef.current);
         }
-    }, [isLoaded, plotsData]);
+    }, [plotsData]);
+
+    const attachPlotStyleHandlers = (map) => {
+        if (!map || map._plotStyleHandlersAttached) return;
+        map._plotStyleHandlersAttached = true;
+
+        map.on("style.load", () => {
+            scheduleMapLibrePlotRender(map, plotsDataRef.current);
+        });
+    };
 
     useEffect(() => {
         if (!isLoaded || !containerRef.current || mapRef.current || !styleConfig) return;
@@ -593,17 +570,6 @@ const MapLibreBookingMap = ({
                     zoom: 12,
                     attributionControl: false,
                 });
-                mapRef.current.on("load", () => {
-                    if (!mapRef.current) return;
-                    mapRef.current.resize();
-                    setTimeout(() => {
-                        if (mapRef.current) {
-                            mapRef.current.resize();
-                            renderPlots(mapRef.current);
-                        }
-                    }, 150);
-                });
-                mapRef.current.addControl(new window.maplibregl.NavigationControl({ showCompass: true }), "bottom-right");
                 mapRef.current.on("error", (e) => {
                     const msg = e?.error?.message || String(e);
                     const isAuthError = msg.includes("403") || msg.includes("401");
@@ -615,6 +581,18 @@ const MapLibreBookingMap = ({
                         try { mapRef.current.setStyle(buildOsmFallbackStyle()); } catch { }
                     }
                 });
+                attachPlotStyleHandlers(mapRef.current);
+                mapRef.current.on("load", () => {
+                    if (!mapRef.current) return;
+                    mapRef.current.resize();
+                    setTimeout(() => {
+                        if (mapRef.current) {
+                            mapRef.current.resize();
+                            scheduleMapLibrePlotRender(mapRef.current, plotsDataRef.current);
+                        }
+                    }, 150);
+                });
+                mapRef.current.addControl(new window.maplibregl.NavigationControl({ showCompass: true }), "bottom-right");
                 mapRef.current.on("click", async (e) => {
                     const lat = e.lngLat.lat;
                     const lng = e.lngLat.lng;
@@ -665,6 +643,11 @@ const MapLibreBookingMap = ({
             }
         };
     }, [isLoaded, styleConfig]);
+
+    useEffect(() => {
+        if (!isLoaded || !mapRef.current) return;
+        scheduleMapLibrePlotRender(mapRef.current, plotsDataRef.current);
+    }, [isLoaded, plotsData]);
 
     const mkEl = (color, text) => {
         const el = document.createElement("div");
