@@ -18,6 +18,7 @@ import {
 } from "../../../../services/SettingsConfigurationServices";
 import { MAP_PROVIDER_BARIKOI, MAP_PROVIDER_DEFAULT, MAP_PROVIDER_GOOGLE, createMapifyTransformRequest } from "../../../../services/mapConfigurationService";
 import useMapConfiguration from "../../../../hooks/useMapConfiguration";
+import { buildOsmFallbackStyle, loadMapLibreGl } from "../../../../utils/map/maplibreLoader";
 import { destroySharedMapInstance } from "../../../../utils/functions/mapInstanceCleanup";
 import {
   parsePlotCoordinates,
@@ -660,37 +661,6 @@ const loadGoogleMaps = (apiKey) => {
   });
 };
 
-const loadDefaultMapLibre = () => {
-  return new Promise((resolve, reject) => {
-    if (window.maplibregl) return resolve();
-    if (!document.getElementById("maplibre-css")) {
-      const link = document.createElement("link");
-      link.id = "maplibre-css"; link.rel = "stylesheet";
-      link.href = "https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css";
-      document.head.appendChild(link);
-    }
-    const existing = document.getElementById("maplibre-script");
-    if (existing) {
-      const check = setInterval(() => { if (window.maplibregl) { clearInterval(check); resolve(); } }, 100);
-      return;
-    }
-    const script = document.createElement("script");
-    script.id = "maplibre-script";
-    script.src = "https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js";
-    script.async = true;
-    script.onload = () => { setTimeout(() => { if (window.maplibregl) resolve(); else reject(new Error("MapLibre GL not available after load")); }, 100); };
-    script.onerror = () => reject(new Error("MapLibre GL script failed to load"));
-    document.head.appendChild(script);
-  });
-};
-
-const buildOsmFallbackStyle = () => ({
-  version: 8, name: "OSM",
-  glyphs: "https://fonts.openmaptiles.org/{fontstack}/{range}.pbf",
-  sources: { "osm-tiles": { type: "raster", tiles: ["https://a.tile.openstreetmap.org/{z}/{x}/{y}.png", "https://b.tile.openstreetmap.org/{z}/{x}/{y}.png", "https://c.tile.openstreetmap.org/{z}/{x}/{y}.png"], tileSize: 256, attribution: "© OpenStreetMap contributors", maxzoom: 19 } },
-  layers: [{ id: "osm-tiles", type: "raster", source: "osm-tiles", minzoom: 0, maxzoom: 22 }],
-});
-
 const makeGoogleIcon = (status) => {
   const icon = MARKER_ICONS[status] || MARKER_ICONS.idle;
   return { url: icon.url, scaledSize: new window.google.maps.Size(icon.scaledSize.width, icon.scaledSize.height), anchor: new window.google.maps.Point(icon.anchor.x, icon.anchor.y) };
@@ -997,7 +967,7 @@ const DefaultMapSection = ({ mapRef, mapInstance, markers, driverData, setDriver
     if (!mapStyle) return;
     let mounted = true;
     const init = async () => {
-      try { await loadDefaultMapLibre(); } catch (err) { console.error("MapLibre load failed:", err); return; }
+      try { await loadMapLibreGl(); } catch (err) { console.error("MapLibre load failed:", err); return; }
       if (!mounted || !mapRef.current || mapInstance.current) return;
       const container = mapRef.current;
       container.style.width = "100%"; container.style.height = "100%"; container.style.minHeight = "400px"; container.style.position = "relative";

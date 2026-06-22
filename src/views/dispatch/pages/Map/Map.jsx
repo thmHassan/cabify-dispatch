@@ -10,6 +10,7 @@ import RedCarIcon from "../../../../components/svg/RedCarIcon";
 import GreenCarIcon from "../../../../components/svg/GreenCarIcon";
 import AppLogoIcon from "../../../../components/svg/AppLogoIcon";
 import { MAP_PROVIDER_BARIKOI, MAP_PROVIDER_DEFAULT, MAP_PROVIDER_GOOGLE, createMapifyTransformRequest } from "../../../../services/mapConfigurationService";
+import { buildOsmFallbackStyle, loadMapLibreGl } from "../../../../utils/map/maplibreLoader";
 import useMapConfiguration from "../../../../hooks/useMapConfiguration";
 import { destroySharedMapInstance } from "../../../../utils/functions/mapInstanceCleanup";
 import AppLogoLoader from "../../../../components/shared/AppLogoLoader/AppLogoLoader";
@@ -120,63 +121,6 @@ const loadGoogleMaps = (apiKey) => {
     document.head.appendChild(script);
   });
 };
-
-const loadMapLibre = () => {
-  return new Promise((resolve, reject) => {
-    if (window.maplibregl?.Map) return resolve();
-
-    if (!document.getElementById("maplibre-css")) {
-      const link = document.createElement("link");
-      link.id = "maplibre-css";
-      link.rel = "stylesheet";
-      link.href = "https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css";
-      document.head.appendChild(link);
-    }
-
-    const existing = document.getElementById("maplibre-script");
-    if (existing) {
-      const check = setInterval(() => {
-        if (window.maplibregl?.Map) { clearInterval(check); resolve(); }
-      }, 100);
-      return;
-    }
-
-    const script = document.createElement("script");
-    script.id = "maplibre-script";
-    script.src = "https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js";
-    script.async = true;
-    script.onload = () => {
-      setTimeout(() => {
-        if (window.maplibregl?.Map) resolve();
-        else reject(new Error("MapLibre not available after load"));
-      }, 150);
-    };
-    script.onerror = () => reject(new Error("MapLibre script failed to load"));
-    document.head.appendChild(script);
-  });
-};
-
-const buildOsmFallbackStyle = () => ({
-  version: 8,
-  name: "OSM Fallback",
-  glyphs: "https://fonts.openmaptiles.org/{fontstack}/{range}.pbf",
-  sources: {
-    "osm-tiles": {
-      type: "raster",
-      tiles: [
-        "https://a.tile.openstreetmap.org/{z}/{x}/{y}.png",
-        "https://b.tile.openstreetmap.org/{z}/{x}/{y}.png",
-        "https://c.tile.openstreetmap.org/{z}/{x}/{y}.png",
-      ],
-      tileSize: 256,
-      attribution: "© OpenStreetMap contributors",
-      maxzoom: 19,
-    },
-  },
-  layers: [
-    { id: "osm-tiles", type: "raster", source: "osm-tiles", minzoom: 0, maxzoom: 22 },
-  ],
-});
 
 const animateMarker = (marker, newPosition, duration = 1000) => {
   if (!marker.getPosition) return;
@@ -413,7 +357,7 @@ const DefaultMapView = ({ mapRef, mapInstance, markers, driverData, activeDriver
 
     const init = async () => {
       try {
-        await loadMapLibre();
+        await loadMapLibreGl();
       } catch (err) {
         console.error("MapLibre load failed:", err);
         return;

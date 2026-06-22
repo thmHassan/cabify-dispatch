@@ -175,7 +175,7 @@ const normalizeMapInfo = (info) => {
     const normalized = { ...(info || {}) };
     const mapType = String(normalized.maps_api || normalized.map_type || "").trim().toLowerCase();
 
-    if (!isTruthyFlag(normalized.uses_mapify) && (mapType === MAP_PROVIDER_DEFAULT || mapType === "mapify")) {
+    if (!isTruthyFlag(normalized.uses_mapify) && isMapifyMapsApiValue(mapType)) {
         normalized.uses_mapify = true;
     }
 
@@ -226,7 +226,7 @@ const shouldUseMapify = (info) => {
     }
 
     const mapType = getConfiguredMapType(info);
-    if (mapType === MAP_PROVIDER_DEFAULT || mapType === "mapify") {
+    if (isMapifyMapsApiValue(mapType)) {
         if (isTruthyFlag(info?.uses_google_map) && getGoogleKey(info)) return false;
         return true;
     }
@@ -235,9 +235,10 @@ const shouldUseMapify = (info) => {
 };
 
 const shouldUseBarikoi = (info) => {
+    const mapType = getConfiguredMapType(info);
+    if (isMapifyMapsApiValue(mapType)) return false;
     if (isTruthyFlag(info?.uses_mapify) || isTruthyFlag(info?.uses_google_map)) return false;
 
-    const mapType = getConfiguredMapType(info);
     if (mapType === MAP_PROVIDER_BARIKOI) return true;
     if (mapType === MAP_PROVIDER_DEFAULT) return false;
 
@@ -245,7 +246,57 @@ const shouldUseBarikoi = (info) => {
     return country === "BD";
 };
 
-const getMapifyTilesEndpoint = (info) => buildMapifyTilesUrlTemplate(info);
+const isMapifyMapsApiValue = (mapType) => {
+    const normalized = String(mapType || "").trim().toLowerCase();
+    return normalized === MAP_PROVIDER_DEFAULT
+        || normalized === "mapify"
+        || normalized === "barikoi";
+};
+
+export const extractMapifyStyleFromResponse = (response) => {
+    const payload = response?.data ?? response;
+    if (!payload || typeof payload !== "object") return null;
+
+    const candidates = [
+        payload,
+        payload.data,
+        payload.data?.data,
+        payload.style,
+        payload.data?.style,
+    ];
+
+    for (const candidate of candidates) {
+        if (candidate?.version != null && candidate?.sources && candidate?.layers) {
+            return candidate;
+        }
+    }
+
+    return null;
+};
+
+export async function fetchMapifyBasemapStyle(styleUrl = GET_MAPIFY_TILES_BRIGHT) {
+    const response = await ApiService.fetchData({
+        url: styleUrl,
+        method: METHOD_GET,
+        headers: {
+            Accept: "application/json",
+        },
+    });
+
+    const style = extractMapifyStyleFromResponse(response);
+    if (!style) {
+        throw new Error("Mapify basemap style response is invalid.");
+    }
+
+    return style;
+};
+
+const getMapifyStyleEndpoint = (info) =>
+    resolveApiUrl(
+        info?.mapify_tiles_style_endpoint
+        || info?.mapify_tiles_endpoint
+        || GET_MAPIFY_TILES_BRIGHT
+    );
 
 const getMapifySearchEndpoint = (info) =>
     resolveApiUrl(info?.mapify_search_endpoint || GET_MAPIFY_SEARCH);
@@ -460,13 +511,13 @@ const buildConfigFromInfo = (rawInfo) => {
     }
 
     if (shouldUseMapify(info)) {
-        const tilesEndpoint = getMapifyTilesEndpoint(info);
+        const styleEndpoint = getMapifyStyleEndpoint(info);
         const searchEndpoint = getMapifySearchEndpoint(info);
         const geocodingEndpoint = getMapifyGeocodingEndpoint(info);
         const reverseGeocodingEndpoint = getMapifyReverseGeocodingEndpoint(info);
 
-        if (!tilesEndpoint) {
-            throw new Error("Mapify tiles endpoint is not configured on the server.");
+        if (!styleEndpoint) {
+            throw new Error("Mapify style endpoint is not configured on the server.");
         }
 
         configureMapifyEndpoints({
@@ -477,19 +528,15 @@ const buildConfigFromInfo = (rawInfo) => {
             preferencesPostEndpoint: getMapifyPreferencesPostEndpoint(info),
         });
 
-        const mapifyStyle = buildMapifyRasterStyle(tilesEndpoint);
-        if (!mapifyStyle) {
-            throw new Error("Unable to build Mapify map style.");
-        }
-
         return {
             ok: true,
             provider: MAP_PROVIDER_DEFAULT,
             googleKey: null,
             barikoiKey: null,
-            mapifyStyle,
+            mapifyStyle: null,
+            mapifyStyleEndpoint: styleEndpoint,
             barikoiStyle: null,
-            mapifyTilesEndpoint: tilesEndpoint,
+            mapifyTilesEndpoint: styleEndpoint,
             mapifySearchEndpoint: searchEndpoint,
             mapifyGeocodingEndpoint: geocodingEndpoint,
             mapifyReverseGeocodingEndpoint: reverseGeocodingEndpoint,
@@ -610,6 +657,23 @@ export async function fetchMapConfiguration() {
         }
 
         const builtConfig = buildConfigFromInfo(info);
+
+        if (builtConfig.ok && builtConfig.usesMapify) {
+            try {
+                builtConfig.mapifyStyle = await fetchMapifyBasemapStyle(
+                    builtConfig.mapifyStyleEndpoint || GET_MAPIFY_TILES_BRIGHT
+                );
+            } catch (styleError) {
+                const error = new Error(
+                    extractErrorMessage(styleError?.response?.data?.message)
+                    || styleError?.message
+                    || "Unable to load Mapify basemap style."
+                );
+                error.response = styleError?.response;
+                throw error;
+            }
+        }
+
         const config = attachMapSearchPreferences(
             attachCompanyKeys(builtConfig, keysRes),
             keysRes,

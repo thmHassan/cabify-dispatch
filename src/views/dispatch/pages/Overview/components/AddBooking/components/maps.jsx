@@ -6,6 +6,7 @@ import {
     MAP_PROVIDER_GOOGLE,
     createMapifyTransformRequest,
 } from "../../../../../../../services/mapConfigurationService";
+import { buildOsmFallbackStyle, loadMapLibreGl } from "../../../../../../../utils/map/maplibreLoader";
 import { fetchMapifyAddressFromCoords } from "../../../../../../../services/MapSearchService";
 import {
     renderGoogleMapPlots,
@@ -118,54 +119,6 @@ const useMapResizeObserver = (containerRef, onResize) => {
         return () => ro.disconnect();
     }, [containerRef]);
 };
-
-let maplibrePromise = null;
-const loadMaplibre = () => {
-    if (window.maplibregl) return Promise.resolve();
-    if (maplibrePromise) return maplibrePromise;
-    maplibrePromise = new Promise((resolve, reject) => {
-        if (!document.getElementById("maplibre-css")) {
-            const link = document.createElement("link");
-            link.id = "maplibre-css";
-            link.rel = "stylesheet";
-            link.href = "https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css";
-            document.head.appendChild(link);
-        }
-        const s = document.createElement("script");
-        s.id = "maplibre-script";
-        s.src = "https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js";
-        s.async = true;
-        s.onload = () => {
-            if (window.maplibregl) resolve();
-            else reject(new Error("MapLibre failed to initialize"));
-        };
-        s.onerror = () => { maplibrePromise = null; reject(); };
-        document.head.appendChild(s);
-    });
-    return maplibrePromise;
-};
-
-const buildOsmFallbackStyle = () => ({
-    version: 8,
-    name: "OSM",
-    glyphs: "https://fonts.openmaptiles.org/{fontstack}/{range}.pbf",
-    sources: {
-        "osm-tiles": {
-            type: "raster",
-            tiles: [
-                "https://a.tile.openstreetmap.org/{z}/{x}/{y}.png",
-                "https://b.tile.openstreetmap.org/{z}/{x}/{y}.png",
-                "https://c.tile.openstreetmap.org/{z}/{x}/{y}.png",
-            ],
-            tileSize: 256,
-            attribution: "© OpenStreetMap contributors",
-            maxzoom: 19,
-        },
-    },
-    layers: [
-        { id: "osm-tiles", type: "raster", source: "osm-tiles", minzoom: 0, maxzoom: 22 },
-    ],
-});
 
 const formatCoordinateFallback = (lat, lng) => `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
 
@@ -519,7 +472,7 @@ const MapLibreBookingMap = ({
             return;
         }
         setLoadError(false);
-        loadMaplibre()
+        loadMapLibreGl()
             .then(() => { if (mountedRef.current) setIsLoaded(true); })
             .catch(() => { if (mountedRef.current) setLoadError(true); });
         return () => { mountedRef.current = false; };
