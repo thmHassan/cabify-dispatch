@@ -13,7 +13,8 @@ import { getTenantData, getTenantId } from "../../../../utils/functions/tokenEnc
 import { useAppSelector } from "../../../../store";
 import { apiGetCompanyApiKeys } from "../../../../services/SettingsConfigurationServices";
 import { fetchMapConfiguration, MAP_PROVIDER_BARIKOI, MAP_PROVIDER_DEFAULT, MAP_PROVIDER_GOOGLE, buildBarikoiRasterStyle } from "../../../../services/mapConfigurationService";
-import { ensureMapConfigurationLoaded } from "../../../../services/mapConfigCache";
+import { ensureMapConfigurationLoaded, invalidateMapConfigurationCache } from "../../../../services/mapConfigCache";
+import { destroySharedMapInstance } from "../../../../utils/functions/mapInstanceCleanup";
 import { apiGetPlot } from "../../../../services/PlotService";
 import { apiMapifyGeocoding, normalizeMapifyFeatures } from "../../../../services/MapSearchService";
 import MapSearchBox from "./components/MapSearchBox";
@@ -291,7 +292,10 @@ const GoogleMapView = ({ mapRef, mapInstance, markers, driverData, activeDriverI
         styles: [{ featureType: "poi", elementType: "labels", stylers: [{ visibility: "off" }] }],
       });
     });
-    return () => { mounted = false; };
+    return () => {
+      mounted = false;
+      destroySharedMapInstance(mapInstance, markers, mapRef, { isGoogle: true });
+    };
   }, [apiKeys.googleKey, apiKeys.countryOfUse]);
 
   const updateOrAddMarker = useCallback((data) => {
@@ -607,6 +611,7 @@ const Map = () => {
 
   const [mapType, setMapType] = useState(null);
   const [mapError, setMapError] = useState(null);
+  const [mapConfigRevision, setMapConfigRevision] = useState(0);
   const [apiKeys, setApiKeys] = useState({
     googleKey: null,
     mapifyStyle: null,
@@ -625,7 +630,9 @@ const Map = () => {
 
     const loadMapConfig = async () => {
       try {
-        const mapConfig = await ensureMapConfigurationLoaded(fetchMapConfiguration);
+        const mapConfig = await ensureMapConfigurationLoaded(fetchMapConfiguration, {
+          force: mapConfigRevision > 0,
+        });
         if (!mapConfig) return;
         let companyKeys = null;
 
@@ -665,7 +672,24 @@ const Map = () => {
     };
 
     loadMapConfig();
+  }, [tenantScope, mapConfigRevision]);
+
+  useEffect(() => {
+    if (!tenantScope) return undefined;
+
+    const handleVisibility = () => {
+      if (document.visibilityState !== "visible") return;
+      invalidateMapConfigurationCache();
+      setMapConfigRevision((revision) => revision + 1);
+    };
+
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
   }, [tenantScope]);
+
+  useEffect(() => {
+    destroySharedMapInstance(mapInstance, markers, mapRef);
+  }, [mapType]);
 
   useEffect(() => {
     const fetchPlots = async () => {
@@ -859,9 +883,15 @@ const Map = () => {
             <p className="text-sm text-red-600">{mapError}</p>
           </div>
         ) : (mapType === MAP_PROVIDER_DEFAULT || mapType === MAP_PROVIDER_BARIKOI) ? (
-          <DefaultMapView {...sharedProps} />
+          <DefaultMapView
+            key={`${mapType}-${apiKeys.mapifyStyle ? "mapify" : "barikoi"}-${apiKeys.countryOfUse || "na"}`}
+            {...sharedProps}
+          />
         ) : mapType === MAP_PROVIDER_GOOGLE ? (
-          <GoogleMapView {...sharedProps} />
+          <GoogleMapView
+            key={`google-${apiKeys.googleKey}-${apiKeys.countryOfUse || "na"}`}
+            {...sharedProps}
+          />
         ) : (
           <div className="w-full h-[550px] rounded-xl border border-gray-300 shadow-sm flex items-center justify-center bg-gray-50">
             <p className="text-sm text-gray-500">Loading map...</p>

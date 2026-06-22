@@ -39,6 +39,12 @@ export const resetMapConfigurationCache = () => {
     loadPromise = null;
 };
 
+/** Clear cached config for the current tenant so the next load fetches fresh API data. */
+export const invalidateMapConfigurationCache = () => {
+    cachedMapConfiguration = null;
+    loadPromise = null;
+};
+
 const shouldUseCachedConfig = () => {
     const currentTenantId = getTenantId();
     return Boolean(
@@ -49,10 +55,15 @@ const shouldUseCachedConfig = () => {
     );
 };
 
-export const ensureMapConfigurationLoaded = (loader) => {
+export const ensureMapConfigurationLoaded = (loader, { force = false } = {}) => {
     const currentTenantId = getTenantId();
 
     if (cachedTenantId && currentTenantId && cachedTenantId !== currentTenantId) {
+        cachedMapConfiguration = null;
+        loadPromise = null;
+    }
+
+    if (force) {
         cachedMapConfiguration = null;
         loadPromise = null;
     }

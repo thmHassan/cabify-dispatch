@@ -18,7 +18,8 @@ import {
   apiGetDispatchSystem,
 } from "../../../../services/SettingsConfigurationServices";
 import { fetchMapConfiguration, MAP_PROVIDER_BARIKOI, MAP_PROVIDER_DEFAULT, MAP_PROVIDER_GOOGLE, buildBarikoiRasterStyle } from "../../../../services/mapConfigurationService";
-import { ensureMapConfigurationLoaded } from "../../../../services/mapConfigCache";
+import { ensureMapConfigurationLoaded, invalidateMapConfigurationCache } from "../../../../services/mapConfigCache";
+import { destroySharedMapInstance } from "../../../../utils/functions/mapInstanceCleanup";
 import { getDashboardCards, apiGetAllPlot, apiUpdateDriverRank } from "../../../../services/AddBookingServices";
 import { apiLogoutDriver, apiGetDriverManagement } from "../../../../services/DriverManagementService";
 import toast from "react-hot-toast";
@@ -859,8 +860,12 @@ const GoogleMapSection = ({ mapRef, mapInstance, markers, driverData, setDriverD
       });
       setIsMapReady(true);
     }).catch((err) => console.error("Google Map load failed:", err));
-    return () => { mounted = false; if (mapInstance.current) mapInstance.current = null; };
-  }, [googleKey]);
+    return () => {
+      mounted = false;
+      setIsMapReady(false);
+      destroySharedMapInstance(mapInstance, markers, mapRef, { isGoogle: true });
+    };
+  }, [googleKey, countryCenter.lat, countryCenter.lng]);
 
   const socketRef = useRef(socket);
   useEffect(() => { socketRef.current = socket; }, [socket]);
@@ -1226,6 +1231,7 @@ const Overview = () => {
   const [seedBookings, setSeedBookings] = useState([]);
   const [mapType, setMapType] = useState(null);
   const [mapError, setMapError] = useState(null);
+  const [mapConfigRevision, setMapConfigRevision] = useState(0);
   const [apiKeys, setApiKeys] = useState({
     googleKey: null,
     mapifyStyle: null,
@@ -1297,9 +1303,11 @@ const Overview = () => {
       return undefined;
     }
 
-    const fetchMapConfig = async () => {
+    const loadMapConfig = async () => {
       try {
-        const mapConfig = await ensureMapConfigurationLoaded(fetchMapConfiguration);
+        const mapConfig = await ensureMapConfigurationLoaded(fetchMapConfiguration, {
+          force: mapConfigRevision > 0,
+        });
         if (!mapConfig) return;
         let companyKeys = null;
 
@@ -1341,8 +1349,25 @@ const Overview = () => {
         setMapType(null);
       }
     };
-    fetchMapConfig();
+    loadMapConfig();
+  }, [tenantScope, mapConfigRevision]);
+
+  useEffect(() => {
+    if (!tenantScope) return undefined;
+
+    const handleVisibility = () => {
+      if (document.visibilityState !== "visible") return;
+      invalidateMapConfigurationCache();
+      setMapConfigRevision((revision) => revision + 1);
+    };
+
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
   }, [tenantScope]);
+
+  useEffect(() => {
+    destroySharedMapInstance(mapInstance, markers, mapRef);
+  }, [mapType]);
 
   useEffect(() => {
     if (!dispatchSystemLoaded) return;
@@ -2303,10 +2328,16 @@ const Overview = () => {
                 </div>
               )}
               {!mapError && (mapType === MAP_PROVIDER_DEFAULT || mapType === MAP_PROVIDER_BARIKOI) && (apiKeys.mapifyStyle || apiKeys.barikoiStyle) && (
-                <DefaultMapSection key={`${mapType}-${apiKeys.countryOfUse || "na"}`} {...mapProps} />
+                <DefaultMapSection
+                  key={`${mapType}-${apiKeys.mapifyStyle ? "mapify" : "barikoi"}-${apiKeys.countryOfUse || "na"}`}
+                  {...mapProps}
+                />
               )}
               {!mapError && mapType === MAP_PROVIDER_GOOGLE && apiKeys.googleKey && (
-                <GoogleMapSection key={`google-${apiKeys.googleKey}-${apiKeys.countryOfUse}`} {...mapProps} />
+                <GoogleMapSection
+                  key={`google-${apiKeys.googleKey}-${apiKeys.countryOfUse || "na"}`}
+                  {...mapProps}
+                />
               )}
               {!mapError && !mapType && (
                 <div className="w-full h-full flex items-center justify-center bg-gray-100 rounded-xl">

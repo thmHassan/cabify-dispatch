@@ -131,8 +131,16 @@ const getConfiguredMapType = (info) =>
     String(info?.maps_api || info?.map_type || "").trim().toLowerCase();
 
 const getGoogleKey = (info) => {
-    const key = info?.google_api_keys ? String(info.google_api_keys).trim() : "";
-    return key || null;
+    const companyKey = info?.google_api_keys ? String(info.google_api_keys).trim() : "";
+    if (companyKey) return companyKey;
+
+    const mapType = getConfiguredMapType(info);
+    if (mapType === MAP_PROVIDER_DEFAULT || mapType === "mapify") {
+        return null;
+    }
+
+    const tenantKey = info?.google_api_key ? String(info.google_api_key).trim() : "";
+    return tenantKey || null;
 };
 
 const getBarikoiKey = (info) => {
@@ -158,7 +166,13 @@ const shouldUseMapify = (info) => {
         return true;
     }
 
-    return getConfiguredMapType(info) === MAP_PROVIDER_DEFAULT;
+    const mapType = getConfiguredMapType(info);
+    if (mapType === MAP_PROVIDER_DEFAULT || mapType === "mapify") {
+        if (isTruthyFlag(info?.uses_google_map) && getGoogleKey(info)) return false;
+        return true;
+    }
+
+    return false;
 };
 
 const shouldUseBarikoi = (info) => {
@@ -390,7 +404,12 @@ const buildConfigFromInfo = (rawInfo) => {
         };
     }
 
-    if (ENV_GOOGLE_KEY) {
+    const configuredMapType = getConfiguredMapType(info);
+    const prefersMapify = configuredMapType === MAP_PROVIDER_DEFAULT
+        || configuredMapType === "mapify"
+        || isTruthyFlag(info?.uses_mapify);
+
+    if (ENV_GOOGLE_KEY && !prefersMapify) {
         configureMapifyEndpoints(null);
         return {
             ok: true,
@@ -435,10 +454,10 @@ export async function fetchMapConfiguration() {
 
         const info = mergeMapInfo(
             getTenantPayloadForMapConfig(),
-            mapRes?.data,
-            thirdPartyRes?.data,
             keysRes?.data?.data,
             keysRes?.data,
+            mapRes?.data,
+            thirdPartyRes?.data,
         );
 
         const hasUsablePayload =
