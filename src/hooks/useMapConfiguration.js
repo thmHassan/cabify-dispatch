@@ -13,7 +13,9 @@ import {
     invalidateMapConfigurationCache,
 } from "../services/mapConfigCache";
 import {
+    apiGetMapSearchPreferences,
     apiSaveMapSearchPreferences,
+    extractMapSearchPreferencesFromResponse,
     normalizeMapSearchPreferences,
 } from "../services/MapSearchService";
 
@@ -68,12 +70,14 @@ export default function useMapConfiguration() {
         nearbySearch: false,
         boundaryCountry: null,
     });
+    const [mapSearchPreferencesLoading, setMapSearchPreferencesLoading] = useState(Boolean(tenantScope));
 
     useEffect(() => {
         if (!tenantScope) {
             setMapError(null);
             setMapType(null);
             setMapConfigLoading(false);
+            setMapSearchPreferencesLoading(false);
             return undefined;
         }
 
@@ -81,6 +85,7 @@ export default function useMapConfiguration() {
         const isRefresh = mapConfigRevision > 0;
 
         setMapConfigLoading(true);
+        setMapSearchPreferencesLoading(true);
         if (isRefresh) {
             setMapType(null);
             setMapError(null);
@@ -94,24 +99,46 @@ export default function useMapConfiguration() {
 
         const loadMapConfig = async () => {
             try {
-                const mapConfig = await ensureMapConfigurationLoaded(fetchMapConfiguration, {
-                    force: isRefresh,
-                });
+                const fallbackCountry = getInitialCountryOfUse();
+                const [mapConfig, preferencesRes] = await Promise.all([
+                    ensureMapConfigurationLoaded(fetchMapConfiguration, {
+                        force: isRefresh,
+                    }),
+                    apiGetMapSearchPreferences().catch(() => null),
+                ]);
 
                 if (cancelled || !mapConfig) return;
 
                 const companyKeys = mapConfig.companyKeys || null;
+                const resolvedFallback = (
+                    companyKeys?.country_of_use || fallbackCountry
+                ).toUpperCase();
 
                 if (!mapConfig.ok) {
                     setMapError(mapConfig.message || "Unable to load map configuration");
                     setMapType(null);
+                    setMapSearchPreferences(
+                        preferencesRes
+                            ? extractMapSearchPreferencesFromResponse(
+                                preferencesRes,
+                                resolvedFallback
+                            )
+                            : resolveMapSearchPreferences(mapConfig, companyKeys)
+                    );
                     return;
                 }
 
                 setMapError(null);
                 setMapType(mapConfig.provider);
                 setApiKeys(buildApiKeysFromConfig(mapConfig, companyKeys));
-                setMapSearchPreferences(resolveMapSearchPreferences(mapConfig, companyKeys));
+                setMapSearchPreferences(
+                    preferencesRes
+                        ? extractMapSearchPreferencesFromResponse(
+                            preferencesRes,
+                            resolvedFallback
+                        )
+                        : resolveMapSearchPreferences(mapConfig, companyKeys)
+                );
             } catch (err) {
                 if (cancelled) return;
                 console.error("Fetch map configuration error:", err);
@@ -120,6 +147,7 @@ export default function useMapConfiguration() {
             } finally {
                 if (!cancelled) {
                     setMapConfigLoading(false);
+                    setMapSearchPreferencesLoading(false);
                 }
             }
         };
@@ -145,10 +173,11 @@ export default function useMapConfiguration() {
     }, [tenantScope]);
 
     const saveMapSearchPreferences = useCallback(async (nextNearbySearch, nextBoundaryCountry) => {
+        const fallbackCountry = (
+            apiKeys.countryOfUse || getInitialCountryOfUse()
+        ).toUpperCase();
         const boundaryCountry = nextBoundaryCountry
-            ?? (mapSearchPreferences.boundaryCountry
-            || apiKeys.countryOfUse
-            || getInitialCountryOfUse());
+            ?? (mapSearchPreferences.boundaryCountry || fallbackCountry);
 
         const nextPreferences = {
             nearbySearch: Boolean(nextNearbySearch),
@@ -158,10 +187,15 @@ export default function useMapConfiguration() {
         setMapSearchPreferences(nextPreferences);
 
         try {
-            await apiSaveMapSearchPreferences({
+            const response = await apiSaveMapSearchPreferences({
                 nearbySearch: nextPreferences.nearbySearch,
                 boundaryCountry: nextPreferences.boundaryCountry,
             });
+            const savedPreferences = extractMapSearchPreferencesFromResponse(
+                response,
+                fallbackCountry
+            );
+            setMapSearchPreferences(savedPreferences);
         } catch (error) {
             console.warn("Failed to save map search preferences:", error);
         }
@@ -180,6 +214,7 @@ export default function useMapConfiguration() {
         apiKeys,
         tenantScope,
         mapSearchPreferences,
+        mapSearchPreferencesLoading,
         saveMapSearchPreferences,
         handleBoundaryCountryChange,
     };

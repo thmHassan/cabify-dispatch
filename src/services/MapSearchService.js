@@ -1,5 +1,6 @@
 import { METHOD_GET, METHOD_POST } from "../constants/method.constant";
 import {
+    GET_MAP_SEARCH_PREFERENCES,
     GET_MAPIFY_GEOCODING,
     GET_MAPIFY_REVERSE_GEOCODING,
     GET_MAPIFY_SEARCH,
@@ -12,7 +13,8 @@ let mapifyEndpoints = {
     searchEndpoint: GET_MAPIFY_SEARCH,
     geocodingEndpoint: GET_MAPIFY_GEOCODING,
     reverseGeocodingEndpoint: GET_MAPIFY_REVERSE_GEOCODING,
-    preferencesEndpoint: POST_MAP_SEARCH_PREFERENCES,
+    preferencesGetEndpoint: GET_MAP_SEARCH_PREFERENCES,
+    preferencesPostEndpoint: POST_MAP_SEARCH_PREFERENCES,
 };
 
 export const configureMapifyEndpoints = (endpoints) => {
@@ -21,7 +23,8 @@ export const configureMapifyEndpoints = (endpoints) => {
             searchEndpoint: GET_MAPIFY_SEARCH,
             geocodingEndpoint: GET_MAPIFY_GEOCODING,
             reverseGeocodingEndpoint: GET_MAPIFY_REVERSE_GEOCODING,
-            preferencesEndpoint: POST_MAP_SEARCH_PREFERENCES,
+            preferencesGetEndpoint: GET_MAP_SEARCH_PREFERENCES,
+            preferencesPostEndpoint: POST_MAP_SEARCH_PREFERENCES,
         };
         return;
     }
@@ -31,8 +34,14 @@ export const configureMapifyEndpoints = (endpoints) => {
         geocodingEndpoint: endpoints.geocodingEndpoint || GET_MAPIFY_GEOCODING,
         reverseGeocodingEndpoint:
             endpoints.reverseGeocodingEndpoint || GET_MAPIFY_REVERSE_GEOCODING,
-        preferencesEndpoint:
-            endpoints.preferencesEndpoint || POST_MAP_SEARCH_PREFERENCES,
+        preferencesGetEndpoint:
+            endpoints.preferencesGetEndpoint
+            || endpoints.preferencesEndpoint
+            || GET_MAP_SEARCH_PREFERENCES,
+        preferencesPostEndpoint:
+            endpoints.preferencesPostEndpoint
+            || endpoints.preferencesEndpoint
+            || POST_MAP_SEARCH_PREFERENCES,
     };
 };
 
@@ -40,8 +49,10 @@ const getSearchEndpoint = () => mapifyEndpoints.searchEndpoint || GET_MAPIFY_SEA
 const getGeocodingEndpoint = () => mapifyEndpoints.geocodingEndpoint || GET_MAPIFY_GEOCODING;
 const getReverseGeocodingEndpoint = () =>
     mapifyEndpoints.reverseGeocodingEndpoint || GET_MAPIFY_REVERSE_GEOCODING;
-const getPreferencesEndpoint = () =>
-    mapifyEndpoints.preferencesEndpoint || POST_MAP_SEARCH_PREFERENCES;
+const getPreferencesGetEndpoint = () =>
+    mapifyEndpoints.preferencesGetEndpoint || GET_MAP_SEARCH_PREFERENCES;
+const getPreferencesPostEndpoint = () =>
+    mapifyEndpoints.preferencesPostEndpoint || POST_MAP_SEARCH_PREFERENCES;
 
 export const isReverseGeocodingAvailable = () => {
     const config = getCachedMapConfiguration();
@@ -116,7 +127,7 @@ export const extractMapSearchPreferencesFromResponse = (response, fallbackCountr
 
 export async function apiGetMapSearchPreferences() {
     return ApiService.fetchData({
-        url: getPreferencesEndpoint(),
+        url: getPreferencesGetEndpoint(),
         method: METHOD_GET,
         headers: {
             Accept: "application/json",
@@ -334,7 +345,7 @@ export async function apiSaveMapSearchPreferences({ nearbySearch, boundaryCountr
     }
 
     return ApiService.fetchData({
-        url: getPreferencesEndpoint(),
+        url: getPreferencesPostEndpoint(),
         method: METHOD_POST,
         data: payload,
         headers: {

@@ -2,6 +2,7 @@ import { METHOD_GET } from "../constants/method.constant";
 import {
     GET_COMPANY_API_KEYS,
     GET_MAP_INFORMATION,
+    GET_MAP_SEARCH_PREFERENCES,
     GET_MAPIFY_REVERSE_GEOCODING,
     GET_MAPIFY_SEARCH,
     GET_MAPIFY_GEOCODING,
@@ -13,7 +14,7 @@ import appConfig from "../components/configs/app.config";
 import ApiService from "./ApiService";
 import { configureMapifyEndpoints, normalizeMapSearchPreferences } from "./MapSearchService";
 import { setCachedMapConfiguration } from "./mapConfigCache";
-import { getTenantId, getTenantData } from "../utils/functions/tokenEncryption";
+import { getTenantId, getTenantData, getDecryptedToken } from "../utils/functions/tokenEncryption";
 
 export const MAP_PROVIDER_GOOGLE = "google";
 export const MAP_PROVIDER_DEFAULT = "default";
@@ -61,6 +62,8 @@ const hasMapFields = (value) =>
             || value.uses_mapify != null
             || value.uses_google_map != null
             || value.mapify_tiles_endpoint != null
+            || value.mapify_tiles_url_template != null
+            || value.mapify_tiles_auth_query_params != null
             || value.google_api_keys != null
             || value.barikoi_api_key != null
         )
@@ -109,8 +112,71 @@ const resolveApiUrl = (endpoint) => {
     if (/^https?:\/\//i.test(value)) return value.replace(/\/$/, "");
 
     const base = appConfig.apiPrefix.replace(/\/$/, "");
-    const path = value.startsWith("/") ? value : `/${value}`;
+    let path = value.startsWith("/") ? value : `/${value}`;
+
+    if (path.startsWith("/api/") && base.endsWith("/api")) {
+        path = path.slice(4);
+    }
+
     return `${base}${path}`.replace(/\/$/, "");
+};
+
+export const buildMapifyTilesAuthQuery = (info = {}) => {
+    const spec = info?.mapify_tiles_auth_query_params;
+    const token = getDecryptedToken();
+    const tenantId = getTenantId();
+    const params = {};
+
+    const includeToken = () => {
+        if (token) params.token = token;
+    };
+    const includeDatabase = () => {
+        if (tenantId) params.database = tenantId;
+    };
+
+    if (!spec) {
+        includeToken();
+        includeDatabase();
+        return params;
+    }
+
+    if (Array.isArray(spec)) {
+        if (spec.includes("token")) includeToken();
+        if (spec.includes("database")) includeDatabase();
+        return params;
+    }
+
+    if (typeof spec === "object") {
+        Object.entries(spec).forEach(([key, value]) => {
+            if (key === "token" && value) includeToken();
+            else if (key === "database" && value) includeDatabase();
+            else if (value != null && value !== false) params[key] = String(value);
+        });
+        return params;
+    }
+
+    includeToken();
+    includeDatabase();
+    return params;
+};
+
+export const buildMapifyTilesUrlTemplate = (info = {}) => {
+    const rawTemplate = info?.mapify_tiles_url_template;
+    const endpoint = info?.mapify_tiles_endpoint;
+
+    let tilePath;
+    if (rawTemplate) {
+        tilePath = resolveApiUrl(rawTemplate);
+    } else {
+        const base = resolveApiUrl(endpoint || GET_MAPIFY_TILES_BRIGHT);
+        tilePath = base?.includes("{z}") ? base : `${base}/{z}/{x}/{y}.png`;
+    }
+
+    if (!tilePath) return null;
+
+    const authQuery = buildMapifyTilesAuthQuery(info);
+    const query = new URLSearchParams(authQuery).toString();
+    return query ? `${tilePath}?${query}` : tilePath;
 };
 
 const normalizeMapInfo = (info) => {
@@ -187,8 +253,7 @@ const shouldUseBarikoi = (info) => {
     return country === "BD";
 };
 
-const getMapifyTilesEndpoint = (info) =>
-    resolveApiUrl(info?.mapify_tiles_endpoint || GET_MAPIFY_TILES_BRIGHT);
+const getMapifyTilesEndpoint = (info) => buildMapifyTilesUrlTemplate(info);
 
 const getMapifySearchEndpoint = (info) =>
     resolveApiUrl(info?.mapify_search_endpoint || GET_MAPIFY_SEARCH);
@@ -199,12 +264,15 @@ const getMapifyGeocodingEndpoint = (info) =>
 const getMapifyReverseGeocodingEndpoint = (info) =>
     resolveApiUrl(info?.mapify_reverse_geocoding_endpoint || GET_MAPIFY_REVERSE_GEOCODING);
 
-const getMapifyPreferencesEndpoint = (info) =>
+const getMapifyPreferencesGetEndpoint = (info) =>
+    resolveApiUrl(info?.map_search_preferences_endpoint || GET_MAP_SEARCH_PREFERENCES);
+
+const getMapifyPreferencesPostEndpoint = (info) =>
     resolveApiUrl(info?.map_search_preferences_endpoint || POST_MAP_SEARCH_PREFERENCES);
 
-export const buildMapifyRasterStyle = (tilesEndpoint) => {
-    const base = String(tilesEndpoint || "").replace(/\/$/, "");
-    if (!base) return null;
+export const buildMapifyRasterStyle = (tilesUrlTemplate) => {
+    const template = String(tilesUrlTemplate || "").trim();
+    if (!template) return null;
 
     return {
         version: 8,
@@ -213,7 +281,7 @@ export const buildMapifyRasterStyle = (tilesEndpoint) => {
         sources: {
             mapify: {
                 type: "raster",
-                tiles: [`${base}/{z}/{x}/{y}.png`],
+                tiles: [template],
                 tileSize: 256,
                 attribution: "© Mapify",
                 maxzoom: 19,
@@ -413,7 +481,8 @@ const buildConfigFromInfo = (rawInfo) => {
             searchEndpoint,
             geocodingEndpoint,
             reverseGeocodingEndpoint,
-            preferencesEndpoint: getMapifyPreferencesEndpoint(info),
+            preferencesGetEndpoint: getMapifyPreferencesGetEndpoint(info),
+            preferencesPostEndpoint: getMapifyPreferencesPostEndpoint(info),
         });
 
         const mapifyStyle = buildMapifyRasterStyle(tilesEndpoint);

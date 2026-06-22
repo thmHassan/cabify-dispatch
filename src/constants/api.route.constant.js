@@ -66,6 +66,7 @@ export const GET_MAPIFY_TILES_BRIGHT = "/company/mapify-tiles/bright"
 export const GET_MAPIFY_SEARCH = "/company/mapify-search"
 export const GET_MAPIFY_GEOCODING = "/company/mapify-geocoding"
 export const GET_MAPIFY_REVERSE_GEOCODING = "/company/mapify-reverse-geocoding"
+export const GET_MAP_SEARCH_PREFERENCES = "/company/map-search-preferences"
 export const POST_MAP_SEARCH_PREFERENCES = "/company/map-search-preferences"
 
 export const GET_PLOTS = "/company/list-plot";

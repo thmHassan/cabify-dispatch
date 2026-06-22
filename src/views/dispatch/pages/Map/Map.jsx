@@ -14,8 +14,8 @@ import useMapConfiguration from "../../../../hooks/useMapConfiguration";
 import { destroySharedMapInstance } from "../../../../utils/functions/mapInstanceCleanup";
 import AppLogoLoader from "../../../../components/shared/AppLogoLoader/AppLogoLoader";
 import { apiGetPlot } from "../../../../services/PlotService";
-// import { fetchMapifyPlaceSearch } from "../../../../services/MapSearchService";
-// import MapSearchBox from "./components/MapSearchBox";
+import { fetchMapifyPlaceSearch } from "../../../../services/MapSearchService";
+import MapSearchBox from "./components/MapSearchBox";
 import { useMapDriverSync } from "../../../../hooks/useMapDriverSync";
 import { getDriverKey, pruneDriverMarkers } from "../../../../utils/functions/driverMapSync";
 
@@ -603,16 +603,17 @@ const Map = () => {
     mapConfigLoading,
     apiKeys,
     tenantScope,
-    // mapSearchPreferences,
-    // saveMapSearchPreferences,
-    // handleBoundaryCountryChange,
+    mapSearchPreferences,
+    mapSearchPreferencesLoading,
+    saveMapSearchPreferences,
+    handleBoundaryCountryChange,
   } = useMapConfiguration();
   const [searchQuery, setSearchQuery] = useState("");
-  // const [debouncedQuery, setDebouncedQuery] = useState("");
-  // const [searchResults, setSearchResults] = useState([]);
-  // const [searchLoading, setSearchLoading] = useState(false);
-  // const [searchError, setSearchError] = useState("");
-  // const [showSearchResults, setShowSearchResults] = useState(false);
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [searchResults, setSearchResults] = useState([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchError, setSearchError] = useState("");
+  const [showSearchResults, setShowSearchResults] = useState(false);
   const [selectedStatus, setSelectedStatus] = useState(MAP_STATUS_OPTIONS[0]);
   const [plotsData, setPlotsData] = useState([]);
 
@@ -636,13 +637,12 @@ const Map = () => {
   const markers = useRef({});
   const searchMarkerRef = useRef(null);
   const searchPopupRef = useRef(null);
-  // const searchAbortRef = useRef(null);
+  const searchAbortRef = useRef(null);
 
   useEffect(() => {
     destroySharedMapInstance(mapInstance, markers, mapRef);
   }, [mapType, mapConfigLoading]);
 
-  /*
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedQuery(searchQuery.trim());
@@ -771,7 +771,6 @@ const Map = () => {
       clearSearchMarker();
     };
   }, [clearSearchMarker]);
-  */
 
   const sharedProps = {
     mapRef,
@@ -793,7 +792,6 @@ const Map = () => {
       </div>
       <CardContainer className="p-4 bg-[#F5F5F5]">
         <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-5 justify-between mb-4 pb-4">
-          {/* Map place search + nearby search controls disabled on /map
           {mapType === MAP_PROVIDER_DEFAULT && !mapConfigLoading && (
             <MapSearchBox
               value={searchQuery}
@@ -809,11 +807,11 @@ const Map = () => {
               onClear={handleClearSearch}
               nearbySearch={mapSearchPreferences.nearbySearch}
               boundaryCountry={mapSearchPreferences.boundaryCountry || apiKeys.countryOfUse}
-              onNearbySearchChange={saveMapSearchPreferences}
-              onBoundaryCountryChange={handleBoundaryCountryChange}
+              onNearbySearchChange={(event) => saveMapSearchPreferences(event.target.checked)}
+              onBoundaryCountryChange={(event) => handleBoundaryCountryChange(event.target.value)}
+              preferencesLoading={mapSearchPreferencesLoading}
             />
           )}
-          */}
           <CustomSelect
             variant={2}
             options={MAP_STATUS_OPTIONS}

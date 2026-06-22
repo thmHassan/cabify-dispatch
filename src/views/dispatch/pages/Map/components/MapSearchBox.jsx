@@ -13,6 +13,7 @@ const MapSearchBox = ({
     boundaryCountry = "",
     onNearbySearchChange,
     onBoundaryCountryChange,
+    preferencesLoading = false,
 }) => {
     return (
         <div className="relative w-full sm:w-[420px]">
@@ -41,6 +42,7 @@ const MapSearchBox = ({
                     boundaryCountry={boundaryCountry}
                     onNearbySearchChange={onNearbySearchChange}
                     onBoundaryCountryChange={onBoundaryCountryChange}
+                    loading={preferencesLoading}
                 />
             </div>
 
