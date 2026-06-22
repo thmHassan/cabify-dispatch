@@ -9,12 +9,10 @@ import { renderToString } from "react-dom/server";
 import RedCarIcon from "../../../../components/svg/RedCarIcon";
 import GreenCarIcon from "../../../../components/svg/GreenCarIcon";
 import AppLogoIcon from "../../../../components/svg/AppLogoIcon";
-import { getTenantData, getTenantId } from "../../../../utils/functions/tokenEncryption";
-import { useAppSelector } from "../../../../store";
-import { apiGetCompanyApiKeys } from "../../../../services/SettingsConfigurationServices";
-import { fetchMapConfiguration, MAP_PROVIDER_BARIKOI, MAP_PROVIDER_DEFAULT, MAP_PROVIDER_GOOGLE, buildBarikoiRasterStyle } from "../../../../services/mapConfigurationService";
-import { ensureMapConfigurationLoaded, invalidateMapConfigurationCache } from "../../../../services/mapConfigCache";
+import { MAP_PROVIDER_BARIKOI, MAP_PROVIDER_DEFAULT, MAP_PROVIDER_GOOGLE } from "../../../../services/mapConfigurationService";
+import useMapConfiguration from "../../../../hooks/useMapConfiguration";
 import { destroySharedMapInstance } from "../../../../utils/functions/mapInstanceCleanup";
+import AppLogoLoader from "../../../../components/shared/AppLogoLoader/AppLogoLoader";
 import { apiGetPlot } from "../../../../services/PlotService";
 import { apiMapifyGeocoding, normalizeMapifyFeatures } from "../../../../services/MapSearchService";
 import MapSearchBox from "./components/MapSearchBox";
@@ -599,8 +597,13 @@ const DefaultMapView = ({ mapRef, mapInstance, markers, driverData, activeDriver
 };
 
 const Map = () => {
-  const signedIn = useAppSelector((state) => state.auth.session.signedIn);
-  const tenantScope = signedIn ? getTenantId() : null;
+  const {
+    mapType,
+    mapError,
+    mapConfigLoading,
+    apiKeys,
+    tenantScope,
+  } = useMapConfiguration();
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [searchResults, setSearchResults] = useState([]);
@@ -608,88 +611,7 @@ const Map = () => {
   const [searchError, setSearchError] = useState("");
   const [showSearchResults, setShowSearchResults] = useState(false);
   const [selectedStatus, setSelectedStatus] = useState(MAP_STATUS_OPTIONS[0]);
-
-  const [mapType, setMapType] = useState(null);
-  const [mapError, setMapError] = useState(null);
-  const [mapConfigRevision, setMapConfigRevision] = useState(0);
-  const [apiKeys, setApiKeys] = useState({
-    googleKey: null,
-    mapifyStyle: null,
-    barikoiStyle: null,
-    barikoiKey: null,
-    countryOfUse: getTenantData()?.data?.country_of_use || "IN",
-  });
   const [plotsData, setPlotsData] = useState([]);
-
-  useEffect(() => {
-    if (!tenantScope) {
-      setMapError(null);
-      setMapType(null);
-      return undefined;
-    }
-
-    const loadMapConfig = async () => {
-      try {
-        const mapConfig = await ensureMapConfigurationLoaded(fetchMapConfiguration, {
-          force: mapConfigRevision > 0,
-        });
-        if (!mapConfig) return;
-        let companyKeys = null;
-
-        try {
-          const keysRes = await apiGetCompanyApiKeys();
-          if (keysRes.data?.success) {
-            companyKeys = keysRes.data.data;
-            setApiKeys((prev) => ({ ...prev, countryOfUse: companyKeys.country_of_use || "IN" }));
-          }
-        } catch (keysError) {
-          console.warn("Fetch company API keys error:", keysError);
-        }
-
-        if (!mapConfig.ok) {
-          setMapError(mapConfig.message || "Unable to load map configuration");
-          setMapType(null);
-          return;
-        }
-
-        setMapError(null);
-        setMapType(mapConfig.provider);
-        const barikoiKey = mapConfig.barikoiKey || companyKeys?.barikoi_api_key || null;
-        setApiKeys((prev) => ({
-          ...prev,
-          googleKey: mapConfig.provider === MAP_PROVIDER_GOOGLE ? mapConfig.googleKey : null,
-          mapifyStyle: mapConfig.provider === MAP_PROVIDER_DEFAULT ? mapConfig.mapifyStyle : null,
-          barikoiStyle: mapConfig.provider === MAP_PROVIDER_BARIKOI
-            ? (mapConfig.barikoiStyle || (barikoiKey ? buildBarikoiRasterStyle(barikoiKey) : null))
-            : null,
-          barikoiKey,
-        }));
-      } catch (err) {
-        console.error("Fetch map configuration error:", err);
-        setMapError(err?.message || "Unable to load map configuration");
-        setMapType(null);
-      }
-    };
-
-    loadMapConfig();
-  }, [tenantScope, mapConfigRevision]);
-
-  useEffect(() => {
-    if (!tenantScope) return undefined;
-
-    const handleVisibility = () => {
-      if (document.visibilityState !== "visible") return;
-      invalidateMapConfigurationCache();
-      setMapConfigRevision((revision) => revision + 1);
-    };
-
-    document.addEventListener("visibilitychange", handleVisibility);
-    return () => document.removeEventListener("visibilitychange", handleVisibility);
-  }, [tenantScope]);
-
-  useEffect(() => {
-    destroySharedMapInstance(mapInstance, markers, mapRef);
-  }, [mapType]);
 
   useEffect(() => {
     const fetchPlots = async () => {
@@ -712,6 +634,10 @@ const Map = () => {
   const searchMarkerRef = useRef(null);
   const searchPopupRef = useRef(null);
   const searchAbortRef = useRef(null);
+
+  useEffect(() => {
+    destroySharedMapInstance(mapInstance, markers, mapRef);
+  }, [mapType, mapConfigLoading]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -854,7 +780,7 @@ const Map = () => {
       </div>
       <CardContainer className="p-4 bg-[#F5F5F5]">
         <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-5 justify-between mb-4 pb-4">
-          {mapType === MAP_PROVIDER_DEFAULT && (
+          {mapType === MAP_PROVIDER_DEFAULT && !mapConfigLoading && (
             <MapSearchBox
               value={searchQuery}
               onChange={(value) => {
@@ -878,7 +804,11 @@ const Map = () => {
           />
         </div>
 
-        {mapError ? (
+        {mapConfigLoading ? (
+          <div className="w-full h-[550px] rounded-xl border border-gray-300 shadow-sm flex items-center justify-center bg-gray-50">
+            <AppLogoLoader />
+          </div>
+        ) : mapError ? (
           <div className="w-full h-[550px] rounded-xl border border-gray-300 shadow-sm flex items-center justify-center bg-gray-50 px-4 text-center">
             <p className="text-sm text-red-600">{mapError}</p>
           </div>
@@ -892,11 +822,7 @@ const Map = () => {
             key={`google-${apiKeys.googleKey}-${apiKeys.countryOfUse || "na"}`}
             {...sharedProps}
           />
-        ) : (
-          <div className="w-full h-[550px] rounded-xl border border-gray-300 shadow-sm flex items-center justify-center bg-gray-50">
-            <p className="text-sm text-gray-500">Loading map...</p>
-          </div>
-        )}
+        ) : null}
 
         <div className="flex justify-center gap-10 flex-wrap py-4 mt-3 border-t">
           <div className="flex items-center gap-2">

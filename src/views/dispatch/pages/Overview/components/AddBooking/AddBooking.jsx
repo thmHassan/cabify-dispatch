@@ -28,7 +28,6 @@ import {
 } from "../../../../../../services/AddBookingServices";
 import {
     apiGetDispatchSystem,
-    apiGetCompanyApiKeys,
 } from "../../../../../../services/SettingsConfigurationServices";
 import { ensureMapConfigurationLoaded } from "../../../../../../services/mapConfigCache";
 import {
@@ -450,24 +449,18 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
             try {
                 const mapConfig = await ensureMapConfigurationLoaded(fetchMapConfiguration);
                 if (!mapConfig) return;
-                let companyKeys = null;
+                const companyKeys = mapConfig.companyKeys || null;
 
-                try {
-                    const keysRes = await apiGetCompanyApiKeys();
-                    if (keysRes.data?.success) {
-                        companyKeys = keysRes.data.data;
-                        if (companyKeys.search_api) {
-                            setSearchApi(companyKeys.search_api.toLowerCase());
-                        }
-                        if (companyKeys.country_of_use) {
-                            setCountryCode(companyKeys.country_of_use.toLowerCase());
-                        }
-                        if (companyKeys.units) {
-                            setCachedDistanceUnit(companyKeys.units);
-                        }
+                if (companyKeys) {
+                    if (companyKeys.search_api) {
+                        setSearchApi(companyKeys.search_api.toLowerCase());
                     }
-                } catch (keysError) {
-                    console.warn("Fetch company API keys error:", keysError);
+                    if (companyKeys.country_of_use) {
+                        setCountryCode(companyKeys.country_of_use.toLowerCase());
+                    }
+                    if (companyKeys.units) {
+                        setCachedDistanceUnit(companyKeys.units);
+                    }
                 }
 
                 if (!mapConfig.ok) {

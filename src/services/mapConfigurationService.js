@@ -314,7 +314,40 @@ const emptyMapConfig = (overrides = {}) => ({
     usesMapify: false,
     usesGoogleMap: false,
     raw: null,
+    companyKeys: null,
     ...overrides,
+});
+
+const extractCompanyKeys = (keysRes) => {
+    if (!isSuccess(keysRes?.data)) return null;
+
+    const keysData = keysRes?.data?.data;
+    if (!keysData || typeof keysData !== "object") return null;
+
+    return {
+        country_of_use: keysData.country_of_use || null,
+        search_api: keysData.search_api || null,
+        barikoi_api_key: keysData.barikoi_api_key || null,
+        maps_api: keysData.maps_api || null,
+        units: keysData.units || null,
+    };
+};
+
+const hasThirdPartyMapConfig = (thirdPartyRes) => {
+    if (!isSuccess(thirdPartyRes?.data)) return false;
+
+    const info = extractMapInfo(thirdPartyRes?.data);
+    if (!info) return false;
+
+    return hasMapFields(info)
+        || info.uses_mapify != null
+        || info.uses_google_map != null
+        || info.map_provider != null;
+};
+
+const attachCompanyKeys = (config, keysRes) => ({
+    ...config,
+    companyKeys: extractCompanyKeys(keysRes),
 });
 
 const buildConfigFromInfo = (rawInfo) => {
@@ -440,11 +473,15 @@ export async function fetchMapConfiguration() {
     const requestTenantId = getTenantId();
 
     try {
-        const [mapRes, thirdPartyRes, keysRes] = await Promise.all([
-            fetchMapSource(GET_MAP_INFORMATION),
+        const [thirdPartyRes, keysRes] = await Promise.all([
             fetchMapSource(GET_THIRD_PARTY_INFORMATION),
             fetchMapSource(GET_COMPANY_API_KEYS),
         ]);
+
+        let mapRes = { data: null, error: null };
+        if (!hasThirdPartyMapConfig(thirdPartyRes)) {
+            mapRes = await fetchMapSource(GET_MAP_INFORMATION);
+        }
 
         if (requestTenantId && getTenantId() !== requestTenantId) {
             const error = new Error("Tenant changed while loading map configuration.");
@@ -484,7 +521,7 @@ export async function fetchMapConfiguration() {
             throw error;
         }
 
-        const config = buildConfigFromInfo(info);
+        const config = attachCompanyKeys(buildConfigFromInfo(info), keysRes);
 
         if (requestTenantId && getTenantId() !== requestTenantId) {
             const error = new Error("Tenant changed while loading map configuration.");
@@ -500,11 +537,11 @@ export async function fetchMapConfiguration() {
         }
 
         configureMapifyEndpoints(null);
-        const config = emptyMapConfig({
+        const config = attachCompanyKeys(emptyMapConfig({
             status: error?.response?.status,
             message: getMapErrorMessage(error),
             error,
-        });
+        }), null);
 
         if (!requestTenantId || getTenantId() === requestTenantId) {
             setCachedMapConfiguration(config);
