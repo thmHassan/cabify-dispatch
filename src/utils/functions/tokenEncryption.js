@@ -135,6 +135,30 @@ export const getTenantId = () => {
 };
 
 /**
+ * Resolves tenant/database id for API and tile auth.
+ * Falls back to stored tenant profile when tenant_id key is missing.
+ * @returns {string|null}
+ */
+export const resolveTenantDatabaseId = () => {
+  const direct = getTenantId();
+  if (direct) return direct;
+
+  const tenant = getTenantData();
+  if (!tenant || typeof tenant !== 'object') return null;
+
+  const root = tenant.data && typeof tenant.data === 'object' ? tenant.data : tenant;
+  return (
+    root.tenant_id
+    ?? root.database
+    ?? root.company_id
+    ?? tenant.tenant_id
+    ?? tenant.database
+    ?? tenant.company_id
+    ?? null
+  );
+};
+
+/**
  * Retrieves tenant data from localStorage
  * @returns {object|null}
  */

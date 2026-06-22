@@ -7,6 +7,7 @@ import {
   clearAllAuthData,
   getDecryptedToken,
   getTenantId,
+  resolveTenantDatabaseId,
 } from "../utils/functions/tokenEncryption";
 
 const unauthorizedCode = [401, 403, 419];
@@ -30,6 +31,11 @@ BaseService.interceptors.request.use(
       const tenantId = getTenantId();
       if (tenantId) {
         config.headers[REQUEST_HEADER_DATABASE_KEY] = tenantId;
+      } else {
+        const resolvedTenantId = resolveTenantDatabaseId();
+        if (resolvedTenantId) {
+          config.headers[REQUEST_HEADER_DATABASE_KEY] = resolvedTenantId;
+        }
       }
     } catch (e) {
       // ignore database header errors

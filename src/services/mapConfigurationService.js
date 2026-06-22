@@ -14,7 +14,7 @@ import appConfig from "../components/configs/app.config";
 import ApiService from "./ApiService";
 import { configureMapifyEndpoints, normalizeMapSearchPreferences } from "./MapSearchService";
 import { setCachedMapConfiguration } from "./mapConfigCache";
-import { getTenantId, getTenantData, getDecryptedToken } from "../utils/functions/tokenEncryption";
+import { getTenantId, getTenantData, getDecryptedToken, resolveTenantDatabaseId } from "../utils/functions/tokenEncryption";
 
 export const MAP_PROVIDER_GOOGLE = "google";
 export const MAP_PROVIDER_DEFAULT = "default";
@@ -63,7 +63,7 @@ const hasMapFields = (value) =>
             || value.uses_google_map != null
             || value.mapify_tiles_endpoint != null
             || value.mapify_tiles_url_template != null
-            || value.mapify_tiles_auth_query_params != null
+            || value.central_map_enabled != null
             || value.google_api_keys != null
             || value.barikoi_api_key != null
         )
@@ -121,63 +121,55 @@ const resolveApiUrl = (endpoint) => {
     return `${base}${path}`.replace(/\/$/, "");
 };
 
-export const buildMapifyTilesAuthQuery = (info = {}) => {
-    const spec = info?.mapify_tiles_auth_query_params;
+export const buildMapifyTileTokenQuery = () => {
     const token = getDecryptedToken();
-    const tenantId = getTenantId();
-    const params = {};
-
-    const includeToken = () => {
-        if (token) params.token = token;
-    };
-    const includeDatabase = () => {
-        if (tenantId) params.database = tenantId;
-    };
-
-    if (!spec) {
-        includeToken();
-        includeDatabase();
-        return params;
-    }
-
-    if (Array.isArray(spec)) {
-        if (spec.includes("token")) includeToken();
-        if (spec.includes("database")) includeDatabase();
-        return params;
-    }
-
-    if (typeof spec === "object") {
-        Object.entries(spec).forEach(([key, value]) => {
-            if (key === "token" && value) includeToken();
-            else if (key === "database" && value) includeDatabase();
-            else if (value != null && value !== false) params[key] = String(value);
-        });
-        return params;
-    }
-
-    includeToken();
-    includeDatabase();
-    return params;
+    return token ? { token } : {};
 };
 
-export const buildMapifyTilesUrlTemplate = (info = {}) => {
+/** @deprecated Use buildMapifyTileTokenQuery — tiles only carry token, not database. */
+export const buildMapifyTilesAuthQuery = buildMapifyTileTokenQuery;
+
+export const isMapifyTileUrl = (url = "") => /mapify-tiles/i.test(String(url));
+
+export const buildMapifyTilesPathTemplate = (info = {}) => {
     const rawTemplate = info?.mapify_tiles_url_template;
     const endpoint = info?.mapify_tiles_endpoint;
 
-    let tilePath;
     if (rawTemplate) {
-        tilePath = resolveApiUrl(rawTemplate);
-    } else {
-        const base = resolveApiUrl(endpoint || GET_MAPIFY_TILES_BRIGHT);
-        tilePath = base?.includes("{z}") ? base : `${base}/{z}/{x}/{y}.png`;
+        return resolveApiUrl(rawTemplate);
     }
 
-    if (!tilePath) return null;
-
-    const authQuery = buildMapifyTilesAuthQuery(info);
-    const query = new URLSearchParams(authQuery).toString();
-    return query ? `${tilePath}?${query}` : tilePath;
+    const base = resolveApiUrl(endpoint || GET_MAPIFY_TILES_BRIGHT);
+    if (!base) return null;
+    return base.includes("{z}") ? base : `${base}/{z}/{x}/{y}.png`;
 };
+
+export const appendMapifyTileAuth = (url) => {
+    const value = String(url || "").trim();
+    if (!value || !isMapifyTileUrl(value)) return value;
+
+    const token = getDecryptedToken();
+    if (!token) return value;
+
+    try {
+        const parsed = new URL(value, resolveApiUrl("/") || undefined);
+        parsed.searchParams.delete("database");
+        parsed.searchParams.set("token", token);
+        return parsed.toString();
+    } catch {
+        const withoutQuery = value.split("?")[0];
+        return `${withoutQuery}?token=${encodeURIComponent(token)}`;
+    }
+};
+
+export const createMapifyTransformRequest = () => (url, resourceType) => {
+    if (resourceType === "Tile" && isMapifyTileUrl(url)) {
+        return { url: appendMapifyTileAuth(url) };
+    }
+    return { url };
+};
+
+export const buildMapifyTilesUrlTemplate = (info = {}) => buildMapifyTilesPathTemplate(info);
 
 const normalizeMapInfo = (info) => {
     const normalized = { ...(info || {}) };

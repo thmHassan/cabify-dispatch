@@ -9,7 +9,7 @@ import { renderToString } from "react-dom/server";
 import RedCarIcon from "../../../../components/svg/RedCarIcon";
 import GreenCarIcon from "../../../../components/svg/GreenCarIcon";
 import AppLogoIcon from "../../../../components/svg/AppLogoIcon";
-import { MAP_PROVIDER_BARIKOI, MAP_PROVIDER_DEFAULT, MAP_PROVIDER_GOOGLE } from "../../../../services/mapConfigurationService";
+import { MAP_PROVIDER_BARIKOI, MAP_PROVIDER_DEFAULT, MAP_PROVIDER_GOOGLE, createMapifyTransformRequest } from "../../../../services/mapConfigurationService";
 import useMapConfiguration from "../../../../hooks/useMapConfiguration";
 import { destroySharedMapInstance } from "../../../../utils/functions/mapInstanceCleanup";
 import AppLogoLoader from "../../../../components/shared/AppLogoLoader/AppLogoLoader";
@@ -438,6 +438,7 @@ const DefaultMapView = ({ mapRef, mapInstance, markers, driverData, activeDriver
             zoom: 8,
             fadeDuration: 0,
             attributionControl: true,
+            transformRequest: createMapifyTransformRequest(),
           });
 
           map.addControl(new window.maplibregl.NavigationControl(), "bottom-right");

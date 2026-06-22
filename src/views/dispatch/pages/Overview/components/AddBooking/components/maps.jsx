@@ -4,6 +4,7 @@ import {
     MAP_PROVIDER_BARIKOI,
     MAP_PROVIDER_DEFAULT,
     MAP_PROVIDER_GOOGLE,
+    createMapifyTransformRequest,
 } from "../../../../../../../services/mapConfigurationService";
 import { fetchMapifyAddressFromCoords } from "../../../../../../../services/MapSearchService";
 import {
@@ -569,6 +570,7 @@ const MapLibreBookingMap = ({
                     center: [center.lng, center.lat],
                     zoom: 12,
                     attributionControl: false,
+                    transformRequest: createMapifyTransformRequest(),
                 });
                 mapRef.current.on("error", (e) => {
                     const msg = e?.error?.message || String(e);

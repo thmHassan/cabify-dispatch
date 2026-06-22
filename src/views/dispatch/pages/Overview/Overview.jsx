@@ -16,7 +16,7 @@ import { useAppSelector } from "../../../../store";
 import {
   apiGetDispatchSystem,
 } from "../../../../services/SettingsConfigurationServices";
-import { MAP_PROVIDER_BARIKOI, MAP_PROVIDER_DEFAULT, MAP_PROVIDER_GOOGLE } from "../../../../services/mapConfigurationService";
+import { MAP_PROVIDER_BARIKOI, MAP_PROVIDER_DEFAULT, MAP_PROVIDER_GOOGLE, createMapifyTransformRequest } from "../../../../services/mapConfigurationService";
 import useMapConfiguration from "../../../../hooks/useMapConfiguration";
 import { destroySharedMapInstance } from "../../../../utils/functions/mapInstanceCleanup";
 import {
@@ -1006,7 +1006,15 @@ const DefaultMapSection = ({ mapRef, mapInstance, markers, driverData, setDriver
       if (!mounted || !mapRef.current) return;
       const initMap = (style) => {
         try {
-          const map = new window.maplibregl.Map({ container, style, center: [countryCenter.lng, countryCenter.lat], zoom: 8, attributionControl: true, fadeDuration: 0 });
+          const map = new window.maplibregl.Map({
+            container,
+            style,
+            center: [countryCenter.lng, countryCenter.lat],
+            zoom: 8,
+            attributionControl: true,
+            fadeDuration: 0,
+            transformRequest: createMapifyTransformRequest(),
+          });
           map.addControl(new window.maplibregl.NavigationControl(), "top-right");
           map.on("load", () => {
             if (!mounted) return;
