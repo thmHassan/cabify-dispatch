@@ -1,8 +1,7 @@
 import { Form, Formik } from "formik";
 import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import Maps from "./components/maps";
-import { getTenantData, getTenantId } from "../../../../../../utils/functions/tokenEncryption";
-import { useAppSelector } from "../../../../../../store";
+import { getTenantData } from "../../../../../../utils/functions/tokenEncryption";
 import {
     formatDistanceWithUnit,
     getTenantCountryIso,
@@ -29,14 +28,13 @@ import {
 import {
     apiGetDispatchSystem,
 } from "../../../../../../services/SettingsConfigurationServices";
-import { ensureMapConfigurationLoaded } from "../../../../../../services/mapConfigCache";
+import { ensureMapConfigurationLoaded, getCachedMapConfiguration } from "../../../../../../services/mapConfigCache";
 import {
     fetchMapConfiguration,
     MAP_PROVIDER_BARIKOI,
     MAP_PROVIDER_DEFAULT,
-    MAP_PROVIDER_GOOGLE,
-    buildBarikoiRasterStyle,
 } from "../../../../../../services/mapConfigurationService";
+import useMapConfiguration from "../../../../../../hooks/useMapConfiguration";
 import { apiGetBackupPlot } from "../../../../../../services/PlotService";
 import { unlockBodyScroll } from "../../../../../../utils/functions/common.function";
 import toast from 'react-hot-toast';
@@ -44,12 +42,12 @@ import { getDispatcherId, getDispatcherName } from "../../../../../../utils/auth
 import { apiGetRideHistory, apiGetUser } from "../../../../../../services/UserService";
 import {
     fetchMapifyAddressFromCoords,
+    fetchMapifyBoundaryCountryFromCoords,
     fetchMapifyLocationSuggestions,
     isReverseGeocodingAvailable,
-    normalizeMapSearchPreferences,
-    apiSaveMapSearchPreferences,
-    apiGetMapSearchPreferences,
-    extractMapSearchPreferencesFromResponse,
+    MAPIFY_AUTOCOMPLETE_SIZE,
+    MAPIFY_FULL_SEARCH_SIZE,
+    toMapifyBoundaryCountryCode,
 } from "../../../../../../services/MapSearchService";
 import MapNearbySearchControls, { toGoogleCountryCode } from "../../../../../../components/map/MapNearbySearchControls";
 import { debounce } from "lodash";
@@ -71,8 +69,21 @@ import {
     isManualDispatchOnlySystem,
 } from "../../../../../../utils/functions/dispatchSystem";
 import { validatePlotBasedPickup } from "../../../../../../utils/functions/plotMapGeometry";
+import { requestBrowserGeolocation } from "../../../../../../utils/functions/geolocation";
 import History from "./components/History";
+import LocationSearchSidebar from "./components/LocationSearchSidebar";
 import successSound from "../../../../../../assets/audio/meldix-success-340660.mp3";
+
+const LOCATION_SEARCH_DEBOUNCE_MS = 400;
+
+const EMPTY_LOCATION_SIDEBAR = {
+    open: false,
+    field: null,
+    query: "",
+    results: [],
+    loading: false,
+    error: "",
+};
 
 const DEFAULT_GOOGLE_KEY = "AIzaSyDTlV1tPVuaRbtvBQu4-kjDhTV54tR4cDU";
 const DEFAULT_BARIKOI_KEY = "bkoi_a468389d0211910bd6723de348e0de79559c435f07a17a5419cbe55ab55a890a";
@@ -312,25 +323,22 @@ const DEFAULT_FORM_VALUES = {
 };
 
 const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
-    const signedIn = useAppSelector((state) => state.auth.session.signedIn);
-    const tenantScope = signedIn ? getTenantId() : null;
     const isEditMode = Boolean(editBooking?.id);
     const todayWeekday = getTodayWeekdayLabel();
     const rawTenant = getTenantData();
     const tenant = rawTenant?.data || rawTenant || {};
     const SEARCH_API = tenant?.search_api || rawTenant?.search_api;
     const tenantCountryIso = getTenantCountryIso();
+    const {
+        mapType: mapsApi,
+        mapError,
+        apiKeys,
+        mapSearchPreferences,
+        mapSearchPreferencesLoading,
+        saveMapSearchPreferences,
+        applyMapSearchPreferences,
+    } = useMapConfiguration();
 
-    const getInitialMapType = () => {
-        const mapsApi = (tenant?.maps_api || rawTenant?.maps_api)?.trim().toLowerCase();
-        if (mapsApi === "default") return "default";
-        if (mapsApi === "barikoi") return "barikoi";
-        if (mapsApi === "google") return "google";
-        if (tenantCountryIso === "BD") return "barikoi";
-        return "google";
-    };
-
-    const MAPS_API = getInitialMapType();
     const [countryCode, setCountryCode] = useState(tenantCountryIso?.toLowerCase() || "");
     const defaultDialCode = getTenantDialCode();
 
@@ -339,8 +347,6 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
     const [driverList, setDriverList] = useState([]);
     const [accountList, setAccountList] = useState([]);
     const [loadingSubCompanies, setLoadingSubCompanies] = useState(false);
-    const [mapsApi, setMapsApi] = useState(null);
-    const [mapError, setMapError] = useState(null);
     const [searchApi, setSearchApi] = useState(SEARCH_API);
     const [googleService, setGoogleService] = useState(null);
     const [pickupSuggestions, setPickupSuggestions] = useState([]);
@@ -355,6 +361,8 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
     const [pickupSearchError, setPickupSearchError] = useState("");
     const [destinationSearchError, setDestinationSearchError] = useState("");
     const [viaSearchError, setViaSearchError] = useState({});
+    const [locationSidebar, setLocationSidebar] = useState(EMPTY_LOCATION_SIDEBAR);
+    const [nearbyBoundaryCountry, setNearbyBoundaryCountry] = useState(null);
     const [pickupPlotData, setPickupPlotData] = useState(null);
     const [destinationPlotData, setDestinationPlotData] = useState(null);
     const [viaPlotData, setViaPlotData] = useState({});
@@ -375,17 +383,6 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
     const [loadingDispatchSystem, setLoadingDispatchSystem] = useState(true);
     const dispatcherId = getDispatcherId();
     const [alertModal, setAlertModal] = useState({ isOpen: false, message: '' });
-    const [apiKeys, setApiKeys] = useState({
-        googleKey: null,
-        mapifyStyle: null,
-        barikoiStyle: null,
-        barikoiKey: null,
-    });
-    const [mapSearchPreferences, setMapSearchPreferences] = useState({
-        nearbySearch: false,
-        boundaryCountry: null,
-    });
-    const [mapSearchPreferencesLoading, setMapSearchPreferencesLoading] = useState(true);
     const [companyCountryOfUse, setCompanyCountryOfUse] = useState(
         tenantCountryIso || "IN"
     );
@@ -403,6 +400,14 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
     const searchAbortRef = useState({ pickup: null, destination: null, via: {} })[0];
     const searchDebounceRef = useState({ pickup: null, destination: null, via: {} })[0];
     const activeLocationQueriesRef = useRef({ pickup: "", destination: "", via: {} });
+    const locationSidebarAbortRef = useRef(null);
+    const userGeoCoordsRef = useRef(null);
+    const userGeoRequestRef = useRef(null);
+    const mapSearchPreferencesRef = useRef(mapSearchPreferences);
+
+    useEffect(() => {
+        mapSearchPreferencesRef.current = mapSearchPreferences;
+    }, [mapSearchPreferences]);
 
     const clearCalcError = (key) => setCalculateErrors(prev => ({ ...prev, [key]: undefined }));
     const clearBookingError = (key) => setBookingErrors(prev => ({ ...prev, [key]: undefined }));
@@ -453,107 +458,40 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
         setUserSuggestions([]);
     };
 
-    const resolvePreferenceFallbackCountry = useCallback(() => (
-        companyCountryOfUse
-        || tenantCountryIso
-        || countryCode?.toUpperCase()
-        || "IN"
-    ).toUpperCase(), [companyCountryOfUse, tenantCountryIso, countryCode]);
+    const persistMapSearchPreferences = useCallback(async (nextPreferences) => {
+        await saveMapSearchPreferences(
+            nextPreferences.nearbySearch,
+            nextPreferences.boundaryCountry
+        );
+        return true;
+    }, [saveMapSearchPreferences]);
 
-    const loadMapSearchPreferences = useCallback(async (fallbackCountry) => {
-        try {
-            const preferencesRes = await apiGetMapSearchPreferences();
-            const preferences = extractMapSearchPreferencesFromResponse(
-                preferencesRes,
-                fallbackCountry
-            );
-            setMapSearchPreferences(preferences);
-            return preferences;
-        } catch (prefError) {
-            console.warn("Failed to fetch map search preferences:", prefError);
-            return null;
+    const syncMapSearchPreferencesFromApi = useCallback((prefs) => {
+        if (!prefs) return;
+
+        mapSearchPreferencesRef.current = prefs;
+        applyMapSearchPreferences(prefs.nearbySearch, prefs.boundaryCountry);
+
+        if (prefs.nearbySearch && userGeoCoordsRef.current?.boundaryCountry) {
+            setNearbyBoundaryCountry(userGeoCoordsRef.current.boundaryCountry);
+        } else if (!prefs.nearbySearch) {
+            setNearbyBoundaryCountry(null);
         }
-    }, []);
+    }, [applyMapSearchPreferences]);
 
     useEffect(() => {
-        if (!tenantScope) {
-            setMapError(null);
-            setMapsApi(null);
-            setMapSearchPreferencesLoading(false);
-            return undefined;
+        if (apiKeys.searchApi) {
+            setSearchApi(apiKeys.searchApi.toLowerCase());
         }
-
-        const loadMapAndSettings = async () => {
-            setMapSearchPreferencesLoading(true);
-            try {
-                const fallbackCountry = (
-                    tenantCountryIso
-                    || countryCode?.toUpperCase()
-                    || "IN"
-                ).toUpperCase();
-
-                const [mapConfig, savedPreferences] = await Promise.all([
-                    ensureMapConfigurationLoaded(fetchMapConfiguration, { force: true }),
-                    loadMapSearchPreferences(fallbackCountry),
-                ]);
-
-                if (!mapConfig) return;
-                const companyKeys = mapConfig.companyKeys || null;
-                const resolvedFallback = (
-                    companyKeys?.country_of_use
-                    || fallbackCountry
-                ).toUpperCase();
-
-                if (companyKeys) {
-                    if (companyKeys.search_api) {
-                        setSearchApi(companyKeys.search_api.toLowerCase());
-                    }
-                    if (companyKeys.country_of_use) {
-                        setCountryCode(companyKeys.country_of_use.toLowerCase());
-                        setCompanyCountryOfUse(companyKeys.country_of_use.toUpperCase());
-                    }
-                    if (companyKeys.units) {
-                        setCachedDistanceUnit(companyKeys.units);
-                    }
-                }
-
-                if (!mapConfig.ok) {
-                    setMapError(mapConfig.message || "Unable to load map configuration");
-                    setMapsApi(null);
-                    return;
-                }
-
-                setMapError(null);
-                setMapsApi(mapConfig.provider);
-                const barikoiKey = mapConfig.barikoiKey || companyKeys?.barikoi_api_key || null;
-                setApiKeys({
-                    googleKey: mapConfig.provider === MAP_PROVIDER_GOOGLE ? mapConfig.googleKey : null,
-                    mapifyStyle: mapConfig.provider === MAP_PROVIDER_DEFAULT ? mapConfig.mapifyStyle : null,
-                    barikoiStyle: mapConfig.provider === MAP_PROVIDER_BARIKOI
-                        ? (mapConfig.barikoiStyle || (barikoiKey ? buildBarikoiRasterStyle(barikoiKey) : null))
-                        : null,
-                    barikoiKey,
-                });
-
-                if (!savedPreferences) {
-                    setMapSearchPreferences(
-                        mapConfig.mapSearchPreferences
-                        || normalizeMapSearchPreferences(
-                            mapConfig.raw?.map_search_preferences,
-                            resolvedFallback
-                        )
-                    );
-                }
-            } catch (err) {
-                console.error("Fetch map configuration error:", err);
-                setMapError(err?.message || "Unable to load map configuration");
-                setMapsApi(null);
-            } finally {
-                setMapSearchPreferencesLoading(false);
-            }
-        };
-        loadMapAndSettings();
-    }, [tenantScope, loadMapSearchPreferences]);
+        if (apiKeys.countryOfUse) {
+            setCountryCode(apiKeys.countryOfUse.toLowerCase());
+            setCompanyCountryOfUse(apiKeys.countryOfUse.toUpperCase());
+        }
+        const units = getCachedMapConfiguration()?.companyKeys?.units;
+        if (units) {
+            setCachedDistanceUnit(units);
+        }
+    }, [apiKeys.searchApi, apiKeys.countryOfUse, mapsApi]);
 
     useEffect(() => {
         const normalizePlotList = (response) => {
@@ -840,7 +778,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
         };
     }, [editBooking?.id, populateFormFromBooking]);
 
-    const getSearchOrigin = () => {
+    const getLocationBiasOrigin = () => {
         const coords =
             stablePickupCoords ||
             stableDestinationCoords ||
@@ -853,70 +791,145 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
         return SEARCH_COUNTRY_CENTERS[code] || SEARCH_COUNTRY_CENTERS.DEFAULT;
     };
 
-    const resolveBoundaryCountry = useCallback(() => {
-        if (!mapSearchPreferences.nearbySearch) return null;
-        return (
-            mapSearchPreferences.boundaryCountry
-            || companyCountryOfUse
-            || tenantCountryIso
-            || countryCode?.toUpperCase()
-            || null
-        );
-    }, [
-        mapSearchPreferences.nearbySearch,
-        mapSearchPreferences.boundaryCountry,
-        companyCountryOfUse,
-        tenantCountryIso,
-        countryCode,
-    ]);
-
-    const persistMapSearchPreferences = useCallback(async (nextPreferences) => {
-        setMapSearchPreferences(nextPreferences);
-        try {
-            const response = await apiSaveMapSearchPreferences({
-                nearbySearch: nextPreferences.nearbySearch,
-                boundaryCountry: nextPreferences.boundaryCountry,
-            });
-            const savedPreferences = extractMapSearchPreferencesFromResponse(
-                response,
-                resolvePreferenceFallbackCountry()
-            );
-            setMapSearchPreferences(savedPreferences);
-            return true;
-        } catch (error) {
-            console.warn("Failed to save map search preferences:", error);
-            return false;
+    const resolveNearbyBoundaryCountry = useCallback(async (coords, signal) => {
+        if (coords?.lat == null || coords?.lon == null) {
+            return toMapifyBoundaryCountryCode(tenantCountryIso);
         }
-    }, [resolvePreferenceFallbackCountry]);
+
+        if (mapsApi === MAP_PROVIDER_DEFAULT && isReverseGeocodingAvailable()) {
+            const countryCode = await fetchMapifyBoundaryCountryFromCoords({
+                lat: coords.lat,
+                lon: coords.lon,
+                signal,
+                fallbackCountry: tenantCountryIso,
+            });
+            if (countryCode) return countryCode;
+        }
+
+        return toMapifyBoundaryCountryCode(tenantCountryIso);
+    }, [mapsApi, tenantCountryIso]);
+
+    const fetchUserGeolocation = useCallback(async ({ force = false } = {}) => {
+        if (!force && userGeoCoordsRef.current) {
+            return userGeoCoordsRef.current;
+        }
+
+        if (!force && userGeoRequestRef.current) {
+            return userGeoRequestRef.current;
+        }
+
+        const request = requestBrowserGeolocation({ enableHighAccuracy: true }).then(async (coords) => {
+            userGeoRequestRef.current = null;
+            if (coords?.lat == null || coords?.lon == null) {
+                userGeoCoordsRef.current = null;
+                return null;
+            }
+
+            const boundaryCountry = await resolveNearbyBoundaryCountry(coords);
+            const resolved = {
+                lat: coords.lat,
+                lon: coords.lon,
+                boundaryCountry,
+            };
+            userGeoCoordsRef.current = resolved;
+            setNearbyBoundaryCountry(boundaryCountry || null);
+            return resolved;
+        });
+
+        userGeoRequestRef.current = request;
+        return request;
+    }, [resolveNearbyBoundaryCountry]);
+
+    const resolveMapifySearchContext = useCallback(async (signal) => {
+        const prefs = mapSearchPreferencesRef.current;
+        const nearbySearch = Boolean(prefs.nearbySearch);
+
+        if (nearbySearch) {
+            let geoCoords = userGeoCoordsRef.current;
+            if (!geoCoords) {
+                geoCoords = await fetchUserGeolocation();
+            }
+            if (geoCoords?.lat == null || geoCoords?.lon == null) {
+                return {
+                    error: "Unable to access your location for nearby search.",
+                };
+            }
+
+            let boundaryCountry = geoCoords.boundaryCountry;
+            if (!boundaryCountry) {
+                boundaryCountry = await resolveNearbyBoundaryCountry(geoCoords, signal);
+                userGeoCoordsRef.current = {
+                    ...geoCoords,
+                    boundaryCountry,
+                };
+            }
+
+            return {
+                nearbySearch: true,
+                boundaryCountry,
+                lat: geoCoords.lat,
+                lon: geoCoords.lon,
+            };
+        }
+
+        const bias = getLocationBiasOrigin();
+        return {
+            nearbySearch: false,
+            boundaryCountry: prefs.boundaryCountry || null,
+            lat: bias.lat,
+            lon: bias.lon,
+        };
+    }, [fetchUserGeolocation, resolveNearbyBoundaryCountry, stablePickupCoords, stableDestinationCoords, stableViaCoords, countryCode, tenantCountryIso]);
+
+    const disableNearbySearch = useCallback(async () => {
+        userGeoCoordsRef.current = null;
+        userGeoRequestRef.current = null;
+        setNearbyBoundaryCountry(null);
+        mapSearchPreferencesRef.current = {
+            ...mapSearchPreferencesRef.current,
+            nearbySearch: false,
+        };
+        await persistMapSearchPreferences({
+            nearbySearch: false,
+            boundaryCountry: mapSearchPreferences.boundaryCountry || null,
+        });
+    }, [mapSearchPreferences.boundaryCountry, persistMapSearchPreferences]);
 
     const handleNearbySearchChange = useCallback(async (enabled) => {
-        const fallbackCountry = (
-            mapSearchPreferences.boundaryCountry
-            || companyCountryOfUse
-            || tenantCountryIso
-            || countryCode?.toUpperCase()
-            || "IN"
-        ).toUpperCase();
+        if (!enabled) {
+            await disableNearbySearch();
+            return true;
+        }
+
+        const coords = await fetchUserGeolocation({ force: true });
+        if (!coords) {
+            toast.error("Unable to access your location. Nearby search requires location permission.");
+            return false;
+        }
+
+        mapSearchPreferencesRef.current = {
+            nearbySearch: true,
+            boundaryCountry: null,
+        };
 
         await persistMapSearchPreferences({
-            nearbySearch: Boolean(enabled),
-            boundaryCountry: enabled ? fallbackCountry : null,
+            nearbySearch: true,
+            boundaryCountry: null,
         });
+        return true;
     }, [
-        companyCountryOfUse,
-        countryCode,
-        mapSearchPreferences.boundaryCountry,
+        disableNearbySearch,
+        fetchUserGeolocation,
         persistMapSearchPreferences,
-        tenantCountryIso,
     ]);
 
     const getGoogleSearchCountry = useCallback(() => {
-        if (mapSearchPreferences.nearbySearch) {
-            const boundary = resolveBoundaryCountry();
+        if (!mapSearchPreferences.nearbySearch) {
+            const boundary = mapSearchPreferences.boundaryCountry;
             return toGoogleCountryCode(boundary) || countryCode;
         }
         return countryCode;
-    }, [countryCode, mapSearchPreferences.nearbySearch, resolveBoundaryCountry]);
+    }, [countryCode, mapSearchPreferences.nearbySearch, mapSearchPreferences.boundaryCountry]);
 
     const cancelPendingSearch = (type, index = null) => {
         if (type === "via") {
@@ -960,9 +973,149 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
 
     const isMapifyLocationSearch = () => mapsApi === MAP_PROVIDER_DEFAULT;
 
-    const showNearbySearchControls = isMapifyLocationSearch()
-        || searchApi === "google"
-        || searchApi === "both";
+    const showNearbySearchControls = isMapifyLocationSearch();
+
+    const closeLocationSidebar = useCallback(() => {
+        locationSidebarAbortRef.current?.abort?.();
+        locationSidebarAbortRef.current = null;
+        setLocationSidebar(EMPTY_LOCATION_SIDEBAR);
+    }, []);
+
+    const fetchLocationSearchResults = useCallback(async (cleanedQuery, signal, { size = MAPIFY_AUTOCOMPLETE_SIZE } = {}) => {
+        let results = [];
+
+        if (isMapifyLocationSearch()) {
+            const searchContext = await resolveMapifySearchContext(signal);
+            if (searchContext.error) {
+                throw new Error(searchContext.error);
+            }
+            results = await fetchMapifyLocationSuggestions({
+                query: cleanedQuery,
+                lat: searchContext.lat,
+                lon: searchContext.lon,
+                nearbySearch: searchContext.nearbySearch,
+                boundaryCountry: searchContext.boundaryCountry,
+                signal,
+                size,
+                onPreferencesSynced: syncMapSearchPreferencesFromApi,
+            });
+            return results;
+        }
+
+        if ((searchApi === "google" || searchApi === "both") && googleService) {
+            const googleCountry = getGoogleSearchCountry();
+            results = await new Promise((resolve) => {
+                googleService.getPlacePredictions(
+                    {
+                        input: cleanedQuery,
+                        componentRestrictions: googleCountry ? { country: googleCountry } : undefined,
+                    },
+                    (predictions, status) => {
+                        if (status === "OK") {
+                            resolve(predictions.map((p) => ({
+                                id: p.place_id,
+                                label: p.description,
+                                inputValue: p.description,
+                                place_id: p.place_id,
+                                source: "google",
+                            })));
+                        } else {
+                            resolve([]);
+                        }
+                    }
+                );
+            });
+        }
+
+        if (searchApi === "barikoi" || searchApi === "both") {
+            const res = await fetch(
+                `https://barikoi.xyz/v1/api/search/autocomplete/${apiKeys.barikoiKey || BARIKOI_KEY}/place?q=${encodeURIComponent(cleanedQuery)}`,
+                { signal }
+            );
+            const json = await res.json();
+            const barikoiList = (json.places || []).map((p) => ({
+                id: `${p.latitude}-${p.longitude}`,
+                label: p.address || p.place_name,
+                inputValue: p.address || p.place_name,
+                subtitle: p.place_name && p.address ? p.place_name : "",
+                lat: p.latitude,
+                lng: p.longitude,
+                source: "barikoi",
+            }));
+            results = searchApi === "both" ? [...results, ...barikoiList] : barikoiList;
+        }
+
+        return results;
+    }, [
+        apiKeys.barikoiKey,
+        googleService,
+        searchApi,
+        mapsApi,
+        getGoogleSearchCountry,
+        resolveMapifySearchContext,
+        syncMapSearchPreferencesFromApi,
+    ]);
+
+    const runSidebarLocationSearch = useCallback(async (field, query) => {
+        const cleanedQuery = query?.trim() || "";
+        if (cleanedQuery.length < 2) {
+            toast.error("Enter at least 2 characters to search");
+            return;
+        }
+
+        cancelPendingSearch(field);
+        activeLocationQueriesRef.current[field] = cleanedQuery;
+
+        if (field === "pickup") {
+            setShowPickup(false);
+            setPickupSearchLoading(false);
+        } else if (field === "destination") {
+            setShowDestination(false);
+            setDestinationSearchLoading(false);
+        }
+
+        locationSidebarAbortRef.current?.abort?.();
+        const controller = new AbortController();
+        locationSidebarAbortRef.current = controller;
+
+        setLocationSidebar({
+            open: true,
+            field,
+            query: cleanedQuery,
+            results: [],
+            loading: true,
+            error: "",
+        });
+
+        try {
+            const results = await fetchLocationSearchResults(
+                cleanedQuery,
+                controller.signal,
+                { size: MAPIFY_FULL_SEARCH_SIZE }
+            );
+            if (controller.signal.aborted) return;
+
+            setLocationSidebar({
+                open: true,
+                field,
+                query: cleanedQuery,
+                results,
+                loading: false,
+                error: results.length ? "" : "No locations found",
+            });
+        } catch (err) {
+            if (err?.name === "AbortError" || err?.code === "ERR_CANCELED") return;
+            console.error("Location sidebar search error:", err);
+            setLocationSidebar({
+                open: true,
+                field,
+                query: cleanedQuery,
+                results: [],
+                loading: false,
+                error: err?.response?.data?.message || "Failed to search locations",
+            });
+        }
+    }, [fetchLocationSearchResults]);
 
     const searchLocation = async (query, type, index = null) => {
         const cleanedQuery = query?.trim() || "";
@@ -986,89 +1139,24 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
             activeLocationQueriesRef.current[type] = cleanedQuery;
         }
 
-        if (!isMapifyLocationSearch()) {
-            let list = [];
+        setLocationSearchLoading(type, index, true);
+        setLocationSearchError(type, index, "");
 
-            if ((searchApi === "google" || searchApi === "both") && googleService) {
-                const googleCountry = getGoogleSearchCountry();
-                googleService.getPlacePredictions(
-                    {
-                        input: cleanedQuery,
-                        componentRestrictions: googleCountry ? { country: googleCountry } : undefined,
-                    },
-                    (predictions, status) => {
-                        if (status === "OK") {
-                            list = predictions.map((p) => ({
-                                label: p.description,
-                                inputValue: p.description,
-                                place_id: p.place_id,
-                                source: "google",
-                            }));
-                            updateSuggestions(list, type, index);
-                        } else {
-                            updateSuggestions([], type, index, false);
-                        }
-                        setLocationSearchLoading(type, index, false);
-                    }
-                );
-                setLocationSearchLoading(type, index, true);
-                setLocationSearchError(type, index, "");
-                return;
-            }
-
-            if (searchApi === "barikoi" || searchApi === "both") {
-                setLocationSearchLoading(type, index, true);
-                setLocationSearchError(type, index, "");
-                try {
-                    const res = await fetch(
-                        `https://barikoi.xyz/v1/api/search/autocomplete/${apiKeys.barikoiKey || BARIKOI_KEY}/place?q=${encodeURIComponent(cleanedQuery)}`
-                    );
-                    const json = await res.json();
-                    const barikoiList = (json.places || []).map((p) => ({
-                        label: p.address || p.place_name,
-                        inputValue: p.address || p.place_name,
-                        lat: p.latitude,
-                        lng: p.longitude,
-                        source: "barikoi",
-                    }));
-                    list = searchApi === "both" ? [...list, ...barikoiList] : barikoiList;
-                    updateSuggestions(list, type, index);
-                } catch (err) {
-                    console.error("Barikoi search error:", err);
-                    updateSuggestions([], type, index, false);
-                    setLocationSearchError(type, index, "Failed to search locations");
-                } finally {
-                    setLocationSearchLoading(type, index, false);
-                }
-            }
-            return;
-        }
-
-        const runMapifySearch = async () => {
+        const runSearch = async () => {
             const controller = new AbortController();
             if (type === "via") searchAbortRef.via[String(index)] = controller;
             else searchAbortRef[type] = controller;
 
-            setLocationSearchLoading(type, index, true);
-            setLocationSearchError(type, index, "");
-
             try {
-                const origin = getSearchOrigin();
-                const suggestions = await fetchMapifyLocationSuggestions({
-                    query: cleanedQuery,
-                    lat: origin.lat,
-                    lon: origin.lon,
-                    nearbySearch: mapSearchPreferences.nearbySearch,
-                    boundaryCountry: resolveBoundaryCountry(),
-                    signal: controller.signal,
-                });
-                updateSuggestions(suggestions, type, index, true);
-                if (!suggestions.length) {
+                const list = await fetchLocationSearchResults(cleanedQuery, controller.signal);
+                if (controller.signal.aborted) return;
+                updateSuggestions(list, type, index, true);
+                if (!list.length) {
                     setLocationSearchError(type, index, "No locations found");
                 }
             } catch (err) {
                 if (err?.name === "AbortError" || err?.code === "ERR_CANCELED") return;
-                console.error("Mapify search error:", err);
+                console.error("Location search error:", err);
                 updateSuggestions([], type, index, false);
                 setLocationSearchError(
                     type,
@@ -1082,7 +1170,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
             }
         };
 
-        const timer = setTimeout(runMapifySearch, 350);
+        const timer = setTimeout(runSearch, LOCATION_SEARCH_DEBOUNCE_MS);
         if (type === "via") searchDebounceRef.via[String(index)] = timer;
         else searchDebounceRef[type] = timer;
     };
@@ -1091,6 +1179,9 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
     searchLocationRef.current = searchLocation;
 
     const refreshActiveLocationSearches = useCallback(() => {
+        if (locationSidebar.open && locationSidebar.field && locationSidebar.query?.trim().length >= 2) {
+            runSidebarLocationSearch(locationSidebar.field, locationSidebar.query);
+        }
         const queries = activeLocationQueriesRef.current;
         if (queries.pickup?.trim().length >= 2) {
             searchLocationRef.current(queries.pickup, "pickup");
@@ -1103,20 +1194,51 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
                 searchLocationRef.current(query, "via", Number(index));
             }
         });
-    }, []);
+    }, [locationSidebar.field, locationSidebar.open, locationSidebar.query, runSidebarLocationSearch]);
 
     const handleNearbySearchCheckboxChange = useCallback(async (event) => {
-        await handleNearbySearchChange(event.target.checked);
-        refreshActiveLocationSearches();
+        const enabled = await handleNearbySearchChange(event.target.checked);
+        if (enabled) {
+            refreshActiveLocationSearches();
+        }
     }, [handleNearbySearchChange, refreshActiveLocationSearches]);
+
+    useEffect(() => {
+        if (!showNearbySearchControls || !mapSearchPreferences.nearbySearch) return undefined;
+
+        let cancelled = false;
+        fetchUserGeolocation({ force: true }).then(async (coords) => {
+            if (cancelled) return;
+            if (!coords) {
+                await disableNearbySearch();
+                toast.error("Unable to access your location. Nearby search requires location permission.");
+                return;
+            }
+            refreshActiveLocationSearches();
+        });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [
+        mapSearchPreferences.nearbySearch,
+        disableNearbySearch,
+        fetchUserGeolocation,
+        showNearbySearchControls,
+        refreshActiveLocationSearches,
+    ]);
 
     const handleBoundaryCountrySelectChange = useCallback(async (event) => {
         const normalizedCountry = String(event.target.value ?? "").trim().toUpperCase();
-        if (!normalizedCountry) return;
+
+        mapSearchPreferencesRef.current = {
+            nearbySearch: false,
+            boundaryCountry: normalizedCountry || null,
+        };
 
         await persistMapSearchPreferences({
-            nearbySearch: true,
-            boundaryCountry: normalizedCountry,
+            nearbySearch: false,
+            boundaryCountry: normalizedCountry || null,
         });
         refreshActiveLocationSearches();
     }, [persistMapSearchPreferences, refreshActiveLocationSearches]);
@@ -1145,9 +1267,15 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
 
     const selectLocation = async (item, type, setFieldValue, index = null) => {
         let displayValue = item.inputValue || item.label;
-        if (type === "pickup") setShowPickup(false);
-        else if (type === "destination") setShowDestination(false);
-        else setShowVia(v => ({ ...v, [index]: false }));
+        if (type === "pickup") {
+            setShowPickup(false);
+            closeLocationSidebar();
+        } else if (type === "destination") {
+            setShowDestination(false);
+            closeLocationSidebar();
+        } else {
+            setShowVia(v => ({ ...v, [index]: false }));
+        }
 
         setLocationSearchError(type, index, "");
 
@@ -1211,13 +1339,18 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
                 });
             }
             if (mapsApi === MAP_PROVIDER_DEFAULT) {
-                const origin = getSearchOrigin();
+                const searchContext = await resolveMapifySearchContext();
+                if (searchContext.error) {
+                    return null;
+                }
                 const suggestions = await fetchMapifyLocationSuggestions({
                     query: address,
-                    lat: origin.lat,
-                    lon: origin.lon,
-                    nearbySearch: mapSearchPreferences.nearbySearch,
-                    boundaryCountry: resolveBoundaryCountry(),
+                    lat: searchContext.lat,
+                    lon: searchContext.lon,
+                    nearbySearch: searchContext.nearbySearch,
+                    boundaryCountry: searchContext.boundaryCountry,
+                    size: MAPIFY_AUTOCOMPLETE_SIZE,
+                    onPreferencesSynced: syncMapSearchPreferencesFromApi,
                 });
                 const first = suggestions[0];
                 if (first) {
@@ -2003,8 +2136,13 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
         Object.keys(searchAbortRef.via || {}).forEach((key) => cancelPendingSearch("via", key));
     }, []);
 
-    const memoizedMap = useMemo(() => (
+    useEffect(() => () => {
+        closeLocationSidebar();
+    }, [closeLocationSidebar]);
+
+    const memoizedMap = (
         <Maps
+            key={mapsApi || "map-loading"}
             mapsApi={mapsApi}
             mapError={mapError}
             apiKeys={apiKeys}
@@ -2020,7 +2158,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
             onDestinationConfirmed={handleDestinationConfirmed}
             SEARCH_API={searchApi}
         />
-    ), [mapsApi, mapError, apiKeys, stablePickupCoords, stableDestinationCoords, stableViaCoords, searchApi, plotsData, formikSetFieldValue]);
+    );
 
     return (
         <>
@@ -2036,7 +2174,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
 
             <Formik
                 initialValues={initialFormValues}
-                key={editBooking?.id ? `edit-${editBooking.id}` : initialFormValues.pickup_location || "new"}
+                key={editBooking?.id ? `edit-${editBooking.id}` : "new"}
                 onSubmit={isEditMode ? handleUpdateBooking : handleCreateBooking}
                 enableReinitialize
             >
@@ -2068,7 +2206,8 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
                                     Loading booking details...
                                 </div>
                             )}
-                            <div className="w-full flex flex-col gap-2 lg:gap-2">
+                            <div className="flex flex-col lg:flex-row gap-3 items-start">
+                            <div className="w-full flex-1 min-w-0 flex flex-col gap-2 lg:gap-2">
                                 {/* Header */}
                                 <div className="rounded-xl border border-[#E5E7EB] bg-white px-3 py-2 lg:px-3 shadow-sm">
                                     <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
@@ -2435,12 +2574,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
                                                     <div className="rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] px-3 py-2.5">
                                                         <MapNearbySearchControls
                                                             nearbySearch={mapSearchPreferences.nearbySearch}
-                                                            boundaryCountry={
-                                                                mapSearchPreferences.boundaryCountry
-                                                                || companyCountryOfUse
-                                                                || tenantCountryIso
-                                                                || ""
-                                                            }
+                                                            boundaryCountry={mapSearchPreferences.boundaryCountry || ""}
                                                             onNearbySearchChange={handleNearbySearchCheckboxChange}
                                                             onBoundaryCountryChange={handleBoundaryCountrySelectChange}
                                                             loading={mapSearchPreferencesLoading}
@@ -2462,10 +2596,13 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
                                                                     setFieldValue("pickup_latitude", "");
                                                                     setFieldValue("pickup_longitude", "");
                                                                     setPickupSearchError("");
+                                                                    if (locationSidebar.field === "pickup") closeLocationSidebar();
                                                                 }
-                                                                searchLocation(v, "pickup"); clearFieldErrors("pickup_location");
+                                                                searchLocation(v, "pickup");
+                                                                clearFieldErrors("pickup_location");
                                                             }}
-                                                            onSelect={(i) => selectLocation(i, "pickup", setFieldValue)}
+                                                            onSelect={(item) => selectLocation(item, "pickup", setFieldValue)}
+                                                            onEnterSearch={() => runSidebarLocationSearch("pickup", values.pickup_location)}
                                                             onDismiss={() => {
                                                                 setShowPickup(false);
                                                                 setPickupSearchLoading(false);
@@ -2528,10 +2665,13 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
                                                             setFieldValue("destination_latitude", "");
                                                             setFieldValue("destination_longitude", "");
                                                             setDestinationSearchError("");
+                                                            if (locationSidebar.field === "destination") closeLocationSidebar();
                                                         }
-                                                        searchLocation(v, "destination"); clearFieldErrors("destination_location");
+                                                        searchLocation(v, "destination");
+                                                        clearFieldErrors("destination_location");
                                                     }}
-                                                    onSelect={(i) => selectLocation(i, "destination", setFieldValue)}
+                                                    onSelect={(item) => selectLocation(item, "destination", setFieldValue)}
+                                                    onEnterSearch={() => runSidebarLocationSearch("destination", values.destination_location)}
                                                     onDismiss={() => {
                                                         setShowDestination(false);
                                                         setDestinationSearchLoading(false);
@@ -2633,6 +2773,24 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
                                     </div>
                                 </div>
                             </div>
+                            {locationSidebar.open && (
+                                <LocationSearchSidebar
+                                    field={locationSidebar.field}
+                                    query={locationSidebar.query}
+                                    results={locationSidebar.results}
+                                    loading={locationSidebar.loading}
+                                    error={locationSidebar.error}
+                                    nearbySearch={mapSearchPreferences.nearbySearch}
+                                    boundaryCountry={
+                                        mapSearchPreferences.nearbySearch
+                                            ? nearbyBoundaryCountry
+                                            : mapSearchPreferences.boundaryCountry
+                                    }
+                                    onClose={closeLocationSidebar}
+                                    onSelect={(item) => selectLocation(item, locationSidebar.field, setFieldValue)}
+                                />
+                            )}
+                            </div>
                         </Form>
                     );
                 }}
@@ -2661,11 +2819,15 @@ const InputBox = ({
     loading = false,
     error = "",
     dropup = false,
+    enterKeySearch = false,
+    onEnterSearch,
 }) => {
     const containerRef = useRef(null);
 
+    const dropdownOpen = !enterKeySearch && (show || loading || error);
+
     useEffect(() => {
-        if (!show) return undefined;
+        if (!dropdownOpen) return undefined;
 
         const handlePointerDown = (event) => {
             if (!containerRef.current?.contains(event.target)) {
@@ -2675,7 +2837,7 @@ const InputBox = ({
 
         document.addEventListener("mousedown", handlePointerDown);
         return () => document.removeEventListener("mousedown", handlePointerDown);
-    }, [show, onDismiss]);
+    }, [dropdownOpen, onDismiss]);
 
     return (
         <div ref={containerRef} className="relative w-full">
@@ -2685,11 +2847,23 @@ const InputBox = ({
                     <input
                         value={value}
                         onChange={(e) => onChange(e.target.value)}
-                        onBlur={() => onDismiss?.()}
+                        onKeyDown={(event) => {
+                            if (event.key === "Enter" && onEnterSearch) {
+                                event.preventDefault();
+                                onDismiss?.();
+                                onEnterSearch();
+                            }
+                        }}
+                        onBlur={() => {
+                            if (!enterKeySearch) onDismiss?.();
+                        }}
                         placeholder={placeholder}
                         className={`${formInputClass} ${hasError ? formInputErrorClass : ""}`}
                     />
-                    {(show || loading || error) && (
+                    {onEnterSearch && (
+                        <p className="mt-1 text-[10px] text-[#9CA3AF]">Press Enter for full results</p>
+                    )}
+                    {dropdownOpen && (
                         <ul className={`absolute left-0 right-0 z-[100] max-h-60 overflow-auto rounded-lg border border-[#E5E7EB] bg-white shadow-lg ${dropup ? "bottom-full mb-1" : "top-full mt-1"}`}>
                             {loading && (
                                 <li className="px-3 py-2 text-sm text-[#6B7280]">Searching...</li>

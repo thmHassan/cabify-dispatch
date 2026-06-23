@@ -13,7 +13,7 @@ const SIZE_CONFIG = {
   "3xl": "w-full max-w-[95%] lg:max-w-[95vw] xl:max-w-[1800px]",
 };
 
-const ModalComponent = ({ size = "xl", children, className }) => {
+const ModalComponent = ({ size = "xl", children, className, isVisible = true }) => {
   const parentRef = useRef(null);
   const childRef = useRef(null);
   const [isChildGreater, setIsChildGreater] = useState(false);
@@ -38,13 +38,15 @@ const ModalComponent = ({ size = "xl", children, className }) => {
         "fixed z-[2000] top-0 left-0 w-full h-full overflow-y-auto bg-[#00000050] flex justify-center",
         isChildGreater
           ? "py-2 sm:py-4 lg:py-6 items-start"
-          : "items-start sm:items-center py-2 sm:py-4"
+          : "items-start sm:items-center py-2 sm:py-4",
+        !isVisible && "invisible pointer-events-none"
       )}
+      aria-hidden={!isVisible}
     >
       <Base
         ref={childRef}
-        initial={{ opacity: 0, scale: 0.9, y: 30 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
+        initial={isVisible ? { opacity: 0, scale: 0.9, y: 30 } : false}
+        animate={isVisible ? { opacity: 1, scale: 1, y: 0 } : { opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.9, y: 30 }}
         transition={{ duration: 0.2, ease: "easeOut" }}
         className={classNames(
@@ -59,9 +61,23 @@ const ModalComponent = ({ size = "xl", children, className }) => {
   );
 };
 
-const Modal = ({ isOpen = false, ...rest }) => {
+const Modal = ({ isOpen = false, keepMounted = false, ...rest }) => {
+  const wasOpenRef = useRef(isOpen);
+
+  if (isOpen) {
+    wasOpenRef.current = true;
+  }
+
+  if (keepMounted) {
+    if (!wasOpenRef.current) {
+      return null;
+    }
+
+    return <ModalComponent {...rest} isVisible={isOpen} />;
+  }
+
   return (
-    <AnimatePresence>{isOpen && <ModalComponent {...rest} />}</AnimatePresence>
+    <AnimatePresence>{isOpen && <ModalComponent {...rest} isVisible />}</AnimatePresence>
   );
 };
 

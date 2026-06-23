@@ -67,13 +67,65 @@ const normalizeBoundaryCountry = (code) => {
     return normalized || undefined;
 };
 
+export const toBoundaryCountryCode = (code) =>
+    normalizeBoundaryCountry(code) || null;
+
+const BOUNDARY_COUNTRY_ALIASES = {
+    PK: "PAK",
+    PAK: "PAK",
+    PAKISTAN: "PAK",
+    AE: "ARE",
+    UAE: "ARE",
+    ARE: "ARE",
+    "UNITED ARAB EMIRATES": "ARE",
+    BD: "BGD",
+    BGD: "BGD",
+    BANGLADESH: "BGD",
+    IN: "IND",
+    IND: "IND",
+    INDIA: "IND",
+    GB: "GBR",
+    GBR: "GBR",
+    UK: "GBR",
+    "UNITED KINGDOM": "GBR",
+    SA: "SAU",
+    SAU: "SAU",
+    QA: "QAT",
+    QAT: "QAT",
+    OM: "OMN",
+    OMN: "OMN",
+    KW: "KWT",
+    KWT: "KWT",
+    BH: "BHR",
+    BHR: "BHR",
+    US: "USA",
+    USA: "USA",
+    CA: "CAN",
+    CAN: "CAN",
+    AU: "AUS",
+    AUS: "AUS",
+    MY: "MYS",
+    MYS: "MYS",
+    SG: "SGP",
+    SGP: "SGP",
+};
+
+export const toMapifyBoundaryCountryCode = (code) => {
+    const normalized = normalizeBoundaryCountry(code);
+    if (!normalized) return null;
+    return BOUNDARY_COUNTRY_ALIASES[normalized] || normalized;
+};
+
+export const MAPIFY_AUTOCOMPLETE_SIZE = 8;
+export const MAPIFY_FULL_SEARCH_SIZE = 20;
+
 const parseNearbySearchFlag = (value) => {
     if (value === true || value === 1 || value === "1") return true;
     if (value === false || value === 0 || value === "0") return false;
     return Boolean(value);
 };
 
-export const normalizeMapSearchPreferences = (raw, fallbackCountry = null) => {
+export const normalizeMapSearchPreferences = (raw) => {
     const prefs = raw?.map_search_preferences ?? raw;
     if (!prefs || typeof prefs !== "object") {
         return {
@@ -85,13 +137,15 @@ export const normalizeMapSearchPreferences = (raw, fallbackCountry = null) => {
     const nearbySearch = parseNearbySearchFlag(
         prefs.nearby_search_enabled ?? prefs.nearby_search
     );
-    const boundaryCountry = normalizeBoundaryCountry(
-        prefs.search_boundary_country ?? prefs.boundary_country
-    ) || (nearbySearch ? normalizeBoundaryCountry(fallbackCountry) : null);
+    const boundaryCountry = nearbySearch
+        ? null
+        : normalizeBoundaryCountry(
+            prefs.search_boundary_country ?? prefs.boundary_country
+        ) || null;
 
     return {
         nearbySearch,
-        boundaryCountry: nearbySearch ? boundaryCountry ?? null : null,
+        boundaryCountry,
     };
 };
 
@@ -101,8 +155,7 @@ export const getMapSearchPreferencesFromConfig = (fallbackCountry = null) => {
         return config.mapSearchPreferences;
     }
     return normalizeMapSearchPreferences(
-        config?.raw?.map_search_preferences ?? config?.raw,
-        fallbackCountry
+        config?.raw?.map_search_preferences ?? config?.raw
     );
 };
 
@@ -122,7 +175,27 @@ export const extractMapSearchPreferencesFromResponse = (response, fallbackCountr
             ?? nested?.boundary_country,
     };
 
-    return normalizeMapSearchPreferences(merged, fallbackCountry);
+    return normalizeMapSearchPreferences(merged);
+};
+
+export const extractSyncedMapSearchPreferencesFromResponse = (response) => {
+    const payload = response?.data;
+    if (!payload) return null;
+
+    const root = payload?.data ?? payload;
+    if (!root || typeof root !== "object") return null;
+
+    const hasPreferenceFields = (
+        root.map_search_preferences != null
+        || root.nearby_search !== undefined
+        || root.nearby_search_enabled !== undefined
+        || root.search_boundary_country !== undefined
+        || root.boundary_country !== undefined
+    );
+
+    if (!hasPreferenceFields) return null;
+
+    return normalizeMapSearchPreferences(root);
 };
 
 export async function apiGetMapSearchPreferences() {
@@ -135,17 +208,53 @@ export async function apiGetMapSearchPreferences() {
     });
 }
 
-const buildNearbySearchParams = ({ nearbySearch, boundaryCountry }) => {
+const buildMapifySearchParams = ({ nearbySearch, boundaryCountry }) => {
+    const params = { nearby_search: nearbySearch ? 1 : 0 };
+
+    if (!boundaryCountry) return params;
+
+    const country = nearbySearch
+        ? toMapifyBoundaryCountryCode(boundaryCountry)
+        : (toMapifyBoundaryCountryCode(boundaryCountry) || normalizeBoundaryCountry(boundaryCountry));
+
+    if (country) {
+        params.boundary_country = country;
+    }
+
+    return params;
+};
+
+const attachMapifyCoordinates = ({ params, nearbySearch, lat, lon }) => {
+    const latitude = coerceCoordinate(lat);
+    const longitude = coerceCoordinate(lon);
+
     if (nearbySearch) {
-        const params = { nearby_search: 1 };
-        const country = normalizeBoundaryCountry(boundaryCountry);
-        if (country) {
-            params.boundary_country = country;
-        }
+        assertNearbySearchCoordinates(nearbySearch, latitude, longitude);
+        params.lat = latitude;
+        params.lon = longitude;
         return params;
     }
 
-    return { nearby_search: 0 };
+    if (latitude != null && longitude != null) {
+        params.lat = latitude;
+        params.lon = longitude;
+    }
+
+    return params;
+};
+
+const coerceCoordinate = (value) => {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : undefined;
+};
+
+const assertNearbySearchCoordinates = (nearbySearch, lat, lon) => {
+    if (!nearbySearch) return;
+    const latitude = Number(lat);
+    const longitude = Number(lon);
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+        throw new Error("Map position (lat and lon) is required for nearby search.");
+    }
 };
 
 const unwrapMapifyPayload = (payload) => {
@@ -246,11 +355,75 @@ export const extractReverseGeocodeLabel = (payload) => {
     return null;
 };
 
+const extractCountryCodeFromFeature = (feature) => {
+    if (!feature || typeof feature !== "object") return null;
+
+    const props = feature?.properties || feature;
+    const candidates = [
+        props?.boundary_country,
+        props?.search_boundary_country,
+        props?.country_a3,
+        props?.country_code,
+        props?.countrycode,
+        props?.country,
+        props?.iso3166_1_alpha3,
+        props?.iso3166_1_alpha2,
+        props?.iso3166_1,
+        feature?.boundary_country,
+        feature?.country_a3,
+        feature?.country_code,
+        feature?.country,
+    ];
+
+    for (const candidate of candidates) {
+        const mapped = toMapifyBoundaryCountryCode(candidate);
+        if (mapped) return mapped;
+    }
+
+    return null;
+};
+
+export const extractReverseGeocodeCountryCode = (payload) => {
+    const root = unwrapMapifyPayload(payload);
+
+    const rootCandidates = [
+        root?.boundary_country,
+        root?.search_boundary_country,
+        root?.country_a3,
+        root?.country_code,
+        root?.country,
+    ];
+    for (const candidate of rootCandidates) {
+        const mapped = toMapifyBoundaryCountryCode(candidate);
+        if (mapped) return mapped;
+    }
+
+    const results = root?.results ?? root?.data?.results;
+    if (Array.isArray(results)) {
+        for (const result of results) {
+            const mapped = extractCountryCodeFromFeature(result);
+            if (mapped) return mapped;
+        }
+    }
+
+    const features = normalizeMapifyFeatures(payload);
+    for (const feature of features) {
+        const mapped = extractCountryCodeFromFeature(feature.raw || feature);
+        if (mapped) return mapped;
+        if (feature.country) {
+            const fromCountry = toMapifyBoundaryCountryCode(feature.country);
+            if (fromCountry) return fromCountry;
+        }
+    }
+
+    return null;
+};
+
 export async function apiMapifySearch({
     query,
     lat,
     lon,
-    size = 8,
+    size = MAPIFY_AUTOCOMPLETE_SIZE,
     nearbySearch = false,
     boundaryCountry,
     signal,
@@ -260,16 +433,17 @@ export async function apiMapifySearch({
         throw new Error("Search query is required.");
     }
 
-    const params = {
-        q: cleanedQuery,
-        ...buildNearbySearchParams({ nearbySearch, boundaryCountry }),
-    };
+    const params = attachMapifyCoordinates({
+        params: {
+            q: cleanedQuery,
+            ...buildMapifySearchParams({ nearbySearch, boundaryCountry }),
+        },
+        nearbySearch,
+        lat,
+        lon,
+    });
 
     if (size != null) params.size = size;
-    if (lat != null && lon != null) {
-        params.lat = lat;
-        params.lon = lon;
-    }
 
     return ApiService.fetchData({
         url: getSearchEndpoint(),
@@ -289,21 +463,24 @@ export async function apiMapifyGeocoding({
     nearbySearch = false,
     boundaryCountry,
     signal,
+    size,
 }) {
     const cleanedQuery = query?.trim();
     if (!cleanedQuery) {
         throw new Error("Search query is required.");
     }
 
-    const params = {
-        q: cleanedQuery,
-        ...buildNearbySearchParams({ nearbySearch, boundaryCountry }),
-    };
+    const params = attachMapifyCoordinates({
+        params: {
+            q: cleanedQuery,
+            ...buildMapifySearchParams({ nearbySearch, boundaryCountry }),
+        },
+        nearbySearch,
+        lat,
+        lon,
+    });
 
-    if (lat != null && lon != null) {
-        params.lat = lat;
-        params.lon = lon;
-    }
+    if (size != null) params.size = size;
 
     return ApiService.fetchData({
         url: getGeocodingEndpoint(),
@@ -337,8 +514,9 @@ export async function apiSaveMapSearchPreferences({ nearbySearch, boundaryCountr
         nearby_search: Boolean(nearbySearch),
     };
 
-    if (nearbySearch) {
-        const country = normalizeBoundaryCountry(boundaryCountry);
+    if (!nearbySearch) {
+        const country = toMapifyBoundaryCountryCode(boundaryCountry)
+            || normalizeBoundaryCountry(boundaryCountry);
         if (country) {
             payload.boundary_country = country;
         }
@@ -355,6 +533,56 @@ export async function apiSaveMapSearchPreferences({ nearbySearch, boundaryCountr
 }
 
 const reverseGeocodeCache = new Map();
+const reverseGeocodeCountryCache = new Map();
+
+export async function fetchMapifyBoundaryCountryFromCoords({
+    lat,
+    lon,
+    signal,
+    size = 1,
+    fallbackCountry = null,
+}) {
+    if (!isReverseGeocodingAvailable()) {
+        return toMapifyBoundaryCountryCode(fallbackCountry);
+    }
+
+    const latitude = Number(lat);
+    const longitude = Number(lon);
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+        return toMapifyBoundaryCountryCode(fallbackCountry);
+    }
+
+    const cacheKey = `${latitude.toFixed(6)},${longitude.toFixed(6)}`;
+    if (reverseGeocodeCountryCache.has(cacheKey)) {
+        return reverseGeocodeCountryCache.get(cacheKey);
+    }
+
+    let countryCode = null;
+
+    try {
+        const reverseRes = await apiMapifyReverseGeocoding({
+            lat: latitude,
+            lon: longitude,
+            size,
+            signal,
+        });
+        countryCode = extractReverseGeocodeCountryCode(reverseRes?.data);
+    } catch (error) {
+        if (error?.name === "AbortError" || error?.code === "ERR_CANCELED") {
+            throw error;
+        }
+    }
+
+    if (!countryCode) {
+        countryCode = toMapifyBoundaryCountryCode(fallbackCountry);
+    }
+
+    if (countryCode) {
+        reverseGeocodeCountryCache.set(cacheKey, countryCode);
+    }
+
+    return countryCode;
+}
 
 export async function fetchMapifyAddressFromCoords({
     lat,
@@ -416,10 +644,27 @@ export async function fetchMapifyPlaceSearch({
     nearbySearch = false,
     boundaryCountry,
     signal,
-    size = 8,
+    size = MAPIFY_AUTOCOMPLETE_SIZE,
+    onPreferencesSynced,
 }) {
     const cleanedQuery = query?.trim();
-    if (!cleanedQuery) return [];
+    if (!cleanedQuery) return { items: [], syncedPreferences: null };
+
+    if (nearbySearch) {
+        const latitude = Number(lat);
+        const longitude = Number(lon);
+        if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+            return { items: [], syncedPreferences: null };
+        }
+    }
+
+    const syncPreferences = (response) => {
+        const syncedPreferences = extractSyncedMapSearchPreferencesFromResponse(response);
+        if (syncedPreferences) {
+            onPreferencesSynced?.(syncedPreferences);
+        }
+        return syncedPreferences;
+    };
 
     try {
         const searchRes = await apiMapifySearch({
@@ -431,9 +676,10 @@ export async function fetchMapifyPlaceSearch({
             boundaryCountry,
             signal,
         });
+        const syncedPreferences = syncPreferences(searchRes);
         const searchItems = normalizeMapifyFeatures(searchRes?.data);
         if (searchItems.length > 0) {
-            return searchItems;
+            return { items: searchItems, syncedPreferences };
         }
     } catch (err) {
         if (err?.name === "AbortError" || err?.code === "ERR_CANCELED") {
@@ -448,8 +694,13 @@ export async function fetchMapifyPlaceSearch({
         nearbySearch,
         boundaryCountry,
         signal,
+        size,
     });
-    return normalizeMapifyFeatures(geoRes?.data);
+    const syncedPreferences = syncPreferences(geoRes);
+    return {
+        items: normalizeMapifyFeatures(geoRes?.data),
+        syncedPreferences,
+    };
 }
 
 export async function fetchMapifyLocationSuggestions({
@@ -459,9 +710,10 @@ export async function fetchMapifyLocationSuggestions({
     nearbySearch = false,
     boundaryCountry,
     signal,
-    size = 8,
+    size = MAPIFY_AUTOCOMPLETE_SIZE,
+    onPreferencesSynced,
 }) {
-    const items = await fetchMapifyPlaceSearch({
+    const { items } = await fetchMapifyPlaceSearch({
         query,
         lat,
         lon,
@@ -469,6 +721,7 @@ export async function fetchMapifyLocationSuggestions({
         boundaryCountry,
         signal,
         size,
+        onPreferencesSynced,
     });
     return mapifyFeaturesToSuggestions(items);
 }

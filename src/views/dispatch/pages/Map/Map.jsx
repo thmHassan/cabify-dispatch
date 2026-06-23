@@ -15,8 +15,6 @@ import useMapConfiguration from "../../../../hooks/useMapConfiguration";
 import { destroySharedMapInstance } from "../../../../utils/functions/mapInstanceCleanup";
 import AppLogoLoader from "../../../../components/shared/AppLogoLoader/AppLogoLoader";
 import { apiGetPlot } from "../../../../services/PlotService";
-import { fetchMapifyPlaceSearch } from "../../../../services/MapSearchService";
-import MapSearchBox from "./components/MapSearchBox";
 import { useMapDriverSync } from "../../../../hooks/useMapDriverSync";
 import { getDriverKey, pruneDriverMarkers } from "../../../../utils/functions/driverMapSync";
 
@@ -195,7 +193,7 @@ const makeGoogleIcon = (status) => {
   };
 };
 
-const GoogleMapView = ({ mapRef, mapInstance, markers, driverData, activeDriverIds, selectedStatus, searchQuery, apiKeys, plotsData }) => {
+const GoogleMapView = ({ mapRef, mapInstance, markers, driverData, activeDriverIds, selectedStatus, searchQuery, apiKeys, plotsData, mapType }) => {
   const plotPolygons = useRef([]);
 
   const renderPlots = () => {
@@ -238,7 +236,7 @@ const GoogleMapView = ({ mapRef, mapInstance, markers, driverData, activeDriverI
       mounted = false;
       destroySharedMapInstance(mapInstance, markers, mapRef, { isGoogle: true });
     };
-  }, [apiKeys.googleKey, apiKeys.countryOfUse]);
+  }, [mapType]);
 
   const updateOrAddMarker = useCallback((data) => {
     if (!mapInstance.current) return;
@@ -302,7 +300,7 @@ const GoogleMapView = ({ mapRef, mapInstance, markers, driverData, activeDriverI
   return <div ref={mapRef} className="w-full h-[550px] rounded-xl border border-gray-300 shadow-sm" />;
 };
 
-const DefaultMapView = ({ mapRef, mapInstance, markers, driverData, activeDriverIds, selectedStatus, searchQuery, apiKeys, plotsData }) => {
+const DefaultMapView = ({ mapRef, mapInstance, markers, driverData, activeDriverIds, selectedStatus, searchQuery, apiKeys, plotsData, mapType }) => {
   const [isLoaded, setIsLoaded] = useState(false);
   const mapStyle = apiKeys.mapifyStyle || apiKeys.barikoiStyle;
 
@@ -436,7 +434,7 @@ const DefaultMapView = ({ mapRef, mapInstance, markers, driverData, activeDriver
         setIsLoaded(false);
       }
     };
-  }, [mapStyle]);
+  }, [mapType]);
 
   useEffect(() => {
     if (isLoaded && mapInstance.current) {
@@ -548,17 +546,8 @@ const Map = () => {
     mapConfigLoading,
     apiKeys,
     tenantScope,
-    mapSearchPreferences,
-    mapSearchPreferencesLoading,
-    saveMapSearchPreferences,
-    handleBoundaryCountryChange,
   } = useMapConfiguration();
-  const [searchQuery, setSearchQuery] = useState("");
-  const [debouncedQuery, setDebouncedQuery] = useState("");
-  const [searchResults, setSearchResults] = useState([]);
-  const [searchLoading, setSearchLoading] = useState(false);
-  const [searchError, setSearchError] = useState("");
-  const [showSearchResults, setShowSearchResults] = useState(false);
+  const searchQuery = "";
   const [selectedStatus, setSelectedStatus] = useState(MAP_STATUS_OPTIONS[0]);
   const [plotsData, setPlotsData] = useState([]);
 
@@ -580,142 +569,6 @@ const Map = () => {
   const mapRef = useRef(null);
   const mapInstance = useRef(null);
   const markers = useRef({});
-  const searchMarkerRef = useRef(null);
-  const searchPopupRef = useRef(null);
-  const searchAbortRef = useRef(null);
-
-  useEffect(() => {
-    destroySharedMapInstance(mapInstance, markers, mapRef);
-  }, [mapType, mapConfigLoading]);
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebouncedQuery(searchQuery.trim());
-    }, 400);
-    return () => clearTimeout(timer);
-  }, [searchQuery]);
-
-  const clearSearchMarker = useCallback(() => {
-    if (searchPopupRef.current) {
-      try { searchPopupRef.current.remove(); } catch { }
-      searchPopupRef.current = null;
-    }
-    if (searchMarkerRef.current) {
-      try { searchMarkerRef.current.remove(); } catch { }
-      searchMarkerRef.current = null;
-    }
-  }, []);
-
-  const getMapSearchOrigin = useCallback(() => {
-    if (mapType !== MAP_PROVIDER_DEFAULT || !mapInstance.current) {
-      const fallback = getCountryCenter(apiKeys.countryOfUse);
-      return { lat: fallback.lat, lon: fallback.lng };
-    }
-    const center = mapInstance.current.getCenter?.();
-    if (center && Number.isFinite(center.lat) && Number.isFinite(center.lng)) {
-      return { lat: center.lat, lon: center.lng };
-    }
-    const fallback = getCountryCenter(apiKeys.countryOfUse);
-    return { lat: fallback.lat, lon: fallback.lng };
-  }, [mapType, apiKeys.countryOfUse]);
-
-  useEffect(() => {
-    if (mapType !== MAP_PROVIDER_DEFAULT) return;
-    if (!debouncedQuery) {
-      if (searchAbortRef.current) searchAbortRef.current.abort();
-      setSearchLoading(false);
-      setSearchError("");
-      setSearchResults([]);
-      return;
-    }
-
-    if (searchAbortRef.current) searchAbortRef.current.abort();
-    const controller = new AbortController();
-    searchAbortRef.current = controller;
-
-    const run = async () => {
-      setSearchLoading(true);
-      setSearchError("");
-      try {
-        const origin = getMapSearchOrigin();
-        const boundaryCountry = mapSearchPreferences.boundaryCountry || apiKeys.countryOfUse;
-        const results = await fetchMapifyPlaceSearch({
-          query: debouncedQuery,
-          lat: origin.lat,
-          lon: origin.lon,
-          nearbySearch: mapSearchPreferences.nearbySearch,
-          boundaryCountry,
-          signal: controller.signal,
-        });
-        setSearchResults(results);
-        setShowSearchResults(true);
-      } catch (error) {
-        if (error?.name === "AbortError" || error?.code === "ERR_CANCELED") return;
-        setSearchResults([]);
-        setSearchError(error?.response?.data?.message || "Failed to search locations");
-        setShowSearchResults(true);
-      } finally {
-        if (!controller.signal.aborted) setSearchLoading(false);
-      }
-    };
-    run();
-
-    return () => controller.abort();
-  }, [
-    debouncedQuery,
-    mapType,
-    getMapSearchOrigin,
-    apiKeys.countryOfUse,
-    mapSearchPreferences.nearbySearch,
-    mapSearchPreferences.boundaryCountry,
-  ]);
-
-  const handleSelectSearchResult = useCallback((item) => {
-    setSearchQuery(item.name || "");
-    setShowSearchResults(false);
-    clearSearchMarker();
-
-    if (mapType !== MAP_PROVIDER_DEFAULT || !mapInstance.current || !window.maplibregl) return;
-
-    const lngLat = [item.lon, item.lat];
-    mapInstance.current.flyTo({
-      center: lngLat,
-      zoom: Math.max(mapInstance.current.getZoom?.() || 8, 14),
-      speed: 1.2,
-      curve: 1.25,
-      essential: true,
-    });
-
-    const marker = new window.maplibregl.Marker({ color: "#2563eb" })
-      .setLngLat(lngLat)
-      .addTo(mapInstance.current);
-
-    const popup = new window.maplibregl.Popup({ offset: 20, closeOnClick: false })
-      .setLngLat(lngLat)
-      .setHTML(`<div style="font-size:12px;"><strong>${item.name}</strong><br/>${item.label || ""}</div>`)
-      .addTo(mapInstance.current);
-
-    searchMarkerRef.current = marker;
-    searchPopupRef.current = popup;
-  }, [mapType, clearSearchMarker]);
-
-  const handleClearSearch = useCallback(() => {
-    setSearchQuery("");
-    setDebouncedQuery("");
-    setSearchResults([]);
-    setSearchError("");
-    setSearchLoading(false);
-    setShowSearchResults(false);
-    if (searchAbortRef.current) searchAbortRef.current.abort();
-    clearSearchMarker();
-  }, [clearSearchMarker]);
-
-  useEffect(() => {
-    return () => {
-      if (searchAbortRef.current) searchAbortRef.current.abort();
-      clearSearchMarker();
-    };
-  }, [clearSearchMarker]);
 
   const sharedProps = {
     mapRef,
@@ -727,6 +580,7 @@ const Map = () => {
     searchQuery,
     apiKeys,
     plotsData,
+    mapType,
   };
 
   return (
@@ -737,51 +591,33 @@ const Map = () => {
       </div>
       <CardContainer className="p-4 bg-[#F5F5F5]">
         <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-5 justify-between mb-4 pb-4">
-          {mapType === MAP_PROVIDER_DEFAULT && !mapConfigLoading && (
-            <MapSearchBox
-              value={searchQuery}
-              onChange={(value) => {
-                setSearchQuery(value);
-                setShowSearchResults(Boolean(value.trim()));
-              }}
-              results={searchResults}
-              loading={searchLoading}
-              error={searchError}
-              showResults={showSearchResults && Boolean(searchQuery.trim())}
-              onSelect={handleSelectSearchResult}
-              onClear={handleClearSearch}
-              nearbySearch={mapSearchPreferences.nearbySearch}
-              boundaryCountry={mapSearchPreferences.boundaryCountry || apiKeys.countryOfUse}
-              onNearbySearchChange={(event) => saveMapSearchPreferences(event.target.checked)}
-              onBoundaryCountryChange={(event) => handleBoundaryCountryChange(event.target.value)}
-              preferencesLoading={mapSearchPreferencesLoading}
-            />
-          )}
+          {/* Place search and nearby controls removed — search is only in Create Booking */}
           <CustomSelect
             variant={2}
             options={MAP_STATUS_OPTIONS}
             value={selectedStatus}
             onChange={setSelectedStatus}
             placeholder="Driver Status"
+            className="ml-auto"
           />
         </div>
 
-        {mapConfigLoading ? (
+        {mapConfigLoading && !mapType ? (
           <div className="w-full h-[550px] rounded-xl border border-gray-300 shadow-sm flex items-center justify-center bg-gray-50">
             <AppLogoLoader />
           </div>
-        ) : mapError ? (
+        ) : mapError && !mapType ? (
           <div className="w-full h-[550px] rounded-xl border border-gray-300 shadow-sm flex items-center justify-center bg-gray-50 px-4 text-center">
             <p className="text-sm text-red-600">{mapError}</p>
           </div>
         ) : (mapType === MAP_PROVIDER_DEFAULT || mapType === MAP_PROVIDER_BARIKOI) ? (
           <DefaultMapView
-            key={`${mapType}-${apiKeys.mapifyStyle ? "mapify" : "barikoi"}-${apiKeys.countryOfUse || "na"}`}
+            key={mapType}
             {...sharedProps}
           />
         ) : mapType === MAP_PROVIDER_GOOGLE ? (
           <GoogleMapView
-            key={`google-${apiKeys.googleKey}-${apiKeys.countryOfUse || "na"}`}
+            key={mapType}
             {...sharedProps}
           />
         ) : null}

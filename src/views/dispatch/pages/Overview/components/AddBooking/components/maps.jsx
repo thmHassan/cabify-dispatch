@@ -183,6 +183,7 @@ const LoadingPlaceholder = () => (
 );
 
 const GoogleMap = ({
+    mapsApi,
     pickupCoords,
     destinationCoords,
     viaCoords,
@@ -229,7 +230,7 @@ const GoogleMap = ({
                 if (mountedRef.current) setLoadError(true);
             });
         return () => { mountedRef.current = false; };
-    }, [googleKey]);
+    }, [mapsApi]);
 
     const getAddressFromCoords = async (lat, lng) => {
         if ((SEARCH_API === "google" || SEARCH_API === "both") && window.google?.maps) {
@@ -431,6 +432,7 @@ const GoogleMap = ({
 };
 
 const MapLibreBookingMap = ({
+    mapsApi,
     styleConfig,
     styleMissingMessage = "Map style is not configured.",
     styleErrorMessage = "Map failed to load.",
@@ -455,7 +457,6 @@ const MapLibreBookingMap = ({
     const plotsDataRef = useRef(plotsData);
     const [isLoaded, setIsLoaded] = useState(false);
     const [loadError, setLoadError] = useState(false);
-    const [isFullscreen, setIsFullscreen] = useState(false);
     const clickCountRef = useRef(0);
     const mountedRef = useRef(true);
 
@@ -476,18 +477,7 @@ const MapLibreBookingMap = ({
             .then(() => { if (mountedRef.current) setIsLoaded(true); })
             .catch(() => { if (mountedRef.current) setLoadError(true); });
         return () => { mountedRef.current = false; };
-    }, [styleConfig]);
-
-    const toggleFullscreen = () => {
-        if (!wrapperRef.current) return;
-        if (!document.fullscreenElement) {
-            wrapperRef.current.requestFullscreen?.();
-            setIsFullscreen(true);
-        } else {
-            document.exitFullscreen?.();
-            setIsFullscreen(false);
-        }
-    };
+    }, [mapsApi]);
 
     useEffect(() => {
         plotsDataRef.current = plotsData;
@@ -596,8 +586,10 @@ const MapLibreBookingMap = ({
                 try { mapRef.current.remove(); } catch (e) { }
                 mapRef.current = null;
             }
+            markersRef.current.forEach((m) => { try { m.remove(); } catch (e) { } });
+            markersRef.current = [];
         };
-    }, [isLoaded, styleConfig]);
+    }, [isLoaded, mapsApi]);
 
     useEffect(() => {
         if (!isLoaded || !mapRef.current) return;
@@ -741,26 +733,7 @@ const MapLibreBookingMap = ({
                 </div>
             )}
 
-            {isLoaded && (
-                <button onClick={toggleFullscreen} title={isFullscreen ? "Exit fullscreen" : "View fullscreen"}
-                    style={{
-                        position: "absolute", top: "10px", right: "10px", zIndex: 10,
-                        width: "32px", height: "32px", background: "#fff",
-                        border: "none", borderRadius: "2px", cursor: "pointer",
-                        boxShadow: "0 1px 4px rgba(0,0,0,0.3)",
-                        display: "flex", alignItems: "center", justifyContent: "center", padding: 0,
-                    }}>
-                    {isFullscreen ? (
-                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="#666">
-                            <path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z" />
-                        </svg>
-                    ) : (
-                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="#666">
-                            <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z" />
-                        </svg>
-                    )}
-                </button>
-            )}
+            {/* Fullscreen map control removed — location search uses sidebar in Create Booking */}
         </div>
     );
 };
@@ -821,13 +794,14 @@ export default function Maps({
     }
 
     const sharedProps = {
+        mapsApi,
         pickupCoords, destinationCoords, viaCoords,
         setFieldValue, fetchPlotName,
         setPickupPlotData, setDestinationPlotData,
         onPickupConfirmed, onDestinationConfirmed,
         apiKeys, plotsData,
     };
-    if (mapsApi === MAP_PROVIDER_DEFAULT) return <MapifyMap {...sharedProps} />;
-    if (mapsApi === MAP_PROVIDER_BARIKOI || mapsApi === "barikoi") return <BarikoiMap {...sharedProps} />;
-    return <GoogleMap {...sharedProps} SEARCH_API={SEARCH_API} />;
+    if (mapsApi === MAP_PROVIDER_DEFAULT) return <MapifyMap key={mapsApi} {...sharedProps} />;
+    if (mapsApi === MAP_PROVIDER_BARIKOI || mapsApi === "barikoi") return <BarikoiMap key={mapsApi} {...sharedProps} />;
+    return <GoogleMap key={mapsApi} {...sharedProps} SEARCH_API={SEARCH_API} />;
 }

@@ -82,7 +82,11 @@ const MapNearbySearchControls = ({
                 <span className="font-medium">Nearby search</span>
             </label>
 
-            {nearbySearch && (
+            {nearbySearch ? (
+                <span className="text-xs text-[#6B7280]">
+                      
+                </span>
+            ) : (
                 <div className={`flex items-center gap-2 ${compact ? "w-full sm:w-auto" : "w-full sm:min-w-[220px]"}`}>
                     <label className="text-xs font-semibold uppercase tracking-wide text-[#6B7280] whitespace-nowrap">
                         Country
@@ -93,7 +97,7 @@ const MapNearbySearchControls = ({
                         onChange={(event) => onBoundaryCountryChange?.(event)}
                         className="min-w-[160px] flex-1 rounded-lg border border-[#D1D5DB] bg-white px-2.5 py-1.5 text-xs text-[#111827] shadow-sm outline-none focus:border-[#1F41BB] focus:ring-2 focus:ring-[#1F41BB]/20 disabled:bg-[#F9FAFB] disabled:text-[#9CA3AF]"
                     >
-                        {!selectedCountry?.value && <option value="">Select country</option>}
+                        <option value="">Global (all countries)</option>
                         {countryOptions.map((item) => (
                             <option key={item.value} value={item.value}>
                                 {item.label} ({item.value})

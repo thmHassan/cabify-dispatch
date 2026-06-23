@@ -781,7 +781,7 @@ const buildPopupHTML = (data) => {
   return `<div style="font-family:'Inter',sans-serif;min-width:150px;padding:4px 6px;"><div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="color:#4b5563;"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg><span style="font-weight:700;color:#111827;font-size:15px;">${name}</span></div><div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="color:#6b7280;"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg><span style="color:#4b5563;font-size:13px;">${phone}</span></div><div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="color:#6b7280;"><rect x="1" y="3" width="22" height="18" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg><span style="background:#f9fafb;color:#374151;font-weight:600;font-size:12px;padding:1px 6px;border-radius:4px;border:1px solid #e5e7eb;">${plate}</span></div><div style="display:flex;align-items:center;gap:6px;border-top:1px solid #f3f4f6;padding-top:8px;"><span style="height:7px;width:7px;background-color:${statusColor};border-radius:50%;display:inline-block;"></span><span style="color:${statusColor};font-weight:700;font-size:12px;text-transform:capitalize;border:1px solid ${statusColor}40;padding:1px 8px;border-radius:20px;background:${statusColor}10;">${statusLabel}</span></div></div>`;
 };
 
-const GoogleMapSection = ({ mapRef, mapInstance, markers, driverData, setDriverData, socket, countryCenter, plotsData, apiKeys, waitingDrivers, onJobDrivers }) => {
+const GoogleMapSection = ({ mapRef, mapInstance, markers, driverData, setDriverData, socket, countryCenter, plotsData, apiKeys, waitingDrivers, onJobDrivers, mapType }) => {
   const { googleKey } = getApiKeys(apiKeys);
   const [isMapReady, setIsMapReady] = useState(false);
   const plotPolygons = useRef([]);
@@ -833,7 +833,7 @@ const GoogleMapSection = ({ mapRef, mapInstance, markers, driverData, setDriverD
       setIsMapReady(false);
       destroySharedMapInstance(mapInstance, markers, mapRef, { isGoogle: true });
     };
-  }, [googleKey, countryCenter.lat, countryCenter.lng]);
+  }, [mapType]);
 
   const socketRef = useRef(socket);
   useEffect(() => { socketRef.current = socket; }, [socket]);
@@ -950,7 +950,7 @@ const GoogleMapSection = ({ mapRef, mapInstance, markers, driverData, setDriverD
   );
 };
 
-const DefaultMapSection = ({ mapRef, mapInstance, markers, driverData, setDriverData, socket, countryCenter, plotsData, apiKeys, waitingDrivers, onJobDrivers }) => {
+const DefaultMapSection = ({ mapRef, mapInstance, markers, driverData, setDriverData, socket, countryCenter, plotsData, apiKeys, waitingDrivers, onJobDrivers, mapType }) => {
   const [mapReady, setMapReady] = useState(false);
   const { mapifyStyle, barikoiStyle } = getApiKeys(apiKeys);
   const mapStyle = mapifyStyle || barikoiStyle;
@@ -1038,7 +1038,7 @@ const DefaultMapSection = ({ mapRef, mapInstance, markers, driverData, setDriver
         mapInstance.current = null;
       }
     };
-  }, [mapStyle]);
+  }, [mapType]);
 
   useEffect(() => {
     if (!mapRef.current) return;
@@ -1270,10 +1270,6 @@ const Overview = () => {
     };
     fetchDispatchSystem();
   }, []);
-
-  useEffect(() => {
-    destroySharedMapInstance(mapInstance, markers, mapRef);
-  }, [mapType, mapConfigLoading]);
 
   useEffect(() => {
     if (!dispatchSystemLoaded) return;
@@ -2181,7 +2177,7 @@ const Overview = () => {
     }
   };
 
-  const mapProps = { mapRef, mapInstance, markers, driverData, setDriverData, socket, countryCenter, plotsData: allPlots, apiKeys, waitingDrivers, onJobDrivers };
+  const mapProps = { mapRef, mapInstance, markers, driverData, setDriverData, socket, countryCenter, plotsData: allPlots, apiKeys, waitingDrivers, onJobDrivers, mapType };
 
   return (
     <div className="h-full">
@@ -2228,25 +2224,25 @@ const Overview = () => {
               </div>
             </div>
             <div className="flex-1 rounded-xl overflow-hidden" style={{ minHeight: 0, position: "relative" }}>
-              {mapConfigLoading && (
+              {mapConfigLoading && !mapType && (
                 <div className="w-full h-full flex items-center justify-center bg-gray-100 rounded-xl">
                   <AppLogoLoader />
                 </div>
               )}
-              {!mapConfigLoading && mapError && (
+              {mapError && !mapType && (
                 <div className="w-full h-full flex items-center justify-center bg-gray-100 rounded-xl px-4 text-center">
                   <p className="text-sm text-red-600">{mapError}</p>
                 </div>
               )}
-              {!mapConfigLoading && !mapError && (mapType === MAP_PROVIDER_DEFAULT || mapType === MAP_PROVIDER_BARIKOI) && (apiKeys.mapifyStyle || apiKeys.barikoiStyle) && (
+              {(mapType === MAP_PROVIDER_DEFAULT || mapType === MAP_PROVIDER_BARIKOI) && (
                 <DefaultMapSection
-                  key={`${mapType}-${apiKeys.mapifyStyle ? "mapify" : "barikoi"}-${apiKeys.countryOfUse || "na"}`}
+                  key={mapType}
                   {...mapProps}
                 />
               )}
-              {!mapConfigLoading && !mapError && mapType === MAP_PROVIDER_GOOGLE && apiKeys.googleKey && (
+              {mapType === MAP_PROVIDER_GOOGLE && (
                 <GoogleMapSection
-                  key={`google-${apiKeys.googleKey}-${apiKeys.countryOfUse || "na"}`}
+                  key={mapType}
                   {...mapProps}
                 />
               )}
@@ -2424,7 +2420,7 @@ const Overview = () => {
         </div>
       </div>
 
-      <Modal isOpen={isBookingModelOpen.isOpen} size="3xl" className="p-1 sm:p-2 lg:p-3 max-h-[98vh] overflow-y-auto overflow-x-hidden">
+      <Modal isOpen={isBookingModelOpen.isOpen} keepMounted size="3xl" className="p-1 sm:p-2 lg:p-3 max-h-[98vh] overflow-y-auto overflow-x-hidden">
         <AddBooking
           key={
             isBookingModelOpen.type === "edit" && isBookingModelOpen.booking?.id
