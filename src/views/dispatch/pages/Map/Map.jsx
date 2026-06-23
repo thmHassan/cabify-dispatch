@@ -379,7 +379,7 @@ const DefaultMapView = ({ mapRef, mapInstance, markers, driverData, activeDriver
             center: [center.lng, center.lat],
             zoom: 8,
             fadeDuration: 0,
-            attributionControl: true,
+            attributionControl: false,
             transformRequest: createMapifyTransformRequest(),
           });
 
@@ -530,9 +530,38 @@ const DefaultMapView = ({ mapRef, mapInstance, markers, driverData, activeDriver
       style={{ position: "relative" }}
     >
       {isLoaded && (
-        <div className="absolute left-2 top-2 z-10 flex items-center gap-1 rounded bg-white px-2 py-1 text-xs font-semibold text-[#1a73e8] shadow">
-          <AppLogoIcon width={12} height={12} />
-          <span>Mapifyit</span>
+        <div
+          style={{
+            position: "absolute",
+            top: "10px",
+            left: "10px",
+            zIndex: 10,
+            display: "flex",
+            background: "#fff",
+            borderRadius: "2px",
+            boxShadow: "0 1px 4px rgba(0,0,0,0.3)",
+            overflow: "hidden",
+          }}
+        >
+          <div
+            style={{
+              background: "#fff",
+              border: "none",
+              fontSize: "11px",
+              fontFamily: "Roboto,Arial,sans-serif",
+              fontWeight: "500",
+              color: "#1a73e8",
+              borderBottom: "2px solid #1a73e8",
+              padding: "6px 12px",
+              lineHeight: "1",
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+            }}
+          >
+            <AppLogoIcon width={14} height={14} />
+            Mapifyit
+          </div>
         </div>
       )}
     </div>

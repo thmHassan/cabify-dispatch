@@ -249,7 +249,11 @@ export const validatePlotBasedPickup = async ({
         plotsData,
     });
 
-    if (!plot?.id || countDriversInPlot(plot.id, drivers) === 0) {
+    if (!plot?.id) {
+        return { ok: false, message: "Outside of plot" };
+    }
+
+    if (countDriversInPlot(plot.id, drivers) === 0) {
         return { ok: false, message: PLOT_BASED_PICKUP_BLOCKED_MESSAGE };
     }
 

@@ -981,7 +981,7 @@ const DefaultMapSection = ({ mapRef, mapInstance, markers, driverData, setDriver
             style,
             center: [countryCenter.lng, countryCenter.lat],
             zoom: 8,
-            attributionControl: true,
+            attributionControl: false,
             fadeDuration: 0,
             transformRequest: createMapifyTransformRequest(),
           });
@@ -1015,7 +1015,7 @@ const DefaultMapSection = ({ mapRef, mapInstance, markers, driverData, setDriver
         } catch (err) {
           console.error("MapLibre Map instantiation failed:", err);
           try {
-            const map = new window.maplibregl.Map({ container, style: buildOsmFallbackStyle(), center: [countryCenter.lng, countryCenter.lat], zoom: 8 });
+            const map = new window.maplibregl.Map({ container, style: buildOsmFallbackStyle(), center: [countryCenter.lng, countryCenter.lat], zoom: 8, attributionControl: false });
             map.on("load", () => {
               map.resize();
               scheduleMapLibrePlotRender(map, plotsDataRef.current);
@@ -1147,7 +1147,41 @@ const DefaultMapSection = ({ mapRef, mapInstance, markers, driverData, setDriver
     }
   }, [mapReady, driverData]);
 
-  return <div ref={mapRef} style={{ width: "100%", height: "100%", minHeight: "400px", position: "relative" }} />;
+  return (
+    <div ref={mapRef} style={{ width: "100%", height: "100%", minHeight: "400px", position: "relative" }}>
+      {mapReady && (
+        <div style={{
+          position: "absolute",
+          top: "10px",
+          left: "10px",
+          zIndex: 10,
+          display: "flex",
+          background: "#fff",
+          borderRadius: "2px",
+          boxShadow: "0 1px 4px rgba(0,0,0,0.3)",
+          overflow: "hidden",
+        }}>
+          <div style={{
+            background: "#fff",
+            border: "none",
+            fontSize: "11px",
+            fontFamily: "Roboto,Arial,sans-serif",
+            fontWeight: "500",
+            color: "#1a73e8",
+            borderBottom: "2px solid #1a73e8",
+            padding: "6px 12px",
+            lineHeight: "1",
+            display: "flex",
+            alignItems: "center",
+            gap: "6px",
+          }}>
+            <AppLogoIcon width={14} height={14} />
+            Mapifyit
+          </div>
+        </div>
+      )}
+    </div>
+  );
 };
 
 const usePersistedOnJobDrivers = () => {
@@ -2427,6 +2461,7 @@ const Overview = () => {
               ? `edit-${isBookingModelOpen.booking.id}`
               : "new"
           }
+          isModalOpen={isBookingModelOpen.isOpen}
           setIsOpen={setIsBookingModelOpen}
           onBookingCreated={handleBookingCreated}
           editBooking={isBookingModelOpen.type === "edit" ? isBookingModelOpen.booking : null}

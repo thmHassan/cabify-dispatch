@@ -68,7 +68,7 @@ import {
     dispatchSystemListHasPlotBased,
     isManualDispatchOnlySystem,
 } from "../../../../../../utils/functions/dispatchSystem";
-import { validatePlotBasedPickup } from "../../../../../../utils/functions/plotMapGeometry";
+import { validatePlotBasedPickup, resolvePickupPlot } from "../../../../../../utils/functions/plotMapGeometry";
 import { requestBrowserGeolocation } from "../../../../../../utils/functions/geolocation";
 import History from "./components/History";
 import LocationSearchSidebar from "./components/LocationSearchSidebar";
@@ -322,7 +322,7 @@ const DEFAULT_FORM_VALUES = {
     multi_days: [], multi_start_at: "", multi_end_at: "", week_pattern: "",
 };
 
-const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
+const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOpen = false }) => {
     const isEditMode = Boolean(editBooking?.id);
     const todayWeekday = getTodayWeekdayLabel();
     const rawTenant = getTenantData();
@@ -419,6 +419,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
         }
         return DEFAULT_FORM_VALUES;
     });
+    const [newBookingFormKey, setNewBookingFormKey] = useState(0);
 
     const chargeFields = [
         "fares", "return_fares", "waiting_time", "parking_charges", "ac_fares",
@@ -978,6 +979,56 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
         locationSidebarAbortRef.current = null;
         setLocationSidebar(EMPTY_LOCATION_SIDEBAR);
     }, []);
+
+    const resetNewBookingState = useCallback(() => {
+        cancelPendingSearch("pickup");
+        cancelPendingSearch("destination");
+        Object.keys(searchAbortRef.via || {}).forEach((key) => cancelPendingSearch("via", key));
+        closeLocationSidebar();
+
+        setInitialFormValues(DEFAULT_FORM_VALUES);
+        setNewBookingFormKey((key) => key + 1);
+        setPickupSuggestions([]);
+        setDestinationSuggestions([]);
+        setViaSuggestions({});
+        setShowPickup(false);
+        setShowDestination(false);
+        setShowVia({});
+        setPickupSearchLoading(false);
+        setDestinationSearchLoading(false);
+        setViaSearchLoading({});
+        setPickupSearchError("");
+        setDestinationSearchError("");
+        setViaSearchError({});
+        setPickupPlotData(null);
+        setDestinationPlotData(null);
+        setViaPlotData({});
+        setStablePickupCoords(null);
+        setStableDestinationCoords(null);
+        setStableViaCoords([]);
+        setFareData(null);
+        setFareLoading(false);
+        setFareError(null);
+        setFareCalculated(false);
+        setIsMultiBooking(false);
+        setCalculateErrors({});
+        setBookingErrors({});
+        setUserSuggestions([]);
+        setShowUserSuggestions(false);
+        setSelectedUser(null);
+        setUserHistory([]);
+        setShowHistoryModal(false);
+        setIsBookingLoading(false);
+        activeLocationQueriesRef.current = { pickup: "", destination: "", via: {} };
+    }, [closeLocationSidebar]);
+
+    const wasModalOpenRef = useRef(false);
+    useEffect(() => {
+        if (wasModalOpenRef.current && !isModalOpen && !editBooking?.id) {
+            resetNewBookingState();
+        }
+        wasModalOpenRef.current = isModalOpen;
+    }, [isModalOpen, editBooking?.id, resetNewBookingState]);
 
     const fetchLocationSearchResults = useCallback(async (cleanedQuery, signal, { size = MAPIFY_AUTOCOMPLETE_SIZE } = {}) => {
         let results = [];
@@ -1749,6 +1800,29 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
                     values.destination_longitude
                 );
 
+            if (isPlotBasedDispatchEnabled && !isEditMode) {
+                if (!pickupCoords) {
+                    const message = "Pickup location is required.";
+                    setBookingErrors({ pickup_location: message });
+                    toast.error(message);
+                    return;
+                }
+
+                const pickupPlot = await resolvePickupPlot({
+                    latitude: pickupCoords.latitude,
+                    longitude: pickupCoords.longitude,
+                    fetchPlotName,
+                    plotsData,
+                });
+
+                if (!pickupPlot?.id) {
+                    const message = "Outside of plot";
+                    setBookingErrors({ pickup_location: message });
+                    toast.error(message);
+                    return;
+                }
+            }
+
             if (requiresPlotBasedPickupValidation(values)) {
                 if (!pickupCoords) {
                     const message = "Pickup location is required for plot-based dispatch.";
@@ -2172,7 +2246,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
 
             <Formik
                 initialValues={initialFormValues}
-                key={editBooking?.id ? `edit-${editBooking.id}` : "new"}
+                key={editBooking?.id ? `edit-${editBooking.id}` : `new-${newBookingFormKey}`}
                 onSubmit={isEditMode ? handleUpdateBooking : handleCreateBooking}
                 enableReinitialize
             >
