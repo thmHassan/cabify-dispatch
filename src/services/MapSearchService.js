@@ -258,10 +258,142 @@ const assertNearbySearchCoordinates = (nearbySearch, lat, lon) => {
 };
 
 const unwrapMapifyPayload = (payload) => {
-    if (payload?.success === 1 || payload?.success === true || payload?.success === "1") {
+    if (!payload || typeof payload !== "object") return payload;
+
+    if (
+        payload.success === 1
+        || payload.success === true
+        || payload.success === "1"
+        || payload.success === "true"
+    ) {
         return payload.data ?? payload;
     }
-    return payload?.data ?? payload;
+
+    return payload.data ?? payload;
+};
+
+const parseMapifyCoordinate = (value) => {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : null;
+};
+
+const readLatLonPair = (lonValue, latValue) => {
+    const lon = parseMapifyCoordinate(lonValue);
+    const lat = parseMapifyCoordinate(latValue);
+    if (lon == null || lat == null) return null;
+    return { lon, lat };
+};
+
+const extractMapifyLatLon = (feature) => {
+    if (!feature || typeof feature !== "object") return null;
+
+    const props = feature.properties && typeof feature.properties === "object"
+        ? feature.properties
+        : {};
+    const geometry = feature.geometry && typeof feature.geometry === "object"
+        ? feature.geometry
+        : {};
+
+    const geometryCoords = geometry.coordinates;
+    if (Array.isArray(geometryCoords) && geometryCoords.length >= 2) {
+        const fromGeometry = readLatLonPair(geometryCoords[0], geometryCoords[1]);
+        if (fromGeometry) return fromGeometry;
+    }
+
+    const coordinateSources = [
+        [feature.lon, feature.lat],
+        [feature.lng, feature.lat],
+        [feature.longitude, feature.latitude],
+        [props.lon, props.lat],
+        [props.lng, props.lat],
+        [props.longitude, props.latitude],
+        [geometry.lon, geometry.lat],
+        [geometry.lng, geometry.lat],
+        [geometry.longitude, geometry.latitude],
+    ];
+
+    for (const [lonValue, latValue] of coordinateSources) {
+        const pair = readLatLonPair(lonValue, latValue);
+        if (pair) return pair;
+    }
+
+    const nestedSources = [
+        feature.coordinates,
+        props.coordinates,
+        feature.location,
+        props.location,
+        feature.centroid,
+        props.centroid,
+        feature.center_point,
+        props.center_point,
+        feature.point,
+        props.point,
+        feature.coord,
+        props.coord,
+        feature.position,
+        props.position,
+    ];
+
+    for (const source of nestedSources) {
+        if (!source || typeof source !== "object") continue;
+        const pair = readLatLonPair(
+            source.lon ?? source.lng ?? source.longitude ?? source.x,
+            source.lat ?? source.latitude ?? source.y,
+        );
+        if (pair) return pair;
+    }
+
+    if (Array.isArray(feature.coordinates) && feature.coordinates.length >= 2) {
+        const fromTopLevel = readLatLonPair(feature.coordinates[0], feature.coordinates[1]);
+        if (fromTopLevel) return fromTopLevel;
+    }
+
+    return null;
+};
+
+export const collectMapifyFeatureList = (payload) => {
+    const visit = (node, depth = 0) => {
+        if (!node || depth > 6) return [];
+
+        if (Array.isArray(node)) {
+            return node.filter((item) => item && typeof item === "object");
+        }
+
+        if (typeof node !== "object") return [];
+
+        const collectionKeys = ["features", "results", "places", "items", "records", "hits"];
+        for (const key of collectionKeys) {
+            if (Array.isArray(node[key])) {
+                return node[key].filter((item) => item && typeof item === "object");
+            }
+        }
+
+        if (Array.isArray(node.data)) {
+            return node.data.filter((item) => item && typeof item === "object");
+        }
+
+        if (node.data && typeof node.data === "object") {
+            const nested = visit(node.data, depth + 1);
+            if (nested.length > 0) return nested;
+        }
+
+        if (
+            node.type === "Feature"
+            || node.geometry
+            || node.properties
+            || node.lat != null
+            || node.lon != null
+            || node.lng != null
+            || node.latitude != null
+            || node.longitude != null
+        ) {
+            return [node];
+        }
+
+        return [];
+    };
+
+    return visit(unwrapMapifyPayload(payload));
 };
 
 export const mapifyFeatureToAddress = (item) => {
@@ -278,47 +410,30 @@ export const mapifyFeatureToAddress = (item) => {
 };
 
 export const normalizeMapifyFeatures = (payload) => {
-    const root = unwrapMapifyPayload(payload);
-    const features = Array.isArray(root?.features)
-        ? root.features
-        : Array.isArray(root?.results)
-            ? root.results
-            : Array.isArray(root)
-                ? root
-                : [];
+    const features = collectMapifyFeatureList(payload);
 
     return features
         .map((feature) => {
-            const props = feature?.properties || feature || {};
-            let lon;
-            let lat;
+            const props = feature?.properties && typeof feature.properties === "object"
+                ? feature.properties
+                : {};
+            const coords = extractMapifyLatLon(feature);
+            if (!coords) return null;
 
-            const coords = feature?.geometry?.coordinates;
-            if (Array.isArray(coords) && coords.length >= 2) {
-                lon = Number(coords[0]);
-                lat = Number(coords[1]);
-            } else if (feature?.lon != null && feature?.lat != null) {
-                lon = Number(feature.lon);
-                lat = Number(feature.lat);
-            } else if (props?.lon != null && props?.lat != null) {
-                lon = Number(props.lon);
-                lat = Number(props.lat);
-            } else {
-                return null;
-            }
-
-            if (Number.isNaN(lat) || Number.isNaN(lon)) return null;
-
+            const { lat, lon } = coords;
             const neighbourhood = String(
-                props.neighbourhood ?? props.neighborhood ?? ""
+                props.neighbourhood ?? props.neighborhood ?? feature?.neighbourhood ?? feature?.neighborhood ?? ""
             ).trim();
 
+            const name = props.name || props.label || feature?.name || feature?.label || "Unknown location";
+            const label = props.label || props.address || feature?.label || feature?.address || "";
+
             return {
-                id: feature?.id ?? `${lat}-${lon}-${props.name || "location"}`,
+                id: feature?.id ?? props.id ?? `${lat}-${lon}-${name}`,
                 lat,
                 lon,
-                name: props.name || props.label || feature?.name || "Unknown location",
-                label: props.label || props.address || feature?.label || feature?.address || "",
+                name,
+                label,
                 neighbourhood,
                 layer: props.layer || feature?.layer || "",
                 country: props.country || feature?.country || "",
