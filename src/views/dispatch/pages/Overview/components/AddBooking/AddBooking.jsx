@@ -2586,6 +2586,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
                                                         <InputBox label="Pickup" value={values.pickup_location} plot={pickupPlotData?.name || ""}
                                                             suggestions={pickupSuggestions} show={showPickup} placeholder="Search pickup..."
                                                             loading={pickupSearchLoading} error={pickupSearchError}
+                                                            requireInputForDropdown
                                                             hasError={!!(calculateErrors.pickup_location || bookingErrors.pickup_location)}
                                                             onChange={(v) => {
                                                                 setFieldValue("pickup_location", v);
@@ -2654,6 +2655,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
                                                 <InputBox label="Destination" value={values.destination_location} plot={destinationPlotData?.name || ""}
                                                     suggestions={destinationSuggestions} show={showDestination} placeholder="Search destination..."
                                                     loading={destinationSearchLoading} error={destinationSearchError}
+                                                    requireInputForDropdown
                                                     dropup
                                                     hasError={!!(calculateErrors.destination_location || bookingErrors.destination_location)}
                                                     onChange={(v) => {
@@ -2819,10 +2821,14 @@ const InputBox = ({
     dropup = false,
     enterKeySearch = false,
     onEnterSearch,
+    requireInputForDropdown = false,
 }) => {
     const containerRef = useRef(null);
 
-    const dropdownOpen = !enterKeySearch && (show || loading || error);
+    const hasInput = Boolean(String(value ?? "").trim());
+    const dropdownOpen = !enterKeySearch
+        && (!requireInputForDropdown || hasInput)
+        && (show || loading || error);
 
     useEffect(() => {
         if (!dropdownOpen) return undefined;
