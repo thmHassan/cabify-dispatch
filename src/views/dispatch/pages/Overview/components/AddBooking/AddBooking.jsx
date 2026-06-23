@@ -1431,7 +1431,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
     const ensureHumanReadableLocation = async (locationValue, latitude, longitude) => {
         if (locationValue?.trim() && !isCoordinateString(locationValue)) return locationValue;
 
-        if (latitude && longitude && isReverseGeocodingAvailable()) {
+        if (latitude && longitude && mapsApi === MAP_PROVIDER_DEFAULT) {
             const address = await fetchMapifyAddressFromCoords({
                 lat: parseFloat(latitude),
                 lon: parseFloat(longitude),

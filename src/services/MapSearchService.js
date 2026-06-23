@@ -309,12 +309,17 @@ export const normalizeMapifyFeatures = (payload) => {
 
             if (Number.isNaN(lat) || Number.isNaN(lon)) return null;
 
+            const neighbourhood = String(
+                props.neighbourhood ?? props.neighborhood ?? ""
+            ).trim();
+
             return {
                 id: feature?.id ?? `${lat}-${lon}-${props.name || "location"}`,
                 lat,
                 lon,
                 name: props.name || props.label || feature?.name || "Unknown location",
                 label: props.label || props.address || feature?.label || feature?.address || "",
+                neighbourhood,
                 layer: props.layer || feature?.layer || "",
                 country: props.country || feature?.country || "",
                 distance: props.distance ?? feature?.distance,
@@ -627,6 +632,7 @@ export async function fetchMapifyAddressFromCoords({
 export const mapifyFeatureToSuggestion = (item) => ({
     id: item.id,
     label: item.name,
+    neighbourhood: item.neighbourhood || "",
     subtitle: item.label || item.layer || item.country || "",
     inputValue: item.label || item.name,
     lat: item.lat,

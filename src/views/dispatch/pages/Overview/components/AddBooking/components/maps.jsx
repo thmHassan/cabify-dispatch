@@ -243,7 +243,7 @@ const GoogleMap = ({
                 });
             });
         }
-        return createMapifyAddressResolver()(lat, lng);
+        return formatCoordinateFallback(lat, lng);
     };
 
     useEffect(() => {

@@ -68,6 +68,9 @@ const LocationSearchSidebar = ({
                                     className="w-full px-3 py-2.5 text-left hover:bg-[#F9FAFB] transition-colors"
                                 >
                                     <div className="text-sm font-medium text-[#111827]">{item.label}</div>
+                                    {item.neighbourhood ? (
+                                        <div className="mt-0.5 text-xs font-medium text-[#374151]">{item.neighbourhood}</div>
+                                    ) : null}
                                     {item.subtitle ? (
                                         <div className="mt-0.5 text-xs text-[#6B7280] line-clamp-2">{item.subtitle}</div>
                                     ) : null}
