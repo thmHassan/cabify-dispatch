@@ -211,11 +211,16 @@ export async function apiGetMapSearchPreferences() {
 const buildMapifySearchParams = ({ nearbySearch, boundaryCountry }) => {
     const params = { nearby_search: nearbySearch ? 1 : 0 };
 
+    // Nearby mode: backend scopes by lat/lon (50 km). Do not send boundary_country —
+    // especially not a stale tenant/manual country that conflicts with user coordinates.
+    if (nearbySearch) {
+        return params;
+    }
+
     if (!boundaryCountry) return params;
 
-    const country = nearbySearch
-        ? toMapifyBoundaryCountryCode(boundaryCountry)
-        : (toMapifyBoundaryCountryCode(boundaryCountry) || normalizeBoundaryCountry(boundaryCountry));
+    const country = toMapifyBoundaryCountryCode(boundaryCountry)
+        || normalizeBoundaryCountry(boundaryCountry);
 
     if (country) {
         params.boundary_country = country;
@@ -483,16 +488,20 @@ const extractCountryCodeFromFeature = (feature) => {
         props?.boundary_country,
         props?.search_boundary_country,
         props?.country_a3,
+        props?.country_a2,
         props?.country_code,
         props?.countrycode,
         props?.country,
+        props?.country_name,
         props?.iso3166_1_alpha3,
         props?.iso3166_1_alpha2,
         props?.iso3166_1,
         feature?.boundary_country,
         feature?.country_a3,
+        feature?.country_a2,
         feature?.country_code,
         feature?.country,
+        feature?.country_name,
     ];
 
     for (const candidate of candidates) {
@@ -515,6 +524,12 @@ export const extractReverseGeocodeCountryCode = (payload) => {
     ];
     for (const candidate of rootCandidates) {
         const mapped = toMapifyBoundaryCountryCode(candidate);
+        if (mapped) return mapped;
+    }
+
+    const featureList = collectMapifyFeatureList(payload);
+    for (const feature of featureList) {
+        const mapped = extractCountryCodeFromFeature(feature);
         if (mapped) return mapped;
     }
 
@@ -661,15 +676,16 @@ export async function fetchMapifyBoundaryCountryFromCoords({
     signal,
     size = 1,
     fallbackCountry = null,
+    allowFallback = true,
 }) {
     if (!isReverseGeocodingAvailable()) {
-        return toMapifyBoundaryCountryCode(fallbackCountry);
+        return allowFallback ? toMapifyBoundaryCountryCode(fallbackCountry) : null;
     }
 
     const latitude = Number(lat);
     const longitude = Number(lon);
     if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
-        return toMapifyBoundaryCountryCode(fallbackCountry);
+        return allowFallback ? toMapifyBoundaryCountryCode(fallbackCountry) : null;
     }
 
     const cacheKey = `${latitude.toFixed(6)},${longitude.toFixed(6)}`;
@@ -693,7 +709,7 @@ export async function fetchMapifyBoundaryCountryFromCoords({
         }
     }
 
-    if (!countryCode) {
+    if (!countryCode && allowFallback) {
         countryCode = toMapifyBoundaryCountryCode(fallbackCountry);
     }
 

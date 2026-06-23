@@ -793,7 +793,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
 
     const resolveNearbyBoundaryCountry = useCallback(async (coords, signal) => {
         if (coords?.lat == null || coords?.lon == null) {
-            return toMapifyBoundaryCountryCode(tenantCountryIso);
+            return null;
         }
 
         if (mapsApi === MAP_PROVIDER_DEFAULT && isReverseGeocodingAvailable()) {
@@ -801,13 +801,13 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
                 lat: coords.lat,
                 lon: coords.lon,
                 signal,
-                fallbackCountry: tenantCountryIso,
+                allowFallback: false,
             });
             if (countryCode) return countryCode;
         }
 
-        return toMapifyBoundaryCountryCode(tenantCountryIso);
-    }, [mapsApi, tenantCountryIso]);
+        return null;
+    }, [mapsApi]);
 
     const fetchUserGeolocation = useCallback(async ({ force = false } = {}) => {
         if (!force && userGeoCoordsRef.current) {
@@ -855,18 +855,16 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
                 };
             }
 
-            let boundaryCountry = geoCoords.boundaryCountry;
-            if (!boundaryCountry) {
-                boundaryCountry = await resolveNearbyBoundaryCountry(geoCoords, signal);
-                userGeoCoordsRef.current = {
-                    ...geoCoords,
-                    boundaryCountry,
-                };
-            }
+            const boundaryCountry = await resolveNearbyBoundaryCountry(geoCoords, signal);
+            userGeoCoordsRef.current = {
+                ...geoCoords,
+                boundaryCountry,
+            };
+            setNearbyBoundaryCountry(boundaryCountry || null);
 
             return {
                 nearbySearch: true,
-                boundaryCountry,
+                boundaryCountry: null,
                 lat: geoCoords.lat,
                 lon: geoCoords.lon,
             };
