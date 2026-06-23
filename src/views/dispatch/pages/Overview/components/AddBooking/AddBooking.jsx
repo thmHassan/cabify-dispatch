@@ -369,8 +369,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
     const [stablePickupCoords, setStablePickupCoords] = useState(null);
     const [stableDestinationCoords, setStableDestinationCoords] = useState(null);
     const [stableViaCoords, setStableViaCoords] = useState([]);
-    const formikRef = useState(null);
-    const [formikSetFieldValue, setFormikSetFieldValue] = useState(null);
+    const setFieldValueRef = useRef(null);
     const [fareData, setFareData] = useState(null);
     const [fareLoading, setFareLoading] = useState(false);
     const [fareError, setFareError] = useState(null);
@@ -434,6 +433,15 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
     const handleDestinationConfirmed = useCallback((coords) => {
         setStableDestinationCoords(coords);
     }, []);
+
+    const applyMapFieldValue = useCallback((field, value) => {
+        setFieldValueRef.current?.(field, value);
+    }, []);
+
+    const mapViaCoords = useMemo(
+        () => stableViaCoords.filter(Boolean),
+        [stableViaCoords]
+    );
 
     const searchUsers = debounce(async (query) => {
         if (!query || query.length < 3) { setUserSuggestions([]); setShowUserSuggestions(false); return; }
@@ -1636,10 +1644,10 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
     };
 
     useEffect(() => {
-        if (!formikSetFieldValue) return;
+        if (!setFieldValueRef.current) return;
 
         if (!stablePickupCoords?.lat || !stableDestinationCoords?.lat) {
-            formikSetFieldValue("distance", "");
+            setFieldValueRef.current("distance", "");
             return;
         }
 
@@ -1648,12 +1656,12 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
             const distanceKm = await fetchRouteDistance(
                 stablePickupCoords,
                 stableDestinationCoords,
-                stableViaCoords.filter(Boolean),
+                mapViaCoords,
                 mapsApi,
                 apiKeys
             );
             if (!cancelled && distanceKm) {
-                formikSetFieldValue("distance", kmValueToDisplayDistance(distanceKm));
+                setFieldValueRef.current("distance", kmValueToDisplayDistance(distanceKm));
             }
         }, 400);
 
@@ -1664,10 +1672,9 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
     }, [
         stablePickupCoords,
         stableDestinationCoords,
-        stableViaCoords,
+        mapViaCoords,
         mapsApi,
         apiKeys,
-        formikSetFieldValue,
     ]);
 
     const swapLocations = (index, setFieldValue, values) => {
@@ -2221,8 +2228,8 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
             plotsData={plotsData}
             pickupCoords={stablePickupCoords}
             destinationCoords={stableDestinationCoords}
-            viaCoords={stableViaCoords.filter(Boolean)}
-            setFieldValue={formikSetFieldValue}
+            viaCoords={mapViaCoords}
+            setFieldValue={applyMapFieldValue}
             fetchPlotName={fetchPlotName}
             setPickupPlotData={setPickupPlotData}
             setDestinationPlotData={setDestinationPlotData}
@@ -2251,7 +2258,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
                 enableReinitialize
             >
                 {({ values, setFieldValue }) => {
-                    useEffect(() => { setFormikSetFieldValue(() => setFieldValue); }, [setFieldValue]);
+                    setFieldValueRef.current = setFieldValue;
 
                     useEffect(() => {
                         if (fareData?.calculate_fare) {

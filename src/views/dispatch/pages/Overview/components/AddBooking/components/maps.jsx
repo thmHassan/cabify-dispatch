@@ -122,6 +122,20 @@ const useMapResizeObserver = (containerRef, onResize) => {
 
 const formatCoordinateFallback = (lat, lng) => `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
 
+const formatCoordPair = (coords) => (
+    coords?.lat != null && coords?.lng != null
+        ? `${Number(coords.lat).toFixed(6)},${Number(coords.lng).toFixed(6)}`
+        : ""
+);
+
+const buildRouteCoordsKey = (pickupCoords, destinationCoords, viaCoords = []) => {
+    const viaPart = (viaCoords || [])
+        .filter((coords) => coords?.lat != null && coords?.lng != null)
+        .map(formatCoordPair)
+        .join("|");
+    return `${formatCoordPair(pickupCoords)}>${formatCoordPair(destinationCoords)}>${viaPart}`;
+};
+
 const applyRouteLocationSelection = ({
     type,
     label,
@@ -210,6 +224,8 @@ const GoogleMap = ({
     const [loadError, setLoadError] = useState(false);
     const clickCountRef = useRef(0);
     const mountedRef = useRef(true);
+    const lastRouteCoordsKeyRef = useRef("");
+    const routeCoordsKey = buildRouteCoordsKey(pickupCoords, destinationCoords, viaCoords);
 
     const resizeGoogleMap = () => {
         if (mapInstanceRef.current && window.google?.maps) {
@@ -359,6 +375,9 @@ const GoogleMap = ({
 
     useEffect(() => {
         if (!mapInstanceRef.current || !isLoaded) return;
+        if (routeCoordsKey === lastRouteCoordsKeyRef.current) return;
+        lastRouteCoordsKeyRef.current = routeCoordsKey;
+
         const id = setTimeout(() => {
             if (!mapInstanceRef.current) return;
             const map = mapInstanceRef.current;
@@ -411,7 +430,7 @@ const GoogleMap = ({
             }
         }, 300);
         return () => clearTimeout(id);
-    }, [pickupCoords, destinationCoords, viaCoords, isLoaded]);
+    }, [routeCoordsKey, isLoaded]);
 
     if (!googleKey || loadError) {
         return (
@@ -459,6 +478,11 @@ const MapLibreBookingMap = ({
     const [loadError, setLoadError] = useState(false);
     const clickCountRef = useRef(0);
     const mountedRef = useRef(true);
+    const lastRouteCoordsKeyRef = useRef("");
+    const routeCoordsKey = buildRouteCoordsKey(pickupCoords, destinationCoords, viaCoords);
+    const hasStyleConfig = Boolean(styleConfig);
+    const styleConfigRef = useRef(styleConfig);
+    styleConfigRef.current = styleConfig;
 
     const resizeMap = () => {
         if (mapRef.current?.resize) mapRef.current.resize();
@@ -468,16 +492,16 @@ const MapLibreBookingMap = ({
 
     useEffect(() => {
         mountedRef.current = true;
-        if (!styleConfig) {
-            setLoadError(true);
-            return;
+        if (!hasStyleConfig) {
+            setLoadError(false);
+            return undefined;
         }
         setLoadError(false);
         loadMapLibreGl()
             .then(() => { if (mountedRef.current) setIsLoaded(true); })
             .catch(() => { if (mountedRef.current) setLoadError(true); });
         return () => { mountedRef.current = false; };
-    }, [mapsApi]);
+    }, [mapsApi, hasStyleConfig]);
 
     useEffect(() => {
         plotsDataRef.current = plotsData;
@@ -496,7 +520,7 @@ const MapLibreBookingMap = ({
     };
 
     useEffect(() => {
-        if (!isLoaded || !containerRef.current || mapRef.current || !styleConfig) return;
+        if (!isLoaded || !containerRef.current || mapRef.current || !hasStyleConfig) return;
 
         let cancelled = false;
         const initMap = async () => {
@@ -509,7 +533,7 @@ const MapLibreBookingMap = ({
                 containerRef.current.style.minHeight = MAP_MIN_HEIGHT;
                 mapRef.current = new window.maplibregl.Map({
                     container: containerRef.current,
-                    style: styleConfig,
+                    style: styleConfigRef.current,
                     center: [center.lng, center.lat],
                     zoom: 12,
                     attributionControl: false,
@@ -589,7 +613,7 @@ const MapLibreBookingMap = ({
             markersRef.current.forEach((m) => { try { m.remove(); } catch (e) { } });
             markersRef.current = [];
         };
-    }, [isLoaded, mapsApi]);
+    }, [isLoaded, mapsApi, hasStyleConfig]);
 
     useEffect(() => {
         if (!isLoaded || !mapRef.current) return;
@@ -655,6 +679,9 @@ const MapLibreBookingMap = ({
 
     useEffect(() => {
         if (!mapRef.current || !isLoaded) return;
+        if (routeCoordsKey === lastRouteCoordsKeyRef.current) return;
+        lastRouteCoordsKeyRef.current = routeCoordsKey;
+
         const id = setTimeout(() => {
             const doUpdate = () => {
                 if (!mapRef.current) return;
@@ -685,7 +712,7 @@ const MapLibreBookingMap = ({
             else mapRef.current?.once("load", doUpdate);
         }, 300);
         return () => clearTimeout(id);
-    }, [pickupCoords, destinationCoords, viaCoords, isLoaded]);
+    }, [routeCoordsKey, isLoaded]);
 
     const btnBase = {
         background: "#fff", border: "none", cursor: "pointer",
