@@ -2,11 +2,15 @@ import { io } from "socket.io-client";
 import { resolveSocketIoOrigin } from "../utils/functions/backendUrls";
 import { getDecryptedToken, getTenantId } from "../utils/functions/tokenEncryption";
 import { getDispatcherId } from "../utils/auth";
+import { registerForcedLogoutSocketListeners } from "../utils/auth/forcedLogout";
 
 let socket = null;
+let unregisterForcedLogoutListeners = null;
 
 export const disconnectSocket = () => {
     if (!socket) return;
+    unregisterForcedLogoutListeners?.();
+    unregisterForcedLogoutListeners = null;
     socket.removeAllListeners();
     socket.disconnect();
     socket = null;
@@ -63,6 +67,9 @@ const initSocket = () => {
     socket.on("connect_error", (error) => {
         console.error("⚠️ Socket connection error:", error.message);
     });
+
+    unregisterForcedLogoutListeners?.();
+    unregisterForcedLogoutListeners = registerForcedLogoutSocketListeners(socket);
 
     // Global listener for all socket events
     socket.onAny((event, ...args) => {

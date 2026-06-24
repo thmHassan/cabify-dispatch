@@ -2,6 +2,7 @@ import { apiGetCompanyProfile } from "../../services/SettingsConfigurationServic
 import { canAccessTenantApi } from "./tokenEncryption";
 import {
     getTenantCurrencyCode,
+    normalizeCurrencyCode,
     setCachedTenantCurrency,
 } from "./formatters";
 import {
@@ -73,8 +74,10 @@ export const subscribeCompanyUnits = (listener) => {
 };
 
 export const setCompanyCurrency = (currency) => {
-    const normalized = String(currency ?? "").trim().toUpperCase();
-    if (!normalized) return;
+    const raw = String(currency ?? "").trim();
+    if (!raw) return;
+
+    const normalized = normalizeCurrencyCode(raw);
 
     const previous = getTenantCurrencyCode();
     setCachedTenantCurrency(normalized);
@@ -205,6 +208,11 @@ export const ensureCompanyUnitsLoaded = async () => {
     const settings = await ensureCompanySettingsLoaded();
     return settings.units;
 };
+
+const storedCurrencyOnBoot = readStoredCurrency();
+if (storedCurrencyOnBoot) {
+    setCachedTenantCurrency(storedCurrencyOnBoot);
+}
 
 export const ensureCompanySettingsLoaded = async () => {
     if (!canAccessTenantApi()) {

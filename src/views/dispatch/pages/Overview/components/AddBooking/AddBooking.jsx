@@ -67,6 +67,7 @@ import {
     getCompanyTodayForInput,
     isCompanyFutureDateTime,
 } from "../../../../../../utils/functions/appDateTime";
+import { useCompanyDateTime } from "../../../../../../contexts/CompanyDateTimeContext";
 import { mapBookingToFormValues } from "../../../../../../utils/functions/bookingFormMapper";
 import {
     dispatchSystemListHasPlotBased,
@@ -2939,11 +2940,25 @@ const InputBox = ({
     );
 };
 
-const ChargeInput = ({ label, name, value, onChange, readOnly = false }) => (
-    <div>
-        <label className={formLabelClass}>{label}</label>
-        <input type="number" step="0.01" value={value === "" || value == null ? "" : value} readOnly={readOnly}
-            onChange={(e) => onChange && onChange(name, e.target.value)}
-            className={`${formInputClass} ${readOnly ? "bg-[#F9FAFB]" : ""}`} />
-    </div>
-);
+const ChargeInput = ({ label, name, value, onChange, readOnly = false }) => {
+    const { currencySymbol } = useCompanyDateTime();
+
+    return (
+        <div>
+            <label className={formLabelClass}>{label}</label>
+            <div className="relative">
+                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#6B7280] text-sm">
+                    {currencySymbol}
+                </span>
+                <input
+                    type="number"
+                    step="0.01"
+                    value={value === "" || value == null ? "" : value}
+                    readOnly={readOnly}
+                    onChange={(e) => onChange && onChange(name, e.target.value)}
+                    className={`${formInputClass} pl-7 ${readOnly ? "bg-[#F9FAFB]" : ""}`}
+                />
+            </div>
+        </div>
+    );
+};

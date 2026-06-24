@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { useAppSelector } from "../store";
 import {
     ensureCompanySettingsLoaded,
@@ -12,7 +12,11 @@ import {
     refreshCompanyTimezone,
     subscribeCompanyTimezone,
 } from "../utils/functions/appDateTime";
-import { getTenantCurrencyCode } from "../utils/functions/formatters";
+import {
+    formatCurrency as formatCurrencyValue,
+    getCurrencySymbol,
+    getTenantCurrencyCode,
+} from "../utils/functions/formatters";
 import { getTenantDistanceUnit } from "../utils/functions/tenantSettings";
 import {
     canAccessTenantApi,
@@ -23,8 +27,11 @@ import {
 const CompanyDateTimeContext = createContext({
     timezone: getCompanyTimezone(),
     currency: getTenantCurrencyCode(),
+    currencySymbol: getCurrencySymbol(),
     units: getTenantDistanceUnit(),
     ready: false,
+    formatCurrency: (amount, options = {}) =>
+        formatCurrencyValue(amount, { ...options, currency: getTenantCurrencyCode() }),
 });
 
 export const CompanyDateTimeProvider = ({ children }) => {
@@ -120,9 +127,17 @@ export const CompanyDateTimeProvider = ({ children }) => {
         };
     }, [canLoadTenantSettings]);
 
+    const formatCurrency = useCallback(
+        (amount, options = {}) =>
+            formatCurrencyValue(amount, { ...options, currency: options.currency || currency }),
+        [currency]
+    );
+
+    const currencySymbol = useMemo(() => getCurrencySymbol(currency), [currency]);
+
     const value = useMemo(
-        () => ({ timezone, currency, units, ready }),
-        [timezone, currency, units, ready]
+        () => ({ timezone, currency, currencySymbol, units, ready, formatCurrency }),
+        [timezone, currency, currencySymbol, units, ready, formatCurrency]
     );
 
     return (

@@ -8,6 +8,7 @@ import { useNavigate } from "react-router-dom";
 import { FORGOT_PASSWORD_PATH } from "../../../../../../constants/routes.path.constant/auth.route.path.constant";
 import Loading from "../../../../../../components/shared/Loading/Loading";
 import AppLogoLoader from "../../../../../../components/shared/AppLogoLoader";
+import { consumeForcedLogoutMessage } from "../../../../../../utils/auth/forcedLogout";
 
 const SigninForm = ({
   disableSubmit,
@@ -21,8 +22,15 @@ const SigninForm = ({
   const [toastMessage, setToastMessage] = useState("");
 
   useEffect(() => {
+    const forcedLogoutMessage = consumeForcedLogoutMessage();
+    if (forcedLogoutMessage) {
+      setToastMessage(forcedLogoutMessage);
+    }
+  }, []);
+
+  useEffect(() => {
     if (toastMessage) {
-      const timer = setTimeout(() => setToastMessage(""), 3000);
+      const timer = setTimeout(() => setToastMessage(""), 5000);
       return () => clearTimeout(timer);
     }
   }, [toastMessage]);
