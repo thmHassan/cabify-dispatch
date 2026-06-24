@@ -9,6 +9,7 @@ import ScrollToTop from "./components/shared/ScrollToTop";
 import Loading from "./components/shared/Loading/Loading";
 import { Toaster } from "react-hot-toast";
 import { SocketProvider } from "./components/routes/SocketProvider";
+import CompanyInactiveGuard from "./components/routes/CompanyInactiveGuard";
 import { MapConfigurationProvider } from "./contexts/MapConfigurationContext";
 import { CompanyDateTimeProvider } from "./contexts/CompanyDateTimeContext";
 
@@ -25,11 +26,13 @@ function App() {
         <ScrollToTop>
           <Suspense fallback={<Loading />}>
             <SocketProvider>
-              <CompanyDateTimeProvider>
-                <MapConfigurationProvider>
-                  <AllRoutes />
-                </MapConfigurationProvider>
-              </CompanyDateTimeProvider>
+              <CompanyInactiveGuard>
+                <CompanyDateTimeProvider>
+                  <MapConfigurationProvider>
+                    <AllRoutes />
+                  </MapConfigurationProvider>
+                </CompanyDateTimeProvider>
+              </CompanyInactiveGuard>
             </SocketProvider>
           </Suspense>
         </ScrollToTop>

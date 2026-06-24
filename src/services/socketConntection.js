@@ -41,18 +41,22 @@ const initSocket = () => {
 
     socket = io(socketBaseUrl, {
         path: "/socket.io",
-        transports: ["polling", "websocket",],
+        transports: ["polling", "websocket"],
         reconnection: true,
-        reconnectionAttempts: 5,
+        reconnectionAttempts: Infinity,
         reconnectionDelay: 2000,
+        auth: {
+            token: token ? `Bearer ${token}` : "",
+        },
         query: {
             role: "dispatcher",
-            dispatcher_id: dispatcher_id,
+            dispatcher_id: dispatcher_id ?? "",
             database: tenantId,
+            ...(token ? { token } : {}),
         },
         extraHeaders: {
-            Authorization: `Bearer ${token}`
-        }
+            Authorization: `Bearer ${token}`,
+        },
     });
 
 
@@ -76,7 +80,6 @@ const initSocket = () => {
 
     attachForcedLogoutListeners();
 
-    // Global listener for all socket events
     socket.onAny((event, ...args) => {
         console.log(`🌐 [Socket Global Logger] Event: ${event}`, args);
     });

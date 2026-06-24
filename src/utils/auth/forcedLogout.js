@@ -1,9 +1,15 @@
 import toast from "react-hot-toast";
 import appConfig from "../../components/configs/app.config";
 import store, { clearUser, signOutSuccess } from "../../store";
+import { apiGetCompanyProfile } from "../../services/SettingsConfigurationServices";
 import { resetMapConfigurationCache } from "../../services/mapConfigCache";
 import { disconnectSocket } from "../../services/socketConntection";
-import { clearAllAuthData, getTenantData } from "../functions/tokenEncryption";
+import {
+    canAccessTenantApi,
+    clearAllAuthData,
+    getTenantData,
+    storeTenantData,
+} from "../functions/tokenEncryption";
 import { clearCachedTenantCurrency } from "../functions/formatters";
 import { clearCachedDistanceUnit } from "../functions/tenantSettings";
 import { clearCompanyTimezoneCache } from "../functions/appDateTime";
@@ -12,12 +18,13 @@ import { parseSocketPayload } from "../notifications/buildNotificationFromSocket
 
 export const FORCED_LOGOUT_MESSAGE_KEY = "forced_logout_message";
 
-export const COMPANY_INACTIVE_SOCKET_EVENTS = [
+export const COMPANY_STATUS_POLL_MS = 30000;
+
+const IMMEDIATE_LOGOUT_SOCKET_EVENTS = new Set([
     "company-inactive-logout",
     "dispatcher-forced-logout",
     "company_inactive_logout",
-    "company-status-changed",
-];
+]);
 
 export const DEFAULT_COMPANY_INACTIVE_MESSAGE =
     "Your company has been deactivated. You have been logged out.";
@@ -25,8 +32,10 @@ export const DEFAULT_COMPANY_INACTIVE_MESSAGE =
 export const INACTIVE_COMPANY_LOGIN_MESSAGE =
     "Your company account is inactive. Please contact support.";
 
-export const isInactiveCompanyStatus = (status) =>
-    String(status ?? "").trim().toLowerCase() === "inactive";
+export const isInactiveCompanyStatus = (status) => {
+    const normalized = String(status ?? "").trim().toLowerCase();
+    return normalized === "inactive" || normalized === "0" || normalized === "disabled";
+};
 
 /** Company admin login / stored tenant profile. */
 export const getCompanyStatusFromTenantData = (tenantData) => {
@@ -54,8 +63,32 @@ export const getCompanyStatusFromLoginResponse = (data) => {
     );
 };
 
+export const extractCompanyStatusFromProfileResponse = (response) =>
+    response?.data?.data?.status
+    ?? response?.data?.status
+    ?? response?.data?.data?.company?.status
+    ?? response?.data?.company?.status
+    ?? null;
+
 export const getStoredCompanyStatus = () =>
     getCompanyStatusFromTenantData(getTenantData());
+
+const syncStoredCompanyStatus = (status) => {
+    if (status == null) return;
+
+    const tenantData = getTenantData();
+    if (!tenantData || typeof tenantData !== "object") return;
+
+    if (tenantData.data && typeof tenantData.data === "object") {
+        storeTenantData({
+            ...tenantData,
+            data: { ...tenantData.data, status },
+        });
+        return;
+    }
+
+    storeTenantData({ ...tenantData, status });
+};
 
 const resolveInactiveStatusFromPayload = (payload) => {
     if (!payload || typeof payload !== "object") return null;
@@ -66,22 +99,70 @@ const resolveInactiveStatusFromPayload = (payload) => {
         ?? payload.company_data?.data?.status
         ?? payload.company_data?.status
         ?? payload.data?.status
+        ?? payload.data?.company_status
         ?? null
     );
+};
+
+export const normalizeSocketEventPayload = (rawPayload) => {
+    let payload = rawPayload;
+
+    if (Array.isArray(payload)) {
+        payload = payload.length === 1 ? payload[0] : { data: payload };
+    }
+
+    payload = parseSocketPayload(payload);
+
+    if (!payload || typeof payload !== "object") {
+        return payload;
+    }
+
+    if (payload.data && typeof payload.data === "object") {
+        const inner = parseSocketPayload(payload.data);
+        if (inner && typeof inner === "object") {
+            const innerStatus = resolveInactiveStatusFromPayload(inner);
+            const outerStatus = resolveInactiveStatusFromPayload(payload);
+            if (innerStatus != null || inner.action || inner.reason) {
+                return inner;
+            }
+            if (outerStatus == null) {
+                return inner;
+            }
+        }
+    }
+
+    return payload;
 };
 
 export const isForcedLogoutPayload = (payload) => {
     if (!payload || typeof payload !== "object") return false;
 
+    const action = String(payload.action ?? "").trim().toLowerCase();
+    const reason = String(payload.reason ?? "").trim().toLowerCase();
+
     if (
-        payload.action === "force_logout"
-        || payload.reason === "company_inactive"
+        action === "force_logout"
+        || reason === "company_inactive"
         || payload.force_logout === true
     ) {
         return true;
     }
 
     return isInactiveCompanyStatus(resolveInactiveStatusFromPayload(payload));
+};
+
+const isImmediateLogoutSocketEvent = (eventName) => {
+    const event = String(eventName ?? "").trim().toLowerCase();
+    if (!event) return false;
+
+    if (IMMEDIATE_LOGOUT_SOCKET_EVENTS.has(event)) return true;
+
+    return (
+        event.includes("company-inactive")
+        || event.includes("company_inactive")
+        || (event.includes("forced") && event.includes("logout"))
+        || (event.includes("inactive") && event.includes("logout"))
+    );
 };
 
 export const storeForcedLogoutMessage = (message) => {
@@ -136,15 +217,18 @@ export const performForcedLogout = ({
     if (onLoginPage) {
         toast.error(displayMessage);
     } else if (redirect) {
-        window.location.href = loginPath;
+        window.location.replace(loginPath);
     }
 
     forcedLogoutInProgress = false;
 };
 
-export const handleForcedLogoutSocketEvent = (rawPayload) => {
-    const payload = parseSocketPayload(rawPayload);
-    if (!isForcedLogoutPayload(payload)) return;
+export const handleForcedLogoutFromSocketEvent = (eventName, rawPayload) => {
+    const payload = normalizeSocketEventPayload(rawPayload);
+    const immediateEvent = isImmediateLogoutSocketEvent(eventName);
+    const payloadRequestsLogout = isForcedLogoutPayload(payload);
+
+    if (!immediateEvent && !payloadRequestsLogout) return;
 
     performForcedLogout({
         message: payload?.message || DEFAULT_COMPANY_INACTIVE_MESSAGE,
@@ -154,17 +238,49 @@ export const handleForcedLogoutSocketEvent = (rawPayload) => {
 export const registerForcedLogoutSocketListeners = (socket) => {
     if (!socket) return () => {};
 
-    const handlers = COMPANY_INACTIVE_SOCKET_EVENTS.map((event) => {
-        const handler = (payload) => handleForcedLogoutSocketEvent(payload);
-        socket.on(event, handler);
-        return { event, handler };
-    });
+    const onAnyHandler = (event, ...args) => {
+        handleForcedLogoutFromSocketEvent(event, args[0]);
+    };
+
+    socket.onAny(onAnyHandler);
 
     return () => {
-        handlers.forEach(({ event, handler }) => {
-            socket.off(event, handler);
-        });
+        socket.offAny(onAnyHandler);
     };
+};
+
+export const checkCompanyStatusFromApi = async () => {
+    if (!canAccessTenantApi()) return true;
+
+    try {
+        const response = await apiGetCompanyProfile();
+        const status = extractCompanyStatusFromProfileResponse(response);
+        syncStoredCompanyStatus(status);
+
+        if (isInactiveCompanyStatus(status)) {
+            performForcedLogout({
+                message: DEFAULT_COMPANY_INACTIVE_MESSAGE,
+            });
+            return false;
+        }
+
+        return true;
+    } catch (error) {
+        const responseMessage = String(error?.response?.data?.message ?? "");
+        const responseStatus = error?.response?.status;
+
+        if (
+            responseStatus === 403
+            && /inactive|disabled|deactivat/i.test(responseMessage)
+        ) {
+            performForcedLogout({
+                message: responseMessage || DEFAULT_COMPANY_INACTIVE_MESSAGE,
+            });
+            return false;
+        }
+
+        return true;
+    }
 };
 
 export const ensureActiveCompanySession = () => {
