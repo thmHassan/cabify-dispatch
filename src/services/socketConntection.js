@@ -2,53 +2,24 @@ import { io } from "socket.io-client";
 import { resolveSocketIoOrigin } from "../utils/functions/backendUrls";
 import { getDecryptedToken, getTenantId } from "../utils/functions/tokenEncryption";
 import { getDispatcherId } from "../utils/auth";
-import {
-    DEFAULT_COMPANY_INACTIVE_MESSAGE,
-    normalizeSocketEventPayload,
-    performForcedLogout,
-} from "../utils/auth/forcedLogout";
+import { handleCompanyInactiveSocketEvent } from "../utils/auth/forcedLogout";
 
 let socket = null;
 let unregisterCompanyInactiveListeners = null;
-
-const handleCompanyInactiveLogout = (rawPayload) => {
-    const payload = normalizeSocketEventPayload(rawPayload);
-    console.log("[Socket] company-inactive-logout", payload);
-    performForcedLogout({
-        message: payload?.message || DEFAULT_COMPANY_INACTIVE_MESSAGE,
-    });
-};
-
-const handleDispatcherForcedLogout = (rawPayload) => {
-    const payload = normalizeSocketEventPayload(rawPayload);
-    console.log("[Socket] dispatcher-forced-logout", payload);
-
-    const reason = String(payload?.reason ?? "").toLowerCase();
-    if (
-        reason === "company_inactive"
-        || payload?.action === "force_logout"
-        || payload?.type === "force_logout"
-        || payload?.token_revoked === true
-    ) {
-        performForcedLogout({
-            message: payload?.message || DEFAULT_COMPANY_INACTIVE_MESSAGE,
-        });
-    }
-};
 
 const attachCompanyInactiveListeners = (socketInstance) => {
     if (!socketInstance) return;
 
     unregisterCompanyInactiveListeners?.();
-    socketInstance.off("company-inactive-logout", handleCompanyInactiveLogout);
-    socketInstance.off("dispatcher-forced-logout", handleDispatcherForcedLogout);
+    socketInstance.off("company-inactive-logout", handleCompanyInactiveSocketEvent);
+    socketInstance.off("dispatcher-forced-logout", handleCompanyInactiveSocketEvent);
 
-    socketInstance.on("company-inactive-logout", handleCompanyInactiveLogout);
-    socketInstance.on("dispatcher-forced-logout", handleDispatcherForcedLogout);
+    socketInstance.on("company-inactive-logout", handleCompanyInactiveSocketEvent);
+    socketInstance.on("dispatcher-forced-logout", handleCompanyInactiveSocketEvent);
 
     unregisterCompanyInactiveListeners = () => {
-        socketInstance.off("company-inactive-logout", handleCompanyInactiveLogout);
-        socketInstance.off("dispatcher-forced-logout", handleDispatcherForcedLogout);
+        socketInstance.off("company-inactive-logout", handleCompanyInactiveSocketEvent);
+        socketInstance.off("dispatcher-forced-logout", handleCompanyInactiveSocketEvent);
     };
 };
 
@@ -61,16 +32,27 @@ export const disconnectSocket = () => {
     socket = null;
 };
 
+const buildSocketQuery = (tenantId) => {
+    const dispatcherId = getDispatcherId();
+
+    // Dispatch app: role=dispatcher + dispatcher_id (company admin would use role=client + client_id)
+    return {
+        role: "dispatcher",
+        dispatcher_id: String(dispatcherId),
+        database: tenantId,
+    };
+};
+
 const initSocket = () => {
     const tenantId = getTenantId();
     const token = getDecryptedToken();
     const dispatcherId = getDispatcherId();
 
     if (!tenantId || !token || !dispatcherId) {
-        console.warn("Socket not connected: missing tenant, token, or dispatcher id", {
-            tenantId,
+        console.warn("[Socket] Not connecting — missing database, token, or dispatcher_id", {
+            database: tenantId,
             hasToken: Boolean(token),
-            dispatcherId,
+            dispatcher_id: dispatcherId,
         });
         disconnectSocket();
         return null;
@@ -96,6 +78,17 @@ const initSocket = () => {
 
     const socketBaseUrl = resolveSocketIoOrigin();
     const bearerToken = `Bearer ${token}`;
+    const query = {
+        ...buildSocketQuery(tenantId),
+        token,
+    };
+
+    console.log("[Socket] Connecting", {
+        url: socketBaseUrl,
+        database: tenantId,
+        role: query.role,
+        dispatcher_id: query.dispatcher_id,
+    });
 
     socket = io(socketBaseUrl, {
         path: "/socket.io",
@@ -107,31 +100,28 @@ const initSocket = () => {
             authorization: bearerToken,
             token,
         },
-        query: {
-            role: "dispatcher",
-            dispatcher_id: String(dispatcherId),
-            database: tenantId,
-            token,
-        },
+        query,
         extraHeaders: {
             Authorization: bearerToken,
         },
     });
 
     socket.on("connect", () => {
-        console.log("Socket connected:", socket.id, {
+        console.log("[Socket] Connected", {
+            id: socket.id,
             database: tenantId,
+            role: "dispatcher",
             dispatcher_id: dispatcherId,
         });
         attachCompanyInactiveListeners(socket);
     });
 
     socket.on("disconnect", (reason) => {
-        console.log("Socket disconnected:", reason);
+        console.log("[Socket] Disconnected:", reason);
     });
 
     socket.on("connect_error", (error) => {
-        console.error("Socket connection error:", error.message);
+        console.error("[Socket] Connection error:", error.message);
     });
 
     socket.onAny((event, ...args) => {
