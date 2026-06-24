@@ -50,6 +50,7 @@ const MapNearbySearchControls = ({
     compact = false,
     disabled = false,
     loading = false,
+    showNearbyToggle = true,
 }) => {
     const selectedCountry = resolveCountryOption(boundaryCountry);
     const countryOptions = selectedCountry
@@ -64,29 +65,31 @@ const MapNearbySearchControls = ({
                     className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-[#D1D5DB] border-t-[#1F41BB]"
                     aria-hidden
                 />
-                <span className="text-xs text-[#6B7280]">Loading nearby search preferences...</span>
+                <span className="text-xs text-[#6B7280]">
+                    {showNearbyToggle ? "Loading nearby search preferences..." : "Loading search preferences..."}
+                </span>
             </div>
         );
     }
 
+    const showCountrySelect = showNearbyToggle ? !nearbySearch : true;
+
     return (
         <div className={`flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center ${className}`}>
-            <label className="flex items-center gap-2 text-xs text-[#374151] select-none">
-                <input
-                    type="checkbox"
-                    checked={nearbySearch}
-                    disabled={disabled}
-                    onChange={(event) => onNearbySearchChange?.(event)}
-                    className="rounded border-[#D1D5DB] disabled:opacity-50"
-                />
-                <span className="font-medium">Nearby search</span>
-            </label>
+            {showNearbyToggle ? (
+                <label className="flex items-center gap-2 text-xs text-[#374151] select-none">
+                    <input
+                        type="checkbox"
+                        checked={nearbySearch}
+                        disabled={disabled}
+                        onChange={(event) => onNearbySearchChange?.(event)}
+                        className="rounded border-[#D1D5DB] disabled:opacity-50"
+                    />
+                    <span className="font-medium">Nearby search</span>
+                </label>
+            ) : null}
 
-            {nearbySearch ? (
-                <span className="text-xs text-[#6B7280]">
-                      
-                </span>
-            ) : (
+            {showCountrySelect ? (
                 <div className={`flex items-center gap-2 ${compact ? "w-full sm:w-auto" : "w-full sm:min-w-[220px]"}`}>
                     <label className="text-xs font-semibold uppercase tracking-wide text-[#6B7280] whitespace-nowrap">
                         Country
@@ -105,7 +108,7 @@ const MapNearbySearchControls = ({
                         ))}
                     </select>
                 </div>
-            )}
+            ) : null}
         </div>
     );
 };

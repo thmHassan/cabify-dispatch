@@ -624,73 +624,6 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
         }
     }, [searchApi, apiKeys]);
 
-    useEffect(() => {
-        const storedData = localStorage.getItem('copiedBookingData');
-        if (!storedData) return undefined;
-
-        let cancelled = false;
-
-        const loadCopiedBooking = async () => {
-            try {
-                await ensureMapConfigurationLoaded(fetchMapConfiguration);
-                const parsedData = JSON.parse(storedData);
-                const resolvedFormValues = await resolveFormLocationLabels({
-                    ...parsedData,
-                    request_for_vehicle: Boolean(
-                        parsedData.request_for_vehicle ?? parsedData.vehicle
-                    ),
-                });
-
-                if (cancelled) return;
-
-                setInitialFormValues(resolvedFormValues);
-
-                if (resolvedFormValues.pickup_latitude && resolvedFormValues.pickup_longitude) {
-                    const c = {
-                        lat: parseFloat(resolvedFormValues.pickup_latitude),
-                        lng: parseFloat(resolvedFormValues.pickup_longitude),
-                    };
-                    setStablePickupCoords(c);
-                    fetchPlotName(resolvedFormValues.pickup_latitude, resolvedFormValues.pickup_longitude).then(setPickupPlotData);
-                }
-                if (resolvedFormValues.destination_latitude && resolvedFormValues.destination_longitude) {
-                    const c = {
-                        lat: parseFloat(resolvedFormValues.destination_latitude),
-                        lng: parseFloat(resolvedFormValues.destination_longitude),
-                    };
-                    setStableDestinationCoords(c);
-                    fetchPlotName(resolvedFormValues.destination_latitude, resolvedFormValues.destination_longitude).then(setDestinationPlotData);
-                }
-                if (resolvedFormValues.via_latitude?.length > 0) {
-                    const viaC = [];
-                    const limitedViaLat = resolvedFormValues.via_latitude.slice(0, 2);
-                    limitedViaLat.forEach((lat, i) => {
-                        const lng = resolvedFormValues.via_longitude[i];
-                        if (lat && lng) {
-                            viaC[i] = { lat: parseFloat(lat), lng: parseFloat(lng) };
-                            fetchPlotName(lat, lng).then(pd => setViaPlotData(prev => ({ ...prev, [i]: pd })));
-                        }
-                    });
-                    setStableViaCoords(viaC);
-                }
-
-                if (resolvedFormValues.via_points) resolvedFormValues.via_points = resolvedFormValues.via_points.slice(0, 2);
-                if (resolvedFormValues.via_plot_id) resolvedFormValues.via_plot_id = resolvedFormValues.via_plot_id.slice(0, 2);
-
-                localStorage.removeItem('copiedBookingData');
-            } catch {
-                localStorage.removeItem('copiedBookingData');
-                toast.error("Failed to load booking data");
-            }
-        };
-
-        loadCopiedBooking();
-
-        return () => {
-            cancelled = true;
-        };
-    }, []);
-
     const populateFormFromBooking = useCallback(async (booking) => {
         if (!booking?.id) return;
 
@@ -849,36 +782,8 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
         return request;
     }, [resolveNearbyBoundaryCountry]);
 
-    const resolveMapifySearchContext = useCallback(async (signal) => {
+    const resolveMapifySearchContext = useCallback(async () => {
         const prefs = mapSearchPreferencesRef.current;
-        const nearbySearch = Boolean(prefs.nearbySearch);
-
-        if (nearbySearch) {
-            let geoCoords = userGeoCoordsRef.current;
-            if (!geoCoords) {
-                geoCoords = await fetchUserGeolocation();
-            }
-            if (geoCoords?.lat == null || geoCoords?.lon == null) {
-                return {
-                    error: "Unable to access your location for nearby search.",
-                };
-            }
-
-            const boundaryCountry = await resolveNearbyBoundaryCountry(geoCoords, signal);
-            userGeoCoordsRef.current = {
-                ...geoCoords,
-                boundaryCountry,
-            };
-            setNearbyBoundaryCountry(boundaryCountry || null);
-
-            return {
-                nearbySearch: true,
-                boundaryCountry: null,
-                lat: geoCoords.lat,
-                lon: geoCoords.lon,
-            };
-        }
-
         const bias = getLocationBiasOrigin();
         return {
             nearbySearch: false,
@@ -886,7 +791,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
             lat: bias.lat,
             lon: bias.lon,
         };
-    }, [fetchUserGeolocation, resolveNearbyBoundaryCountry, stablePickupCoords, stableDestinationCoords, stableViaCoords, countryCode, tenantCountryIso]);
+    }, [stablePickupCoords, stableDestinationCoords, stableViaCoords, countryCode, tenantCountryIso]);
 
     const disableNearbySearch = useCallback(async () => {
         userGeoCoordsRef.current = null;
@@ -1545,6 +1450,73 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
 
         return next;
     };
+
+    useEffect(() => {
+        if (!isModalOpen || editBooking?.id) return undefined;
+
+        const storedData = localStorage.getItem("copiedBookingData");
+        if (!storedData) return undefined;
+
+        let cancelled = false;
+
+        const loadCopiedBooking = async () => {
+            try {
+                await ensureMapConfigurationLoaded(fetchMapConfiguration);
+                const parsedData = JSON.parse(storedData);
+                const resolvedFormValues = await resolveFormLocationLabels({
+                    ...parsedData,
+                    request_for_vehicle: Boolean(
+                        parsedData.request_for_vehicle ?? parsedData.vehicle
+                    ),
+                });
+
+                if (cancelled) return;
+
+                setInitialFormValues(resolvedFormValues);
+                setNewBookingFormKey((key) => key + 1);
+
+                if (resolvedFormValues.pickup_latitude && resolvedFormValues.pickup_longitude) {
+                    const c = {
+                        lat: parseFloat(resolvedFormValues.pickup_latitude),
+                        lng: parseFloat(resolvedFormValues.pickup_longitude),
+                    };
+                    setStablePickupCoords(c);
+                    fetchPlotName(resolvedFormValues.pickup_latitude, resolvedFormValues.pickup_longitude).then(setPickupPlotData);
+                }
+                if (resolvedFormValues.destination_latitude && resolvedFormValues.destination_longitude) {
+                    const c = {
+                        lat: parseFloat(resolvedFormValues.destination_latitude),
+                        lng: parseFloat(resolvedFormValues.destination_longitude),
+                    };
+                    setStableDestinationCoords(c);
+                    fetchPlotName(resolvedFormValues.destination_latitude, resolvedFormValues.destination_longitude).then(setDestinationPlotData);
+                }
+                if (resolvedFormValues.via_latitude?.length > 0) {
+                    const viaC = [];
+                    const limitedViaLat = resolvedFormValues.via_latitude.slice(0, 2);
+                    limitedViaLat.forEach((lat, i) => {
+                        const lng = resolvedFormValues.via_longitude[i];
+                        if (lat && lng) {
+                            viaC[i] = { lat: parseFloat(lat), lng: parseFloat(lng) };
+                            fetchPlotName(lat, lng).then((pd) => setViaPlotData((prev) => ({ ...prev, [i]: pd })));
+                        }
+                    });
+                    setStableViaCoords(viaC);
+                }
+
+                localStorage.removeItem("copiedBookingData");
+            } catch {
+                localStorage.removeItem("copiedBookingData");
+                toast.error("Failed to load booking data");
+            }
+        };
+
+        loadCopiedBooking();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [isModalOpen, editBooking?.id]);
 
     const appendAccountFields = (formData, accountId) => {
         const value = accountId ? String(accountId) : "";
@@ -2659,6 +2631,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
                                                             loading={mapSearchPreferencesLoading}
                                                             disabled={mapSearchPreferencesLoading}
                                                             compact
+                                                            showNearbyToggle={false}
                                                         />
                                                     </div>
                                                 )}
