@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import initSocket, { disconnectSocket } from "../../services/socketConntection";
 import { getTenantId } from "../../utils/functions/tokenEncryption";
+import { getDispatcherId } from "../../utils/auth";
 import { useAppSelector } from "../../store";
 
 const SocketContext = createContext(null);
@@ -10,9 +11,10 @@ export const SocketProvider = ({ children }) => {
   const [isConnected, setIsConnected] = useState(false);
   const signedIn = useAppSelector((state) => state.auth.session.signedIn);
   const tenantId = getTenantId();
+  const dispatcherId = getDispatcherId();
 
   useEffect(() => {
-    if (!signedIn || !tenantId) {
+    if (!signedIn || !tenantId || !dispatcherId) {
       disconnectSocket();
       setSocket(null);
       setIsConnected(false);
@@ -47,7 +49,7 @@ export const SocketProvider = ({ children }) => {
       socketInstance.off("connect", handleConnect);
       socketInstance.off("disconnect", handleDisconnect);
     };
-  }, [signedIn, tenantId]);
+  }, [signedIn, tenantId, dispatcherId]);
 
   return (
     <SocketContext.Provider value={{ socket, isConnected }}>

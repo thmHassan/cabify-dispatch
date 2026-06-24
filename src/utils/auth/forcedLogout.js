@@ -18,13 +18,7 @@ import { parseSocketPayload } from "../notifications/buildNotificationFromSocket
 
 export const FORCED_LOGOUT_MESSAGE_KEY = "forced_logout_message";
 
-export const COMPANY_STATUS_POLL_MS = 30000;
-
-const IMMEDIATE_LOGOUT_SOCKET_EVENTS = new Set([
-    "company-inactive-logout",
-    "dispatcher-forced-logout",
-    "company_inactive_logout",
-]);
+export const COMPANY_STATUS_POLL_MS = 10000;
 
 export const DEFAULT_COMPANY_INACTIVE_MESSAGE =
     "Your company has been deactivated. You have been logged out.";
@@ -151,20 +145,6 @@ export const isForcedLogoutPayload = (payload) => {
     return isInactiveCompanyStatus(resolveInactiveStatusFromPayload(payload));
 };
 
-const isImmediateLogoutSocketEvent = (eventName) => {
-    const event = String(eventName ?? "").trim().toLowerCase();
-    if (!event) return false;
-
-    if (IMMEDIATE_LOGOUT_SOCKET_EVENTS.has(event)) return true;
-
-    return (
-        event.includes("company-inactive")
-        || event.includes("company_inactive")
-        || (event.includes("forced") && event.includes("logout"))
-        || (event.includes("inactive") && event.includes("logout"))
-    );
-};
-
 export const storeForcedLogoutMessage = (message) => {
     try {
         sessionStorage.setItem(FORCED_LOGOUT_MESSAGE_KEY, message);
@@ -224,30 +204,49 @@ export const performForcedLogout = ({
 };
 
 export const handleForcedLogoutFromSocketEvent = (eventName, rawPayload) => {
+    const event = String(eventName ?? "").toLowerCase();
+
+    if (event === "company-inactive-logout") {
+        handleCompanyInactiveLogout(rawPayload);
+        return;
+    }
+
+    if (event === "dispatcher-forced-logout") {
+        handleDispatcherForcedLogout(rawPayload);
+        return;
+    }
+
     const payload = normalizeSocketEventPayload(rawPayload);
-    const immediateEvent = isImmediateLogoutSocketEvent(eventName);
-    const payloadRequestsLogout = isForcedLogoutPayload(payload);
+    if (isForcedLogoutPayload(payload)) {
+        performForcedLogout({
+            message: payload?.message || DEFAULT_COMPANY_INACTIVE_MESSAGE,
+        });
+    }
+};
 
-    if (!immediateEvent && !payloadRequestsLogout) return;
-
+const handleCompanyInactiveLogout = (rawPayload) => {
+    const payload = normalizeSocketEventPayload(rawPayload);
     performForcedLogout({
         message: payload?.message || DEFAULT_COMPANY_INACTIVE_MESSAGE,
     });
 };
 
-export const registerForcedLogoutSocketListeners = (socket) => {
-    if (!socket) return () => {};
+const handleDispatcherForcedLogout = (rawPayload) => {
+    const payload = normalizeSocketEventPayload(rawPayload);
+    const reason = String(payload?.reason ?? "").toLowerCase();
 
-    const onAnyHandler = (event, ...args) => {
-        handleForcedLogoutFromSocketEvent(event, args[0]);
-    };
-
-    socket.onAny(onAnyHandler);
-
-    return () => {
-        socket.offAny(onAnyHandler);
-    };
+    if (
+        reason === "company_inactive"
+        || payload?.action === "force_logout"
+        || payload?.type === "force_logout"
+    ) {
+        performForcedLogout({
+            message: payload?.message || DEFAULT_COMPANY_INACTIVE_MESSAGE,
+        });
+    }
 };
+
+export const registerForcedLogoutSocketListeners = () => () => {};
 
 export const checkCompanyStatusFromApi = async () => {
     if (!canAccessTenantApi()) return true;

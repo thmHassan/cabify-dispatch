@@ -2,15 +2,60 @@ import { io } from "socket.io-client";
 import { resolveSocketIoOrigin } from "../utils/functions/backendUrls";
 import { getDecryptedToken, getTenantId } from "../utils/functions/tokenEncryption";
 import { getDispatcherId } from "../utils/auth";
-import { registerForcedLogoutSocketListeners } from "../utils/auth/forcedLogout";
+import {
+    DEFAULT_COMPANY_INACTIVE_MESSAGE,
+    normalizeSocketEventPayload,
+    performForcedLogout,
+} from "../utils/auth/forcedLogout";
 
 let socket = null;
-let unregisterForcedLogoutListeners = null;
+let unregisterCompanyInactiveListeners = null;
+
+const handleCompanyInactiveLogout = (rawPayload) => {
+    const payload = normalizeSocketEventPayload(rawPayload);
+    console.log("[Socket] company-inactive-logout", payload);
+    performForcedLogout({
+        message: payload?.message || DEFAULT_COMPANY_INACTIVE_MESSAGE,
+    });
+};
+
+const handleDispatcherForcedLogout = (rawPayload) => {
+    const payload = normalizeSocketEventPayload(rawPayload);
+    console.log("[Socket] dispatcher-forced-logout", payload);
+
+    const reason = String(payload?.reason ?? "").toLowerCase();
+    if (
+        reason === "company_inactive"
+        || payload?.action === "force_logout"
+        || payload?.type === "force_logout"
+        || payload?.token_revoked === true
+    ) {
+        performForcedLogout({
+            message: payload?.message || DEFAULT_COMPANY_INACTIVE_MESSAGE,
+        });
+    }
+};
+
+const attachCompanyInactiveListeners = (socketInstance) => {
+    if (!socketInstance) return;
+
+    unregisterCompanyInactiveListeners?.();
+    socketInstance.off("company-inactive-logout", handleCompanyInactiveLogout);
+    socketInstance.off("dispatcher-forced-logout", handleDispatcherForcedLogout);
+
+    socketInstance.on("company-inactive-logout", handleCompanyInactiveLogout);
+    socketInstance.on("dispatcher-forced-logout", handleDispatcherForcedLogout);
+
+    unregisterCompanyInactiveListeners = () => {
+        socketInstance.off("company-inactive-logout", handleCompanyInactiveLogout);
+        socketInstance.off("dispatcher-forced-logout", handleDispatcherForcedLogout);
+    };
+};
 
 export const disconnectSocket = () => {
     if (!socket) return;
-    unregisterForcedLogoutListeners?.();
-    unregisterForcedLogoutListeners = null;
+    unregisterCompanyInactiveListeners?.();
+    unregisterCompanyInactiveListeners = null;
     socket.removeAllListeners();
     socket.disconnect();
     socket = null;
@@ -19,25 +64,38 @@ export const disconnectSocket = () => {
 const initSocket = () => {
     const tenantId = getTenantId();
     const token = getDecryptedToken();
-    const dispatcher_id = getDispatcherId()
+    const dispatcherId = getDispatcherId();
 
-    console.log("Socket database:", tenantId);
-    console.log("Socket dispatcher_id:", dispatcher_id);
-
-    if (!tenantId) {
-        console.warn("❌Tenant ID not found, socket not connected");
+    if (!tenantId || !token || !dispatcherId) {
+        console.warn("Socket not connected: missing tenant, token, or dispatcher id", {
+            tenantId,
+            hasToken: Boolean(token),
+            dispatcherId,
+        });
         disconnectSocket();
         return null;
     }
 
     const connectedTenantId = socket?.io?.opts?.query?.database;
-    if (socket && connectedTenantId && connectedTenantId !== tenantId) {
+    const connectedDispatcherId = socket?.io?.opts?.query?.dispatcher_id;
+
+    if (
+        socket
+        && (
+            (connectedTenantId && connectedTenantId !== tenantId)
+            || (connectedDispatcherId && String(connectedDispatcherId) !== String(dispatcherId))
+        )
+    ) {
         disconnectSocket();
     }
 
-    if (socket) return socket;
+    if (socket) {
+        attachCompanyInactiveListeners(socket);
+        return socket;
+    }
 
     const socketBaseUrl = resolveSocketIoOrigin();
+    const bearerToken = `Bearer ${token}`;
 
     socket = io(socketBaseUrl, {
         path: "/socket.io",
@@ -46,28 +104,26 @@ const initSocket = () => {
         reconnectionAttempts: Infinity,
         reconnectionDelay: 2000,
         auth: {
-            token: token ? `Bearer ${token}` : "",
+            authorization: bearerToken,
+            token,
         },
         query: {
             role: "dispatcher",
-            dispatcher_id: dispatcher_id ?? "",
+            dispatcher_id: String(dispatcherId),
             database: tenantId,
-            ...(token ? { token } : {}),
+            token,
         },
         extraHeaders: {
-            Authorization: `Bearer ${token}`,
+            Authorization: bearerToken,
         },
     });
 
-
-    const attachForcedLogoutListeners = () => {
-        unregisterForcedLogoutListeners?.();
-        unregisterForcedLogoutListeners = registerForcedLogoutSocketListeners(socket);
-    };
-
     socket.on("connect", () => {
-        console.log("Socket connected:", socket.id);
-        attachForcedLogoutListeners();
+        console.log("Socket connected:", socket.id, {
+            database: tenantId,
+            dispatcher_id: dispatcherId,
+        });
+        attachCompanyInactiveListeners(socket);
     });
 
     socket.on("disconnect", (reason) => {
@@ -75,70 +131,16 @@ const initSocket = () => {
     });
 
     socket.on("connect_error", (error) => {
-        console.error("⚠️ Socket connection error:", error.message);
+        console.error("Socket connection error:", error.message);
     });
-
-    attachForcedLogoutListeners();
 
     socket.onAny((event, ...args) => {
-        console.log(`🌐 [Socket Global Logger] Event: ${event}`, args);
+        console.log(`[Socket] ${event}`, args);
     });
+
+    attachCompanyInactiveListeners(socket);
 
     return socket;
 };
 
 export default initSocket;
-
-// import { io } from "socket.io-client";
-// import { getDecryptedToken, getTenantId } from "../utils/functions/tokenEncryption";
-
-// let socket = null;
-
-// const initSocket = () => {
-//     if (socket) return socket;
-
-//     const tenantId = getTenantId();
-//     // const companyId = getCompanyId()
-//     const token = getDecryptedToken();
-
-//     console.log("tenantId:", tenantId);
-//     console.log("companyId:", tenantId);
-//     console.log("token===", token);
-
-//     if (!tenantId) {
-//         console.warn("❌Tenant ID not found, socket not connected");
-//         return null;
-//     }
-
-//     socket = io("https://backend.cabifyit.com", {
-//         path: "/socket.io",
-//         transports: ["polling", "websocket"],
-//         reconnection: true,
-//         reconnectionAttempts: 5,
-//         reconnectionDelay: 2000,
-//         query: {
-//             role: "client",
-//             client_id: tenantId,
-//             database: tenantId,
-//         },
-//         extraHeaders: {
-//             Authorization: `Bearer ${token}`
-//         }
-//     });
-
-//     socket.on("connect", () => {
-//         console.log("Socket connected:", socket.id);
-//     });
-
-//     socket.on("disconnect", (reason) => {
-//         console.log("Socket disconnected:", reason);
-//     });
-
-//     socket.on("connect_error", (error) => {
-//         console.error("⚠️ Socket connection error:", error.message);
-//     });
-
-//     return socket;
-// };
-
-// export default initSocket;
