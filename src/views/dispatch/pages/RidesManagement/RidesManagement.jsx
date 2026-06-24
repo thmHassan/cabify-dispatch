@@ -14,8 +14,8 @@ import AppLogoLoader from '../../../../components/shared/AppLogoLoader/AppLogoLo
 import toast from 'react-hot-toast';
 import { lockBodyScroll, unlockBodyScroll } from '../../../../utils/functions/common.function';
 import Modal from '../../../../components/shared/Modal/Modal';
-import { apiGetCompanyApiKeys } from '../../../../services/SettingsConfigurationServices';
-import { getTenantDistanceUnit, resolveDistanceUnitFromApi, setCachedDistanceUnit } from '../../../../utils/functions/tenantSettings';
+import { useCompanyDateTime } from '../../../../contexts/CompanyDateTimeContext';
+import { getTenantDistanceUnit } from '../../../../utils/functions/tenantSettings';
 
 const RidesManagement = () => {
   const [activeTab, setActiveTab] = useState("all");
@@ -45,20 +45,8 @@ const RidesManagement = () => {
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [rideToDelete, setRideToDelete] = useState(null);
-  const [distanceUnit, setDistanceUnit] = useState(getTenantDistanceUnit);
-
-  useEffect(() => {
-    const fetchApiKeys = async () => {
-      const res = await apiGetCompanyApiKeys();
-
-      if (res.data?.success) {
-        setCachedDistanceUnit(res.data.data.units);
-        setDistanceUnit(resolveDistanceUnitFromApi(res.data.data.units));
-      }
-    };
-
-    fetchApiKeys();
-  }, []);
+  const { units: distanceUnit } = useCompanyDateTime();
+  const resolvedDistanceUnit = distanceUnit || getTenantDistanceUnit();
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -234,7 +222,7 @@ const RidesManagement = () => {
                   <RidesManagementCard
                     key={ride.id}
                     ride={ride}
-                    distanceUnit={distanceUnit}
+                    distanceUnit={resolvedDistanceUnit}
                     onDelete={openDeleteModal}
                   />
                 ))}

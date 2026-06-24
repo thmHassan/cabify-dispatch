@@ -1,8 +1,16 @@
 import { getTenantData } from "./tokenEncryption";
 import { getTenantCountryIso } from "./tenantSettings";
-import { parseBookingDate, formatDateForInput } from "./bookingDateFilter";
+import { parseBookingDate } from "./bookingDateFilter";
+import {
+    formatCompanyBookingCalendarDate,
+    formatCompanyDateText,
+    formatCompanyDateTime,
+    formatDateForInputInCompanyTimezone,
+    getCompanyNow,
+    getCompanyTimestampIso,
+} from "./appDateTime";
 
-export { formatDateForInput };
+export { formatDateForInputInCompanyTimezone as formatDateForInput };
 
 const CURRENCY_SYMBOLS = {
     INR: "₹",
@@ -13,6 +21,12 @@ const CURRENCY_SYMBOLS = {
     CAD: "C$",
     AED: "د.إ",
     BDT: "৳",
+    PKR: "Rs",
+    SAR: "﷼",
+    QAR: "QR",
+    KWD: "KD",
+    OMR: "OMR",
+    BHD: "BD",
 };
 
 const COUNTRY_CURRENCY_MAP = {
@@ -50,6 +64,10 @@ export const setCachedTenantCurrency = (currency) => {
     if (currency) {
         cachedCurrencyCode = String(currency).trim().toUpperCase();
     }
+};
+
+export const clearCachedTenantCurrency = () => {
+    cachedCurrencyCode = null;
 };
 
 export const getTenantCurrencyCode = () => {
@@ -116,45 +134,12 @@ export const formatCurrency = (amount, options = {}) => {
     }
 };
 
-export const formatBookingDate = (value, fallback = "—") => {
-    const date = parseBookingDate(value);
-    if (!date) return fallback;
-    return date.toLocaleDateString(getTenantLocale(), {
-        day: "2-digit",
-        month: "2-digit",
-        year: "numeric",
-    });
-};
+export const formatBookingDate = (value, fallback = "—") =>
+    formatCompanyBookingCalendarDate(value, fallback);
 
-export const formatDate = (value, fallback = "-") => {
-    if (!value) return fallback;
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return fallback;
-    return date
-        .toLocaleString(getTenantLocale(), {
-            weekday: "short",
-            day: "2-digit",
-            month: "short",
-            year: "numeric",
-        })
-        .replace(",", "");
-};
+export const formatDate = (value, fallback = "-") => formatCompanyDateText(value, fallback);
 
-export const formatDateTime = (value, fallback = "-") => {
-    if (!value) return fallback;
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return fallback;
-    return date
-        .toLocaleString(getTenantLocale(), {
-            weekday: "short",
-            day: "2-digit",
-            month: "short",
-            year: "numeric",
-            hour: "2-digit",
-            minute: "2-digit",
-        })
-        .replace(",", "");
-};
+export const formatDateTime = (value, fallback = "-") => formatCompanyDateTime(value, fallback);
 
 export const formatTime = (value, fallback = "—") => {
     if (!value) return fallback;
@@ -205,7 +190,7 @@ export const formatRelativeTime = (timestamp) => {
     const date = new Date(timestamp);
     if (Number.isNaN(date.getTime())) return "";
 
-    const now = new Date();
+    const now = getCompanyNow();
     const diffMs = now - date;
     const diffMins = Math.floor(diffMs / 60000);
 
@@ -220,4 +205,6 @@ export const formatRelativeTime = (timestamp) => {
 };
 
 export const toBookingDateInputValue = (value) =>
-    formatDateForInput(parseBookingDate(value));
+    formatDateForInputInCompanyTimezone(parseBookingDate(value));
+
+export { getCompanyTimestampIso };

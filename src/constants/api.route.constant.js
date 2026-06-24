@@ -59,6 +59,8 @@ export const CHANGE_STATUS_LOST_FOUND = "/company/change-status-lost-found"
 export const SEND_NOTIFICATION = "/company/send-notification"
 
 export const GATE_DISPATCH_SYSTEM = "/company/get-dispatch-system"
+export const GET_COMPANY_PROFILE = "/company/get-company-profile"
+export const SUPER_ADMIN_EDIT_COMPANY = "/super-admin/edit-company"
 export const GET_COMPANY_API_KEYS = "/company/get-api-keys"
 export const GET_THIRD_PARTY_INFORMATION = "/company/third-party-information"
 export const GET_MAP_INFORMATION = "/company/map-information"

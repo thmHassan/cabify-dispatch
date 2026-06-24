@@ -9,7 +9,6 @@ import {
     kmValueToDisplayDistance,
     metersToDisplayDistance,
     resolveBookingDistanceMeters,
-    setCachedDistanceUnit,
 } from "../../../../../../utils/functions/tenantSettings";
 import { apiGetSubCompany } from "../../../../../../services/SubCompanyServices";
 import { apiGetAccount } from "../../../../../../services/AccountServices";
@@ -63,6 +62,11 @@ import {
     resolveMultiBookingSubmitDate,
     syncMultiBookingReferenceDate,
 } from "../../../../../../utils/functions/bookingDateFilter";
+import {
+    formatCompanyTimeForApi,
+    getCompanyTodayForInput,
+    isCompanyFutureDateTime,
+} from "../../../../../../utils/functions/appDateTime";
 import { mapBookingToFormValues } from "../../../../../../utils/functions/bookingFormMapper";
 import {
     dispatchSystemListHasPlotBased,
@@ -495,10 +499,6 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
         if (apiKeys.countryOfUse) {
             setCountryCode(apiKeys.countryOfUse.toLowerCase());
             setCompanyCountryOfUse(apiKeys.countryOfUse.toUpperCase());
-        }
-        const units = getCachedMapConfiguration()?.companyKeys?.units;
-        if (units) {
-            setCachedDistanceUnit(units);
         }
     }, [apiKeys.searchApi, apiKeys.countryOfUse, mapsApi]);
 
@@ -1737,13 +1737,12 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
             }
             formData.append('pickup_time_type', values.pickup_time_type === "time" ? "time" : "asap");
             if (values.pickup_time_type === "asap") {
-                const now = new Date();
-                formData.append('pickup_time', `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:00`);
+                formData.append("pickup_time", formatCompanyTimeForApi());
             } else {
-                const tv = values.pickup_time || '';
-                formData.append('pickup_time', tv ? `${tv}:00` : '');
+                const tv = values.pickup_time || "";
+                formData.append("pickup_time", tv ? `${tv}:00` : "");
                 if (values.reminder_minutes) {
-                    formData.append('reminder_minutes', String(values.reminder_minutes));
+                    formData.append("reminder_minutes", String(values.reminder_minutes));
                 }
             }
             const bookingDate = isMultiBooking
@@ -1985,8 +1984,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
             formData.append("pickup_time_type", values.pickup_time_type === "time" ? "time" : "asap");
 
             if (values.pickup_time_type === "asap") {
-                const now = new Date();
-                formData.append("pickup_time", `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}:00`);
+                formData.append("pickup_time", formatCompanyTimeForApi());
             } else {
                 const tv = values.pickup_time || "";
                 formData.append("pickup_time", tv ? `${tv}:00` : "");
@@ -2143,22 +2141,8 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
 
     const shouldDisableDispatchOptions = (values) => {
         if (isMultiBooking) return true;
-        const now = new Date();
-        let year, month, day;
-        if (values.booking_date?.includes("-")) {
-            const p = values.booking_date.split("-");
-            if (p[0].length === 4) { year = p[0]; month = p[1]; day = p[2]; }
-            else { day = p[0]; month = p[1]; year = p[2]; }
-        } else if (values.booking_date?.includes("/")) {
-            const p = values.booking_date.split("/");
-            if (p[2].length === 4) { month = p[0]; day = p[1]; year = p[2]; }
-            else { day = p[0]; month = p[1]; year = p[2]; }
-        } else {
-            const d = new Date();
-            year = d.getFullYear(); month = d.getMonth() + 1; day = d.getDate();
-        }
-        const [hour, minute] = (values.pickup_time || "00:00").split(":");
-        return new Date(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), 0) > now;
+        if (!values.booking_date) return false;
+        return isCompanyFutureDateTime(values.booking_date, values.pickup_time || "00:00");
     };
 
     const handleViewHistory = async (user) => {
@@ -2299,7 +2283,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
                                                         const checked = e.target.checked;
                                                         setIsMultiBooking(checked);
                                                         if (checked) {
-                                                            const today = formatDateForInput(new Date());
+                                                            const today = getCompanyTodayForInput();
                                                             if (!values.multi_start_at) setFieldValue("multi_start_at", today);
                                                             if (!values.booking_date) setFieldValue("booking_date", today);
                                                             applyMultiBookingDateSync(

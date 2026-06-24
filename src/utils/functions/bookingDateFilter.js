@@ -1,38 +1,21 @@
-const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+import {
+    formatDateForInputInCompanyTimezone,
+    getCompanyNow,
+    getCompanyTodayForInput,
+    getCompanyTodayWeekdayLabel,
+    isCompanyFutureDate,
+    isCompanyToday,
+    parseCalendarDate,
+} from "./appDateTime";
 
 export const MULTI_BOOKING_WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-export const getTodayWeekdayLabel = () => WEEKDAY_LABELS[new Date().getDay()];
+export const getTodayWeekdayLabel = () => getCompanyTodayWeekdayLabel();
 
-export const formatDateForInput = (date) => {
-    const d = date instanceof Date ? date : parseBookingDate(date);
-    if (!d) return "";
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    return `${y}-${m}-${day}`;
-};
+export const formatDateForInput = (date) => formatDateForInputInCompanyTimezone(date);
 
 /** Parse booking_date as local calendar date (avoids UTC timezone shift on YYYY-MM-DD). */
-export const parseBookingDate = (value) => {
-    if (!value) return null;
-
-    if (value instanceof Date) {
-        if (Number.isNaN(value.getTime())) return null;
-        return new Date(value.getFullYear(), value.getMonth(), value.getDate());
-    }
-
-    const raw = String(value).trim();
-    const isoMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
-    if (isoMatch) {
-        const [, y, m, d] = isoMatch.map(Number);
-        return new Date(y, m - 1, d);
-    }
-
-    const d = new Date(raw);
-    if (Number.isNaN(d.getTime())) return null;
-    return new Date(d.getFullYear(), d.getMonth(), d.getDate());
-};
+export const parseBookingDate = parseCalendarDate;
 
 export const toDateOnly = (value) => {
     const d = parseBookingDate(value);
@@ -49,22 +32,14 @@ export const isDateInRange = (date, startAt, endAt) => {
     return d.getTime() >= start.getTime() && d.getTime() <= end.getTime();
 };
 
-export const isTodayDate = (dateValue) => {
-    const d = toDateOnly(dateValue);
-    const today = toDateOnly(new Date());
-    return Boolean(d && today && d.getTime() === today.getTime());
-};
+export const isTodayDate = (dateValue) => isCompanyToday(dateValue);
 
-export const isFutureDate = (dateValue) => {
-    const d = toDateOnly(dateValue);
-    const today = toDateOnly(new Date());
-    return Boolean(d && today && d.getTime() > today.getTime());
-};
+export const isFutureDate = (dateValue) => isCompanyFutureDate(dateValue);
 
 export const multiBookingIncludesToday = (multiDays, startAt, endAt) => {
     if (!Array.isArray(multiDays) || multiDays.length === 0) return false;
     if (!multiDays.includes(getTodayWeekdayLabel())) return false;
-    return isDateInRange(new Date(), startAt, endAt);
+    return isDateInRange(getCompanyNow(), startAt, endAt);
 };
 
 export const resolveMultiBookingSubmitDate = ({
@@ -72,7 +47,7 @@ export const resolveMultiBookingSubmitDate = ({
     multiStartAt,
     bookingDate,
 }) => {
-    if (includesToday) return formatDateForInput(new Date());
+    if (includesToday) return getCompanyTodayForInput();
     return multiStartAt || bookingDate || "";
 };
 
@@ -82,7 +57,7 @@ export const syncMultiBookingReferenceDate = ({
     multiEndAt,
     includesToday = multiBookingIncludesToday(multiDays, multiStartAt, multiEndAt),
 }) => {
-    if (includesToday) return formatDateForInput(new Date());
+    if (includesToday) return getCompanyTodayForInput();
     if (multiStartAt) return multiStartAt;
     return "";
 };

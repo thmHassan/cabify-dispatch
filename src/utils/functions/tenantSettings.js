@@ -71,6 +71,10 @@ export const setCachedDistanceUnit = (units) => {
     cachedDistanceUnit = resolveDistanceUnitFromApi(units);
 };
 
+export const clearCachedDistanceUnit = () => {
+    cachedDistanceUnit = null;
+};
+
 export const getTenantDistanceUnit = () => {
     if (cachedDistanceUnit) return cachedDistanceUnit;
     const tenant = getTenantData();

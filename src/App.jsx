@@ -10,6 +10,7 @@ import Loading from "./components/shared/Loading/Loading";
 import { Toaster } from "react-hot-toast";
 import { SocketProvider } from "./components/routes/SocketProvider";
 import { MapConfigurationProvider } from "./contexts/MapConfigurationContext";
+import { CompanyDateTimeProvider } from "./contexts/CompanyDateTimeContext";
 
 const environment = import.meta.env.VITE_NODE_ENV;
 
@@ -24,9 +25,11 @@ function App() {
         <ScrollToTop>
           <Suspense fallback={<Loading />}>
             <SocketProvider>
-              <MapConfigurationProvider>
-                <AllRoutes />
-              </MapConfigurationProvider>
+              <CompanyDateTimeProvider>
+                <MapConfigurationProvider>
+                  <AllRoutes />
+                </MapConfigurationProvider>
+              </CompanyDateTimeProvider>
             </SocketProvider>
           </Suspense>
         </ScrollToTop>

@@ -10,7 +10,7 @@ import {
   resolveTenantDatabaseId,
 } from "../utils/functions/tokenEncryption";
 
-const unauthorizedCode = [401, 403, 419];
+const sessionExpiredCodes = [401, 419];
 
 const BaseService = axios.create({
   timeout: 60000,
@@ -55,7 +55,7 @@ BaseService.interceptors.response.use(
 
     console.log(response, "response========");
 
-    if (response && unauthorizedCode.includes(response.status)) {
+    if (response && sessionExpiredCodes.includes(response.status)) {
       resetMapConfigurationCache();
       store.dispatch(signOutSuccess());
       store.dispatch(

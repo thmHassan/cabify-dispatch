@@ -158,6 +158,14 @@ export const resolveTenantDatabaseId = () => {
   );
 };
 
+export const canAccessTenantApi = () =>
+  isAuthenticated() && Boolean(resolveTenantDatabaseId());
+
+export const getTenantDatabaseRequestParams = () => {
+  const database = resolveTenantDatabaseId();
+  return database ? { database } : {};
+};
+
 /**
  * Retrieves tenant data from localStorage
  * @returns {object|null}

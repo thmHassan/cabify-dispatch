@@ -25,8 +25,20 @@ import {
   storeTenantData,
 } from "../functions/tokenEncryption";
 import { disconnectSocket } from "../../services/socketConntection";
-import { setCachedTenantCurrency } from "../functions/formatters";
+import { clearCachedTenantCurrency } from "../functions/formatters";
+import { clearCachedDistanceUnit } from "../functions/tenantSettings";
 import { resetMapConfigurationCache } from "../../services/mapConfigCache";
+import {
+    clearCompanyTimezoneCache,
+    ensureCompanyTimezoneLoaded,
+    setCompanyTimezone,
+} from "../functions/appDateTime";
+import {
+    clearCompanyCurrencyCache,
+    ensureCompanySettingsLoaded,
+    setCompanyCurrency,
+    setCompanyUnits,
+} from "../functions/appCurrency";
 
 const API_ERROR_MAP = {
   "Database header is missing.": "Company ID is missing.",
@@ -139,8 +151,24 @@ function useAuth() {
 
     if (companyData) {
       storeTenantData(companyData);
-      setCachedTenantCurrency(companyData?.currency || companyData?.data?.currency);
+      const profileCurrency = companyData?.currency || companyData?.data?.currency;
+      if (profileCurrency) {
+        setCompanyCurrency(profileCurrency);
+      }
+      const profileUnits = companyData?.units || companyData?.data?.units;
+      if (profileUnits) {
+        setCompanyUnits(profileUnits);
+      }
+      const profileTimezone =
+        companyData?.company_timezone ||
+        companyData?.data?.company_timezone;
+      if (profileTimezone) {
+        setCompanyTimezone(profileTimezone);
+      }
     }
+
+    ensureCompanyTimezoneLoaded();
+    ensureCompanySettingsLoaded();
 
     navigate(
       query.get(REDIRECT_URL_KEY) || appConfig.authenticatedEntryPath
@@ -155,6 +183,10 @@ function useAuth() {
     } finally {
       disconnectSocket();
       resetMapConfigurationCache();
+      clearCompanyTimezoneCache();
+      clearCompanyCurrencyCache();
+      clearCachedTenantCurrency();
+      clearCachedDistanceUnit();
       clearAllAuthData();
       dispatch(signOutSuccess());
       dispatch(clearUser());
@@ -170,6 +202,9 @@ function useAuth() {
       if (storedUser) {
         dispatch(setUser(JSON.parse(storedUser)));
       }
+
+      ensureCompanyTimezoneLoaded();
+      ensureCompanySettingsLoaded();
     }
   }, [dispatch, signedIn]);
 

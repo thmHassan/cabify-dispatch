@@ -26,6 +26,7 @@ import {
   scheduleMapLibrePlotRender,
 } from "../../../../utils/functions/plotMapGeometry";
 import AppLogoLoader from "../../../../components/shared/AppLogoLoader/AppLogoLoader";
+import CompanyTimezoneClock from "../../../../components/shared/CompanyTimezoneClock/CompanyTimezoneClock";
 import { getDashboardCards, apiGetAllPlot, apiUpdateDriverRank } from "../../../../services/AddBookingServices";
 import { apiLogoutDriver, apiGetDriverManagement } from "../../../../services/DriverManagementService";
 import toast from "react-hot-toast";
@@ -2221,6 +2222,7 @@ const Overview = () => {
           <div className="flex flex-col gap-2.5 text-center sm:text-left">
             <PageTitle title="Dashboard overview" />
             <PageSubTitle title={`Welcome back! ${displayName}, Here's what's happening with your transportation business today.`} />
+            <CompanyTimezoneClock className="text-center sm:text-left" />
           </div>
         </div>
         <div className="flex flex-col sm:flex-row gap-3 items-center justify-center w-full sm:w-auto">
