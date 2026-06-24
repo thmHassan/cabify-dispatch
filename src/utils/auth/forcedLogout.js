@@ -15,6 +15,8 @@ export const FORCED_LOGOUT_MESSAGE_KEY = "forced_logout_message";
 export const COMPANY_INACTIVE_SOCKET_EVENTS = [
     "company-inactive-logout",
     "dispatcher-forced-logout",
+    "company_inactive_logout",
+    "company-status-changed",
 ];
 
 export const DEFAULT_COMPANY_INACTIVE_MESSAGE =
@@ -55,12 +57,31 @@ export const getCompanyStatusFromLoginResponse = (data) => {
 export const getStoredCompanyStatus = () =>
     getCompanyStatusFromTenantData(getTenantData());
 
+const resolveInactiveStatusFromPayload = (payload) => {
+    if (!payload || typeof payload !== "object") return null;
+
+    return (
+        payload.status
+        ?? payload.company_status
+        ?? payload.company_data?.data?.status
+        ?? payload.company_data?.status
+        ?? payload.data?.status
+        ?? null
+    );
+};
+
 export const isForcedLogoutPayload = (payload) => {
     if (!payload || typeof payload !== "object") return false;
-    return (
+
+    if (
         payload.action === "force_logout"
         || payload.reason === "company_inactive"
-    );
+        || payload.force_logout === true
+    ) {
+        return true;
+    }
+
+    return isInactiveCompanyStatus(resolveInactiveStatusFromPayload(payload));
 };
 
 export const storeForcedLogoutMessage = (message) => {

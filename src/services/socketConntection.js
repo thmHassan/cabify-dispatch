@@ -56,8 +56,14 @@ const initSocket = () => {
     });
 
 
+    const attachForcedLogoutListeners = () => {
+        unregisterForcedLogoutListeners?.();
+        unregisterForcedLogoutListeners = registerForcedLogoutSocketListeners(socket);
+    };
+
     socket.on("connect", () => {
         console.log("Socket connected:", socket.id);
+        attachForcedLogoutListeners();
     });
 
     socket.on("disconnect", (reason) => {
@@ -68,8 +74,7 @@ const initSocket = () => {
         console.error("⚠️ Socket connection error:", error.message);
     });
 
-    unregisterForcedLogoutListeners?.();
-    unregisterForcedLogoutListeners = registerForcedLogoutSocketListeners(socket);
+    attachForcedLogoutListeners();
 
     // Global listener for all socket events
     socket.onAny((event, ...args) => {
