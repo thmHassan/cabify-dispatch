@@ -218,6 +218,44 @@ const AlertModal = ({ isOpen, message, onClose }) => {
     );
 };
 
+const VehicleSelectionModal = ({ isOpen, vehicles, selectedVehicle, onSelect, onClose, onConfirm }) => {
+    if (!isOpen) return null;
+
+    return (
+        <div className="fixed inset-0 z-[9999] bg-black bg-opacity-50 flex items-center justify-center">
+            <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4 shadow-xl">
+                <div className="mb-4">
+                    <h3 className="text-lg font-semibold text-black mb-2">Select Vehicle</h3>
+                    <p className="text-sm text-gray-600">Please select any vehicle type for fare calculation.</p>
+                </div>
+                <div className="mb-5">
+                    <select
+                        value={selectedVehicle || ""}
+                        onChange={(e) => onSelect(e.target.value)}
+                        className={formSelectClass}
+                    >
+                        <option value="">Vehicle</option>
+                        {vehicles?.map((item) => (
+                            <option key={item.value} value={item.value}>{item.label}</option>
+                        ))}
+                    </select>
+                    {!vehicles?.length && (
+                        <p className="mt-2 text-xs text-red-600">No vehicle types are available.</p>
+                    )}
+                </div>
+                <div className="flex justify-end gap-2">
+                    <Button btnSize="md" type="filledGray" className="px-4 py-3 text-xs" onClick={onClose}>
+                        Cancel
+                    </Button>
+                    <Button btnSize="md" type="filled" className="px-4 py-3 text-xs text-white rounded" onClick={onConfirm} disabled={!selectedVehicle}>
+                        Calc Fares
+                    </Button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 const playSuccessSound = () => {
     try {
         const audio = new Audio(successSound);
@@ -386,7 +424,8 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
     const [isPlotBasedDispatchEnabled, setIsPlotBasedDispatchEnabled] = useState(false);
     const [loadingDispatchSystem, setLoadingDispatchSystem] = useState(true);
     const dispatcherId = getDispatcherId();
-    const [alertModal, setAlertModal] = useState({ isOpen: false, message: '' });
+    const [alertModal, setAlertModal] = useState({ isOpen: false, message: '', closeBookingOnClose: false });
+    const [vehicleSelectionModalOpen, setVehicleSelectionModalOpen] = useState(false);
     const [companyCountryOfUse, setCompanyCountryOfUse] = useState(
         tenantCountryIso || "IN"
     );
@@ -924,6 +963,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
         setFareLoading(false);
         setFareError(null);
         setFareCalculated(false);
+        setVehicleSelectionModalOpen(false);
         setIsMultiBooking(false);
         setCalculateErrors({});
         setBookingErrors({});
@@ -1338,7 +1378,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
         const errors = {};
         if (!values.pickup_location?.trim()) errors.pickup_location = "Pickup point is required";
         if (!values.destination_location?.trim()) errors.destination_location = "Destination is required";
-        if (values.request_for_vehicle && !values.vehicle) errors.vehicle = "Vehicle type is required";
+        if (!values.vehicle) errors.vehicle = "Please select any vehicle type for fare calculation";
         if (!values.journey_type) errors.journey_type = "Journey type is required";
         return errors;
     };
@@ -1544,6 +1584,9 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
 
     const handleCalculateFares = async (values, setFieldValue) => {
         const errors = validateCalculateFares(values);
+        if (errors.vehicle) {
+            setVehicleSelectionModalOpen(true);
+        }
         if (Object.keys(errors).length > 0) { setCalculateErrors(errors); setFareLoading(false); return; }
         setCalculateErrors({});
         setFareLoading(true);
@@ -1949,7 +1992,11 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
                     }),
                 };
                 if (response?.data?.alertMessage) {
-                    setAlertModal({ isOpen: true, message: response.data.alertMessage });
+                    setAlertModal({
+                        isOpen: true,
+                        message: response.data.alertMessage,
+                        closeBookingOnClose: true,
+                    });
                     onBookingCreated?.(bookingCreatedMeta);
                     return;
                 }
@@ -2202,9 +2249,12 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
                 isOpen={alertModal.isOpen}
                 message={alertModal.message}
                 onClose={() => {
-                    setAlertModal({ isOpen: false, message: '' });
-                    unlockBodyScroll();
-                    setIsOpen({ type: "new", isOpen: false, booking: null });
+                    const shouldCloseBooking = alertModal.closeBookingOnClose;
+                    setAlertModal({ isOpen: false, message: '', closeBookingOnClose: false });
+                    if (shouldCloseBooking) {
+                        unlockBodyScroll();
+                        setIsOpen({ type: "new", isOpen: false, booking: null });
+                    }
                 }}
             />
 
@@ -2237,6 +2287,25 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
 
                     return (
                         <Form>
+                            <VehicleSelectionModal
+                                isOpen={vehicleSelectionModalOpen}
+                                vehicles={filteredVehicleList}
+                                selectedVehicle={values.vehicle}
+                                onSelect={(vehicleId) => {
+                                    setFieldValue("vehicle", vehicleId);
+                                    clearFieldErrors("vehicle");
+                                    invalidateFare();
+                                }}
+                                onClose={() => setVehicleSelectionModalOpen(false)}
+                                onConfirm={() => {
+                                    if (!values.vehicle) return;
+                                    setVehicleSelectionModalOpen(false);
+                                    handleCalculateFares(
+                                        { ...values, vehicle: values.vehicle },
+                                        setFieldValue
+                                    );
+                                }}
+                            />
                             {isEditMode && editBookingLoading && (
                                 <div className="mb-2 rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] px-3 py-2 text-xs text-[#6B7280]">
                                     Loading booking details...
@@ -2579,7 +2648,8 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
                                                             onClick={() => {
                                                                 const next = !values.request_for_vehicle;
                                                                 setFieldValue("request_for_vehicle", next);
-                                                                if (!next) { setFieldValue("vehicle", ""); setFilteredVehicleList(vehicleList); invalidateFare(); clearFieldErrors("vehicle"); }
+                                                                invalidateFare();
+                                                                if (!next) { setFieldValue("vehicle", ""); setFilteredVehicleList(vehicleList); clearFieldErrors("vehicle"); }
                                                             }}
                                                             className={`relative inline-flex h-6 w-10 items-center rounded-full transition-colors flex-shrink-0 ${values.request_for_vehicle ? "bg-[#1F41BB]" : "bg-[#D1D5DB]"}`}>
                                                             <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${values.request_for_vehicle ? "translate-x-[18px]" : "translate-x-[3px]"}`} />
