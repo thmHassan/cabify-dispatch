@@ -4,6 +4,7 @@ import {
     getCompanyTodayForInput,
     getCompanyTodayWeekdayLabel,
     isCompanyFutureDate,
+    isCompanyFutureDateTime,
     isCompanyToday,
     parseCalendarDate,
 } from "./appDateTime";
@@ -35,6 +36,21 @@ export const isDateInRange = (date, startAt, endAt) => {
 export const isTodayDate = (dateValue) => isCompanyToday(dateValue);
 
 export const isFutureDate = (dateValue) => isCompanyFutureDate(dateValue);
+
+export const isUpcomingScheduledPreBooking = (booking) => {
+    if (!isScheduledPreBooking(booking)) return false;
+    if (!booking?.booking_date) return false;
+
+    if (isFutureDate(booking.booking_date)) {
+        return true;
+    }
+
+    if (!isTodayDate(booking.booking_date)) {
+        return false;
+    }
+
+    return isCompanyFutureDateTime(booking.booking_date, booking.pickup_time || "00:00");
+};
 
 export const multiBookingIncludesToday = (multiDays, startAt, endAt) => {
     if (!Array.isArray(multiDays) || multiDays.length === 0) return false;
@@ -137,25 +153,23 @@ export const isScheduledPreBooking = (booking) => {
 
     if (booking.pickup_time_type === "asap") return false;
 
-    const isReleased = booking.dispatch_released;
-    if (isReleased === true || isReleased === 1 || isReleased === "1") return false;
+    const isReleased =
+        booking.dispatch_released === true ||
+        booking.dispatch_released === 1 ||
+        booking.dispatch_released === "1";
+    if (isReleased) return false;
 
-    if (booking.pre_booking === false || booking.pre_booking === 0 || booking.pre_booking === "0") {
+    if (String(booking.booking_status || "").toLowerCase() !== "pending") {
         return false;
     }
-    if (booking.is_scheduled === false || booking.is_scheduled === 0 || booking.is_scheduled === "0") {
-        return false;
-    }
 
-    if (booking.pickup_time_type === "time") return true;
+    const isScheduled =
+        booking.pickup_time_type === "time" ||
+        booking.is_scheduled === true ||
+        booking.is_scheduled === 1 ||
+        booking.is_scheduled === "1";
 
-    const preBooking = booking.pre_booking;
-    if (preBooking === true || preBooking === 1 || preBooking === "1") return true;
-
-    const isScheduled = booking.is_scheduled;
-    if (isScheduled === true || isScheduled === 1 || isScheduled === "1") return true;
-
-    return false;
+    return isScheduled;
 };
 
 export const bookingHasSchedulingMetadata = (booking) =>
@@ -240,17 +254,6 @@ export const filterBookingsForOverviewTab = (bookings, filter, options = {}) => 
     if (!Array.isArray(bookings) || !filter) return bookings || [];
 
     if (filter === "todays_booking" || filter === "pre_bookings") {
-        const {
-            nearestDriverDispatchEnabled = false,
-            plotBasedDispatchEnabled = false,
-        } = options;
-        const canRefineClientSide =
-            bookings.some(bookingHasSchedulingMetadata) ||
-            nearestDriverDispatchEnabled ||
-            plotBasedDispatchEnabled;
-
-        if (!canRefineClientSide) return bookings;
-
         return bookings.filter((booking) =>
             shouldShowBookingInOverviewTab(booking, filter, options)
         );
@@ -372,6 +375,11 @@ export const hasReminderMinutes = (booking) => {
 export const isScheduledBookingWithReminder = (booking) =>
     hasScheduledPickupTime(booking) && hasReminderMinutes(booking);
 
+export const isUserVisibleTodayBookingStatus = (booking) => {
+    const status = String(booking?.booking_status || "").toLowerCase();
+    return ["pending", "pending_acceptance", "started", "unassigned"].includes(status);
+};
+
 export const extractUpdatedBookingFromResponse = (responseData, fallbackBooking = {}) => {
     const raw =
         responseData?.data?.booking ||
@@ -402,10 +410,18 @@ export const shouldShowBookingInOverviewTab = (booking, filter, options = {}) =>
     }
 
     if (filter === "pre_bookings") {
-        return isScheduledPreBooking(booking);
+        return isUpcomingScheduledPreBooking(booking);
     }
 
     if (filter === "todays_booking") {
+        if (!isTodayDate(booking?.booking_date)) {
+            return false;
+        }
+
+        if (!isUserVisibleTodayBookingStatus(booking)) {
+            return false;
+        }
+
         if (isScheduledPreBooking(booking)) {
             return false;
         }

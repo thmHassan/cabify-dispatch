@@ -15,6 +15,8 @@ const buildBookingParams = ({
     filter,
 }) => {
     const params = { page, limit };
+    const dispatcherId = getDispatcherId();
+    if (dispatcherId != null) params.dispatcher_id = dispatcherId;
     if (search) params.search = search;
     if (status) params.status = status;
     if (sub_company) params.sub_company = sub_company;
@@ -185,7 +187,9 @@ export const sendConfirmationEmail = (bookingId, dispatcherName) => {
 
 export const getDashboardCards = async () => {
     try {
-        const res = await socketApi.get("/bookings/dashboard-cards");
+        const dispatcherId = getDispatcherId();
+        const params = dispatcherId != null ? { dispatcher_id: dispatcherId } : undefined;
+        const res = await socketApi.get("/bookings/dashboard-cards", params ? { params } : undefined);
         if (res?.data?.success) return res;
         throw new Error("Socket dashboard cards API returned unsuccessful response");
     } catch (err) {

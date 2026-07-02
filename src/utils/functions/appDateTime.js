@@ -61,6 +61,22 @@ export const parseCalendarDate = (value) => {
     }
 
     const raw = String(value).trim();
+    const plainDateMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (plainDateMatch) {
+        const [, y, m, d] = plainDateMatch.map(Number);
+        return new Date(y, m - 1, d);
+    }
+
+    if (/^\d{4}-\d{2}-\d{2}[T\s]/.test(raw)) {
+        const parsedDateTime = new Date(raw);
+        if (Number.isNaN(parsedDateTime.getTime())) return null;
+
+        const parts = getZonedParts(parsedDateTime);
+        if (!parts) return null;
+
+        return new Date(parts.year, parts.month - 1, parts.day);
+    }
+
     const isoMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
     if (isoMatch) {
         const [, y, m, d] = isoMatch.map(Number);

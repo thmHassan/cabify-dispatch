@@ -63,6 +63,31 @@ const Col = ({ w, children, className = "" }) => (
     <div className={`px-4 py-3 flex-shrink-0 ${w} ${className}`}>{children}</div>
 );
 
+const PENDING_BOOKINGS_STORAGE_KEY = "dispatch_overview_pending_bookings";
+
+const loadPendingBookingsFromStorage = () => {
+    try {
+        const raw = sessionStorage.getItem(PENDING_BOOKINGS_STORAGE_KEY);
+        const parsed = raw ? JSON.parse(raw) : [];
+        return Array.isArray(parsed) ? parsed.filter(Boolean) : [];
+    } catch {
+        return [];
+    }
+};
+
+const savePendingBookingsToStorage = (bookings) => {
+    try {
+        if (!bookings?.length) {
+            sessionStorage.removeItem(PENDING_BOOKINGS_STORAGE_KEY);
+            return;
+        }
+
+        sessionStorage.setItem(PENDING_BOOKINGS_STORAGE_KEY, JSON.stringify(bookings));
+    } catch {
+        // ignore storage errors
+    }
+};
+
 const OverViewDetails = ({
     filter,
     externalRefreshTrigger = 0,
@@ -73,10 +98,13 @@ const OverViewDetails = ({
     plotBasedDispatchEnabled = false,
 }) => {
     const navigate = useNavigate();
-    const overviewTabOptions = { nearestDriverDispatchEnabled, plotBasedDispatchEnabled };
+    const overviewTabOptions = useMemo(() => ({
+        nearestDriverDispatchEnabled,
+        plotBasedDispatchEnabled,
+    }), [nearestDriverDispatchEnabled, plotBasedDispatchEnabled]);
     const applyTabFilter = useCallback(
         (bookings) => filterBookingsForOverviewTab((bookings || []).filter(Boolean), filter, overviewTabOptions),
-        [filter, nearestDriverDispatchEnabled, plotBasedDispatchEnabled]
+        [filter, overviewTabOptions]
     );
     const [openMenu, setOpenMenu] = useState(null);
     const [showAllocateModal, setShowAllocateModal] = useState(false);
@@ -102,7 +130,7 @@ const OverViewDetails = ({
     const [plotDispatchStatusById, setPlotDispatchStatusById] = useState({});
     const [highlightedBookingId, setHighlightedBookingId] = useState(null);
     const [plotDispatchPanel, setPlotDispatchPanel] = useState(null);
-    const pendingSeedBookingsRef = useRef([]);
+    const pendingSeedBookingsRef = useRef(loadPendingBookingsFromStorage());
     const bookingsRef = useRef([]);
     const highlightTimeoutRef = useRef(null);
     const plotDispatchEndpointUnavailableRef = useRef(false);
@@ -124,9 +152,52 @@ const OverViewDetails = ({
 
     useEffect(() => {
         if (seedBookings?.length) {
-            pendingSeedBookingsRef.current = seedBookings;
+            const mergedSeeds = mergeBookingsById(pendingSeedBookingsRef.current, seedBookings);
+            pendingSeedBookingsRef.current = mergedSeeds;
+            savePendingBookingsToStorage(mergedSeeds);
         }
     }, [seedBookings]);
+
+    const splitPendingSeeds = useCallback((fetchedBookings = []) => {
+        const pendingSeeds = pendingSeedBookingsRef.current || [];
+        if (!pendingSeeds.length) {
+            return { relevantSeeds: [], remainingSeeds: [] };
+        }
+
+        const fetchedIds = new Set(
+            (fetchedBookings || [])
+                .map((booking) => booking?.id)
+                .filter((id) => id != null)
+                .map((id) => String(id))
+        );
+
+        const relevantSeeds = pendingSeeds.filter((booking) =>
+            shouldShowBookingInOverviewTab(booking, filter, overviewTabOptions)
+        );
+
+        const remainingSeeds = pendingSeeds.filter((booking) => {
+            const bookingId = booking?.id;
+            if (bookingId == null) {
+                return true;
+            }
+
+            return !fetchedIds.has(String(bookingId));
+        });
+
+        return { relevantSeeds, remainingSeeds };
+    }, [filter, overviewTabOptions]);
+
+    useEffect(() => {
+        if (!seedBookings?.length) return;
+
+        const relevantSeeds = seedBookings.filter((booking) =>
+            shouldShowBookingInOverviewTab(booking, filter, overviewTabOptions)
+        );
+
+        if (!relevantSeeds.length) return;
+
+        setBookings((prev) => applyTabFilter(mergeBookingsById(prev, relevantSeeds)));
+    }, [seedBookings, filter, overviewTabOptions, applyTabFilter]);
 
     const showNotification = useCallback((data) => {
         const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -352,34 +423,28 @@ const OverViewDetails = ({
 
                 let res = await getBookings(params);
                 const fetchedBookings = res?.data?.success ? (res.data.data || []).filter(Boolean) : [];
-
-                const pendingSeeds = pendingSeedBookingsRef.current || [];
-                const relevantSeeds = pendingSeeds.filter((booking) =>
-                    shouldShowBookingInOverviewTab(booking, filter, overviewTabOptions)
-                );
-                setBookings(mergeBookingsById(fetchedBookings, relevantSeeds));
+                const filteredFetchedBookings = fetchedBookings;
+                const hadPendingSeeds = (pendingSeedBookingsRef.current || []).length > 0;
+                const { relevantSeeds, remainingSeeds } = splitPendingSeeds(filteredFetchedBookings);
+                setBookings(mergeBookingsById(filteredFetchedBookings, relevantSeeds));
                 setTotalPages(res?.data?.pagination?.total_pages || 1);
-                if (relevantSeeds.length > 0) {
-                    pendingSeedBookingsRef.current = [];
+                if (remainingSeeds.length !== (pendingSeedBookingsRef.current || []).length) {
+                    pendingSeedBookingsRef.current = remainingSeeds;
+                    savePendingBookingsToStorage(remainingSeeds);
+                }
+                if (hadPendingSeeds && remainingSeeds.length === 0) {
                     onSeedConsumedRef.current?.();
                 }
             } catch (error) {
                 console.error("Error fetching booking:", error);
-                const pendingSeeds = pendingSeedBookingsRef.current || [];
-                const relevantSeeds = pendingSeeds.filter((booking) =>
-                    shouldShowBookingInOverviewTab(booking, filter, overviewTabOptions)
-                );
+                const { relevantSeeds } = splitPendingSeeds([]);
                 setBookings(relevantSeeds);
-                if (relevantSeeds.length > 0) {
-                    pendingSeedBookingsRef.current = [];
-                    onSeedConsumedRef.current?.();
-                }
             } finally {
                 setTableLoading(false);
             }
         };
         fetchBookings();
-    }, [page, search, selectedStatus, selectedSubCompany, filter, refreshTrigger, externalRefreshTrigger]);
+    }, [page, search, selectedStatus, selectedSubCompany, filter, refreshTrigger, externalRefreshTrigger, applyTabFilter, splitPendingSeeds]);
 
     useEffect(() => {
         if (!plotBasedDispatchEnabled || plotDispatchEndpointUnavailableRef.current) return undefined;
