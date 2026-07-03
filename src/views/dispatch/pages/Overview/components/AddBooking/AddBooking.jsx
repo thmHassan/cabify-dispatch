@@ -153,10 +153,10 @@ const FieldError = ({ message }) => {
 };
 
 const formInputClass =
-    "w-full rounded-lg border border-[#D1D5DB] bg-white px-2.5 py-2 lg:py-1.5 text-sm lg:text-xs text-[#111827] shadow-sm outline-none transition focus:border-[#1F41BB] focus:ring-2 focus:ring-[#1F41BB]/20 disabled:bg-[#F9FAFB] disabled:text-[#9CA3AF]";
+    "h-[42px] w-full rounded-[8px] border border-[#9CA3AF] bg-white px-3.5 py-2 text-sm text-[#111827] shadow-[0_8px_18px_rgba(15,23,42,0.08)] outline-none transition placeholder:text-[#9CA3AF] focus:border-[#1F41BB] focus:ring-1 focus:ring-[#1F41BB]/15 disabled:bg-[#F9FAFB] disabled:text-[#9CA3AF]";
 const formSelectClass = formInputClass;
 const formInputErrorClass = "border-red-500 focus:border-red-500 focus:ring-red-500/20";
-const formLabelClass = "mb-1 lg:mb-0.5 block text-xs lg:text-[10px] font-semibold uppercase tracking-wide text-[#6B7280]";
+const formLabelClass = "text-sm font-semibold leading-tight text-[#111827]";
 
 const REMINDER_TIME_OPTIONS = [
     { value: "5", label: "5 minutes" },
@@ -166,21 +166,21 @@ const REMINDER_TIME_OPTIONS = [
 ];
 
 const FormSection = ({ title, description, children, className = "", overflowVisible = false }) => (
-    <section className={`rounded-xl border border-[#E5E7EB] bg-white p-2.5 lg:p-2 shadow-sm ${overflowVisible ? "overflow-visible" : "overflow-hidden"} ${className}`}>
+    <section className={`${overflowVisible ? "overflow-visible" : "overflow-hidden"} ${className}`}>
         {title && (
-            <div className="mb-2 lg:mb-1.5 border-b border-[#F3F4F6] pb-1.5">
-                <h3 className="text-sm lg:text-xs font-semibold text-[#111827]">{title}</h3>
-                {description && <p className="mt-0.5 text-xs text-[#6B7280] hidden sm:block lg:hidden">{description}</p>}
+            <div className="mb-2">
+                <h3 className="text-xs font-semibold text-[#111827]">{title}</h3>
+                {description && <p className="mt-0.5 text-[10px] text-[#6B7280]">{description}</p>}
             </div>
         )}
-        <div className="space-y-2 lg:space-y-1.5">{children}</div>
+        <div className="space-y-2">{children}</div>
     </section>
 );
 
 const FormField = ({ label, children, className = "" }) => (
-    <div className={className}>
+    <div className={`grid grid-cols-1 gap-1 md:grid-cols-[76px_minmax(0,1fr)] md:items-center ${className}`}>
         {label && <label className={formLabelClass}>{label}</label>}
-        {children}
+        <div className="min-w-0">{children}</div>
     </div>
 );
 
@@ -2286,7 +2286,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
                     };
 
                     return (
-                        <Form>
+                        <Form className="w-full">
                             <VehicleSelectionModal
                                 isOpen={vehicleSelectionModalOpen}
                                 vehicles={filteredVehicleList}
@@ -2311,13 +2311,13 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
                                     Loading booking details...
                                 </div>
                             )}
-                            <div className="flex flex-col lg:flex-row gap-3 items-start">
-                            <div className="w-full flex-1 min-w-0 flex flex-col gap-2 lg:gap-2">
+                            <div className="w-full rounded-[12px] bg-white p-1">
+                            <div className="w-full flex-1 min-w-0 flex flex-col gap-3">
                                 {/* Header */}
-                                <div className="rounded-xl border border-[#E5E7EB] bg-white px-3 py-2 lg:px-3 shadow-sm">
-                                    <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-                                        <div>
-                                            <h2 className="text-base lg:text-lg font-semibold text-[#111827]">
+                                <div className="px-2 py-2">
+                                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-start">
+                                        <div className="shrink-0">
+                                            <h2 className="text-lg font-semibold text-[#111827]">
                                                 {isEditMode ? "Edit Booking" : "Create New Booking"}
                                             </h2>
                                             {isEditMode && (
@@ -2331,9 +2331,9 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
                                                     : "Fill in trip, passenger, and dispatch details."}
                                             </p>
                                         </div>
-                                        <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-3">
-                                            <div className="sm:min-w-[220px]">
-                                                <label className={formLabelClass}>Sub Company</label>
+                                        <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-4">
+                                            <div className="sm:w-[360px]">
+                                                <label className="sr-only">Sub Company</label>
                                                 <select
                                                     name="sub_company"
                                                     value={values.sub_company || ""}
@@ -2346,8 +2346,8 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
                                                 </select>
                                             </div>
                                             {!isEditMode && (
-                                            <div className="flex items-center justify-between sm:justify-start gap-3 rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] px-4 py-3">
-                                                <span className={`text-sm font-medium ${!isMultiBooking ? "text-[#1F41BB]" : "text-[#6B7280]"}`}>Single</span>
+                                            <div className="flex h-[42px] items-center justify-between gap-2 rounded-[8px] border border-[#9CA3AF] bg-white px-3 shadow-[0_8px_18px_rgba(15,23,42,0.08)] sm:min-w-[325px]">
+                                                <span className={`text-sm font-medium ${!isMultiBooking ? "text-[#111827]" : "text-[#6B7280]"}`}>Single Booking</span>
                                                 <label className="relative inline-flex items-center cursor-pointer">
                                                     <input type="checkbox" className="sr-only peer" checked={isMultiBooking} onChange={(e) => {
                                                         const checked = e.target.checked;
@@ -2366,12 +2366,14 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
                                                     <div className="w-11 h-6 bg-[#D1D5DB] peer-focus:outline-none rounded-full peer peer-checked:bg-[#1F41BB] transition-all" />
                                                     <div className="absolute left-0.5 top-0.5 w-5 h-5 bg-white rounded-full shadow peer-checked:translate-x-5 transition-all" />
                                                 </label>
-                                                <span className={`text-sm font-medium ${isMultiBooking ? "text-[#1F41BB]" : "text-[#6B7280]"}`}>Multi</span>
+                                                <span className={`text-sm font-medium ${isMultiBooking ? "text-[#111827]" : "text-[#6B7280]"}`}>Multi Booking</span>
                                             </div>
                                             )}
                                         </div>
                                     </div>
                                 </div>
+
+                                <div className="bg-white p-1">
 
                                 {isMultiBooking && (
                                     <FormSection title="Recurring Schedule" description="Select weekdays and the date range for multi-bookings.">
@@ -2430,11 +2432,11 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
                                     </FormSection>
                                 )}
 
-                                <div className="grid grid-cols-1 lg:grid-cols-6 lg:grid-rows-[auto_auto_auto] gap-2">
+                                <div className="grid grid-cols-1 lg:grid-cols-12 gap-x-4 gap-y-3">
                                     {/* Row 1: Schedule */}
-                                    <div className="lg:col-span-2 lg:row-start-1 min-w-0">
-                                        <FormSection title="Schedule">
-                                                    <div className={`grid gap-2 w-full ${values.pickup_time_type === "time" ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-4" : "grid-cols-1 sm:grid-cols-3"}`}>
+                                    <div className="lg:col-span-7 lg:col-start-1 lg:row-start-1 min-w-0">
+                                        <FormSection title="">
+                                                    <div className={`grid gap-x-3 gap-y-2 w-full ${values.pickup_time_type === "time" ? "grid-cols-1 lg:grid-cols-4" : "grid-cols-1 lg:grid-cols-3"}`}>
                                                         <FormField label="Pickup Time">
                                                             <div className="flex gap-2">
                                                                 <select
@@ -2510,9 +2512,9 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
                                     </div>
 
                                     {/* Row 1: Passenger */}
-                                    <div className="lg:col-span-2 lg:row-start-1 min-w-0">
-                                        <FormSection title="Passenger">
-                                            <div className="grid grid-cols-2 gap-2">
+                                    <div className="lg:col-span-7 lg:col-start-1 lg:row-start-3 min-w-0">
+                                        <FormSection title="">
+                                            <div className="grid grid-cols-1 gap-x-3 gap-y-2 md:grid-cols-2">
                                                 <FormField label="Name">
                                                     <input type="text" placeholder="Passenger name"
                                                         className={`${formInputClass} ${bookingErrors.name ? formInputErrorClass : ""}`}
@@ -2563,9 +2565,9 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
                                     </div>
 
                                     {/* Row 1: Dispatch & Vehicle */}
-                                    <div className="lg:col-span-2 lg:row-start-1 min-w-0">
-                                        <FormSection title="Dispatch & Vehicle">
-                                            <div className="grid grid-cols-2 gap-2">
+                                    <div className="lg:col-span-7 lg:col-start-1 lg:row-start-4 min-w-0">
+                                        <FormSection title="">
+                                            <div className="grid grid-cols-1 gap-x-3 gap-y-2 md:grid-cols-2">
                                                 <FormField label="Journey">
                                                     <div className="flex flex-wrap gap-1">
                                                         {[{ val: "one_way", label: "One Way" }, { val: "return", label: "Return" }, { val: "wr", label: "W/R" }].map(({ val, label }) => (
@@ -2590,7 +2592,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
                                                     </select>
                                                 </FormField>
                                             </div>
-                                            <div className={`inline-flex rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] p-0.5 w-full ${isManualDispatchOnly ? "opacity-50" : ""}`}>
+                                            <div className={`inline-flex rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] p-0.5 w-full mt-1 ${isManualDispatchOnly ? "opacity-50" : ""}`}>
                                                 <button type="button" disabled={isManualDispatchOnly}
                                                     onClick={() => { setFieldValue("auto_dispatch", true); setFieldValue("bidding", false); setFieldValue("booking_system", "auto_dispatch"); }}
                                                     className={`flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition ${values.auto_dispatch && !values.bidding ? "bg-white text-[#1F41BB] shadow-sm" : "text-[#6B7280]"}`}>
@@ -2603,7 +2605,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
                                                 </button>
                                             </div>
                                             <FieldError message={bookingErrors.booking_system} />
-                                            <div className="grid grid-cols-2 gap-2">
+                                            <div className="grid grid-cols-1 gap-x-3 gap-y-2 md:grid-cols-2">
                                                 {shouldShowDriverField(values, isEditMode) && (
                                                     <FormField label="Driver">
                                                         <select name="driver" value={values.driver || ""}
@@ -2673,9 +2675,9 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
                                     </div>
 
                                     {/* Row 2: Route */}
-                                    <div className="lg:col-span-3 lg:row-start-2 min-w-0 overflow-visible">
-                                        <FormSection title="Route" overflowVisible>
-                                            <div className="space-y-2">
+                                    <div className="lg:col-span-7 lg:col-start-1 lg:row-start-2 min-w-0 overflow-visible">
+                                        <FormSection title="" overflowVisible>
+                                            <div className="space-y-3">
                                                 {showNearbySearchControls && (
                                                     <div className="rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] px-3 py-2.5">
                                                         <MapNearbySearchControls
@@ -2722,7 +2724,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
                                                         <button type="button" onClick={() => {
                                                             if (values.via_points.length < 2) { setFieldValue("via_points", [...values.via_points, ""]); invalidateFare(); }
                                                             else toast.error("Maximum 2 via stops allowed");
-                                                        }} className="lg:mt-5 rounded border border-[#BFDBFE] bg-[#EFF6FF] px-2 py-1.5 text-xs font-medium text-[#1F41BB]">+ Via</button>
+                                                        }} className="lg:mt-[26px] rounded-lg border border-[#BFDBFE] bg-[#EFF6FF] px-3 py-2 text-[11px] font-medium text-[#1F41BB]">+ Via</button>
                                                     )}
                                                 </div>
                                                 {values.via_points.map((_, i) => (
@@ -2740,13 +2742,13 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
                                                                 onSelect={(i2) => selectLocation(i2, "via", setFieldValue, i)} />
                                                             <FieldError message={calculateErrors[`via_points_${i}`] || bookingErrors[`via_points_${i}`]} />
                                                         </div>
-                                                        <div className="flex gap-1 lg:mt-5">
-                                                            <button type="button" onClick={() => swapLocations(i, setFieldValue, values)} className="rounded border border-[#E5E7EB] px-2 py-1 text-xs">Swap</button>
+                                                        <div className="flex gap-2 lg:mt-[26px]">
+                                                            <button type="button" onClick={() => swapLocations(i, setFieldValue, values)} className="rounded-lg border border-[#E5E7EB] px-3 py-2 text-[11px]">Swap</button>
                                                             <button type="button" onClick={() => {
                                                                 setFieldValue("via_points", values.via_points.filter((_, idx) => idx !== i));
                                                                 const newP = { ...viaPlotData }; delete newP[i]; setViaPlotData(newP);
                                                                 setStableViaCoords(prev => prev.filter((_, idx) => idx !== i)); invalidateFare();
-                                                            }} className="rounded border border-[#FECACA] bg-[#FEF2F2] px-2 py-1 text-xs text-[#DC2626]">Remove</button>
+                                                            }} className="rounded-lg border border-[#FECACA] bg-[#FEF2F2] px-3 py-2 text-[11px] text-[#DC2626]">Remove</button>
                                                         </div>
                                                     </div>
                                                 ))}
@@ -2754,7 +2756,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
                                                     <button
                                                         type="button"
                                                         onClick={() => swapPickupAndDestination(setFieldValue, values)}
-                                                        className="inline-flex items-center gap-1.5 rounded border border-[#BFDBFE] bg-[#EFF6FF] px-2.5 py-1.5 text-xs font-medium text-[#1F41BB] hover:bg-[#DBEAFE]"
+                                                        className="inline-flex items-center gap-1.5 rounded-lg border border-[#BFDBFE] bg-[#EFF6FF] px-3 py-2 text-[11px] font-medium text-[#1F41BB] hover:bg-[#DBEAFE]"
                                                         title="Swap pickup and destination"
                                                     >
                                                         <span aria-hidden>⇅</span>
@@ -2792,9 +2794,9 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
                                     </div>
 
                                     {/* Row 2: Trip */}
-                                    <div className="lg:col-span-1 lg:row-start-2 min-w-0">
-                                        <FormSection title="Trip">
-                                            <div className="grid grid-cols-3 lg:grid-cols-1 gap-1.5">
+                                    <div className="lg:col-span-7 lg:col-start-1 lg:row-start-5 min-w-0">
+                                        <FormSection title="">
+                                            <div className="grid grid-cols-1 gap-x-3 gap-y-2 md:grid-cols-3">
                                                 {[{ label: "Pax", name: "passenger" }, { label: "Lug", name: "luggage" }, { label: "Hand", name: "hand_luggage" }].map(({ label, name }) => (
                                                     <FormField key={name} label={label}>
                                                         <input type="number" className={formInputClass}
@@ -2817,69 +2819,114 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
                                     </div>
 
                                     {/* Row 2: Map */}
-                                    <div className="lg:col-span-2 lg:row-start-2 min-w-0 space-y-1.5">
-                                        <div className="overflow-hidden rounded-xl border border-[#E5E7EB] bg-white shadow-sm">
-                                            <div className="border-b border-[#F3F4F6] px-2 py-1.5 flex items-center justify-between">
-                                                <h3 className="text-xs font-semibold text-[#111827]">Routes & Maps</h3>
-                                                <span className="text-[10px] text-[#6B7280]">{formatDistanceWithUnit(values.distance) || "—"}</span>
-                                            </div>
-                                            <div className="h-[200px] lg:h-[280px] w-full">
+                                    <div className="lg:col-span-5 lg:col-start-8 lg:row-start-1 lg:row-span-5 min-w-0 space-y-3">
+                                        <div className="overflow-hidden rounded-[8px] border border-[#D1D5DB] bg-[#F8FAFC] shadow-[0_8px_18px_rgba(15,23,42,0.08)]">
+                                            <div className="h-[280px] lg:h-[500px] w-full">
                                                 {memoizedMap}
                                             </div>
+                                        </div>
+                                        <div>
+                                            <label className={formLabelClass}>Distance</label>
+                                            <input
+                                                type="text"
+                                                readOnly
+                                                placeholder="Distance will be shown here"
+                                                value={formatDistanceWithUnit(values.distance) || ""}
+                                                className={`${formInputClass} bg-[#F9FAFB]`}
+                                            />
                                         </div>
                                     </div>
 
                                     {/* Row 3: Fare & Charges + Actions */}
-                                    <div className="lg:col-span-6 lg:row-start-3 min-w-0">
-                                        <FormSection title="Fare & Charges" className="bg-[#F8FAFF] !mb-0">
-                                            <div className="flex flex-wrap items-end gap-2">
-                                                <div className="w-[110px] shrink-0">
-                                                    <FormField label="Payment">
-                                                        <select value={values.payment_method}
+                                    <div className="lg:col-span-12 lg:row-start-6 min-w-0">
+                                        <FormSection title="Charges" className="bg-[#EAF3FF] rounded-[8px] p-3 !mb-0">
+                                            <div className="flex justify-between max-sm:flex-col items-center gap-2">
+                                                <div />
+                                                <Button
+                                                    btnSize="md"
+                                                    type="filled"
+                                                    className="px-4 py-2 text-[10px] text-white rounded"
+                                                    onClick={() => handleCalculateFares(values, setFieldValue)}
+                                                    disabled={fareLoading}
+                                                >
+                                                    {fareLoading ? "Calculating..." : "Calculate Fares"}
+                                                </Button>
+                                            </div>
+
+                                            <div className="mt-3 flex justify-between max-sm:flex-col gap-3">
+                                                <div className="flex gap-3 items-center">
+                                                    <label className="flex items-center gap-2 text-[10px]">Quoted</label>
+                                                    <div className="w-28">
+                                                        <select
+                                                            value={values.payment_method}
                                                             onChange={(e) => { setFieldValue("payment_method", e.target.value); clearBookingError("payment_method"); }}
-                                                            className={`${formSelectClass} ${bookingErrors.payment_method ? formInputErrorClass : ""}`}>
-                                                            <option value="">Method</option>
+                                                            className={`${formSelectClass} ${bookingErrors.payment_method ? formInputErrorClass : ""}`}
+                                                        >
+                                                            <option value="">Select Method</option>
                                                             <option value="cash">Cash</option>
                                                             <option value="online">Online</option>
                                                         </select>
-                                                    </FormField>
-                                                </div>
-                                                <div className="w-[90px] shrink-0">
-                                                    <ChargeInput label="Bk Fee" name="booking_fee_charges" value={values.booking_fee_charges} onChange={handleChargeChange} />
-                                                </div>
-                                                {chargeFields.map(field => (
-                                                    <div key={field} className="w-[80px] shrink-0">
-                                                        <ChargeInput label={field.replaceAll("_", " ").replace("fares", "fare").replace("charges", "").replace("waiting time", "wait").replace("congestion toll", "toll")} name={field} value={values[field]} onChange={handleChargeChange} />
                                                     </div>
+                                                </div>
+                                                <div className="md:w-56">
+                                                    <ChargeInput
+                                                        label="Booking Fees Charges"
+                                                        name="booking_fee_charges"
+                                                        value={values.booking_fee_charges}
+                                                        onChange={handleChargeChange}
+                                                    />
+                                                </div>
+                                            </div>
+
+                                            <div className="mt-3 grid md:grid-cols-4 grid-cols-1 gap-3">
+                                                {chargeFields.map((field) => (
+                                                    <ChargeInput
+                                                        key={field}
+                                                        label={field.replaceAll("_", " ").toUpperCase()}
+                                                        name={field}
+                                                        value={values[field]}
+                                                        onChange={handleChargeChange}
+                                                    />
                                                 ))}
-                                                <div className="w-[100px] shrink-0 rounded-lg border border-[#BBF7D0] bg-[#F0FDF4] px-2 py-1">
-                                                    <ChargeInput label="Total" name="total_charges" value={values.total_charges} onChange={handleChargeChange} />
+                                                <div className="font-bold text-[#10B981]">
+                                                    <ChargeInput
+                                                        label="TOTAL CHARGES"
+                                                        name="total_charges"
+                                                        value={values.total_charges}
+                                                        onChange={handleChargeChange}
+                                                    />
                                                 </div>
-                                                <div className="flex flex-wrap items-center gap-2 ml-auto shrink-0">
-                                                    {!fareCalculated && (
-                                                        <span className="text-[10px] font-medium text-red-600 whitespace-nowrap">Calc fares first</span>
-                                                    )}
-                                                    {bookingErrors.fare && (
-                                                        <span className="text-[10px] font-medium text-red-600">{bookingErrors.fare}</span>
-                                                    )}
-                                                    <Button btnSize="md" type="filled" className="px-3 py-2 text-xs whitespace-nowrap"
-                                                        onClick={() => handleCalculateFares(values, setFieldValue)}
-                                                        disabled={fareLoading}>
-                                                        {fareLoading ? "..." : "Calc Fares"}
-                                                    </Button>
-                                                    <Button btnSize="md" type="filledGray" className="px-3 py-2 text-xs"
-                                                        onClick={() => { unlockBodyScroll(); setIsOpen({ type: "new", isOpen: false, booking: null }); }}>
-                                                        Cancel
-                                                    </Button>
-                                                    <Button btnType="submit" btnSize="md" type="filled" className="px-3 py-2 text-xs"
-                                                        disabled={isBookingLoading || !fareCalculated}
-                                                        title={!fareCalculated ? "Calculate fares first" : ""}>
-                                                        {isBookingLoading ? "..." : isEditMode ? "Update" : "Create"}
-                                                    </Button>
-                                                </div>
+                                            </div>
+
+                                            <div className="mt-3 flex w-full flex-col gap-2 lg:flex-row lg:flex-wrap lg:items-center lg:justify-end">
+                                                {bookingErrors.fare && (
+                                                    <span className="text-[10px] font-medium text-red-600">{bookingErrors.fare}</span>
+                                                )}
+                                                {!fareCalculated && (
+                                                    <span className="text-[10px] font-medium text-red-600 whitespace-nowrap">Please calculate fares first</span>
+                                                )}
+                                                <Button
+                                                    btnSize="md"
+                                                    type="filledGray"
+                                                    className="w-full px-4 py-2 text-[10px] sm:w-auto"
+                                                    onClick={() => { unlockBodyScroll(); setIsOpen({ type: "new", isOpen: false, booking: null }); }}
+                                                >
+                                                    Cancel
+                                                </Button>
+                                                <Button
+                                                    btnType="submit"
+                                                    btnSize="md"
+                                                    type="filled"
+                                                    className="w-full px-4 py-2 text-[10px] sm:w-auto"
+                                                    disabled={isBookingLoading || !fareCalculated}
+                                                    title={!fareCalculated ? "Calculate fares first" : ""}
+                                                >
+                                                    {isBookingLoading ? (isEditMode ? "Updating..." : "Creating...") : isEditMode ? "Update Booking" : "Create Booking"}
+                                                </Button>
                                             </div>
                                         </FormSection>
                                     </div>
+                                </div>
                                 </div>
                             </div>
                             {locationSidebar.open && (
@@ -2954,9 +3001,10 @@ const InputBox = ({
 
     return (
         <div ref={containerRef} className="relative w-full">
-            <label className={formLabelClass}>{label}</label>
-            <div className="grid grid-cols-1 lg:grid-cols-[1fr_90px] gap-1.5">
-                <div className="relative">
+            <div className="flex flex-col gap-1 md:flex-row md:items-start">
+                <label className="pt-2 text-sm font-semibold leading-tight text-[#111827] md:w-[76px] md:min-w-[76px]">{label}</label>
+                <div className="grid flex-1 grid-cols-1 gap-2 md:grid-cols-[minmax(0,1fr)_130px]">
+                    <div className="relative">
                     <input
                         value={value}
                         onChange={(e) => onChange(e.target.value)}
@@ -3002,9 +3050,14 @@ const InputBox = ({
                             ))}
                         </ul>
                     )}
+                    </div>
+                    <input
+                        readOnly
+                        placeholder="Plot Name"
+                        value={plot || ""}
+                        className={`${formInputClass} bg-[#F9FAFB] text-[#6B7280]`}
+                    />
                 </div>
-                <input readOnly placeholder="Plot" value={plot || ""}
-                    className={`${formInputClass} bg-[#F9FAFB] text-[#6B7280]`} />
             </div>
         </div>
     );
@@ -3012,12 +3065,14 @@ const InputBox = ({
 
 const ChargeInput = ({ label, name, value, onChange, readOnly = false }) => {
     const { currencySymbol } = useCompanyDateTime();
+    const chargeInputClass =
+        "h-[30px] w-full rounded-[5px] border border-[#D1D5DB] bg-white py-1 pl-5 pr-2 text-xs text-[#111827] outline-none transition focus:border-[#1F41BB] focus:ring-1 focus:ring-[#1F41BB]/15";
 
     return (
-        <div>
-            <label className={formLabelClass}>{label}</label>
-            <div className="relative">
-                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#6B7280] text-sm">
+        <div className="flex flex-col gap-1 md:flex-row md:items-center">
+            <label className="text-[10px] font-medium text-[#111827] md:w-16 md:min-w-16">{label}</label>
+            <div className="relative flex-1">
+                <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-[#6B7280]">
                     {currencySymbol}
                 </span>
                 <input
@@ -3026,7 +3081,7 @@ const ChargeInput = ({ label, name, value, onChange, readOnly = false }) => {
                     value={value === "" || value == null ? "" : value}
                     readOnly={readOnly}
                     onChange={(e) => onChange && onChange(name, e.target.value)}
-                    className={`${formInputClass} pl-7 ${readOnly ? "bg-[#F9FAFB]" : ""}`}
+                    className={`${chargeInputClass} ${readOnly ? "bg-[#F9FAFB]" : ""}`}
                 />
             </div>
         </div>

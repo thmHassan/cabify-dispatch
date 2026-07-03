@@ -2493,7 +2493,7 @@ const Overview = () => {
         </div>
       </div>
 
-      <Modal isOpen={isBookingModelOpen.isOpen} keepMounted size="3xl" className="p-1 sm:p-2 lg:p-3 max-h-[98vh] overflow-y-auto overflow-x-hidden">
+      <Modal isOpen={isBookingModelOpen.isOpen} keepMounted className="p-4 sm:p-6 lg:p-10 max-h-[98vh] overflow-y-auto overflow-x-hidden">
         <AddBooking
           key={
             isBookingModelOpen.type === "edit" && isBookingModelOpen.booking?.id
