@@ -4,7 +4,6 @@ import {
     getCompanyTodayForInput,
     getCompanyTodayWeekdayLabel,
     isCompanyFutureDate,
-    isCompanyFutureDateTime,
     isCompanyToday,
     parseCalendarDate,
 } from "./appDateTime";
@@ -41,15 +40,7 @@ export const isUpcomingScheduledPreBooking = (booking) => {
     if (!isScheduledPreBooking(booking)) return false;
     if (!booking?.booking_date) return false;
 
-    if (isFutureDate(booking.booking_date)) {
-        return true;
-    }
-
-    if (!isTodayDate(booking.booking_date)) {
-        return false;
-    }
-
-    return isCompanyFutureDateTime(booking.booking_date, booking.pickup_time || "00:00");
+    return isFutureDate(booking.booking_date);
 };
 
 export const multiBookingIncludesToday = (multiDays, startAt, endAt) => {
@@ -419,10 +410,6 @@ export const shouldShowBookingInOverviewTab = (booking, filter, options = {}) =>
         }
 
         if (!isUserVisibleTodayBookingStatus(booking)) {
-            return false;
-        }
-
-        if (isScheduledPreBooking(booking)) {
             return false;
         }
 

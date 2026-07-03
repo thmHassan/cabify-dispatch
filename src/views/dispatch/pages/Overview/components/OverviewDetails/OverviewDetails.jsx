@@ -423,7 +423,7 @@ const OverViewDetails = ({
 
                 let res = await getBookings(params);
                 const fetchedBookings = res?.data?.success ? (res.data.data || []).filter(Boolean) : [];
-                const filteredFetchedBookings = fetchedBookings;
+                const filteredFetchedBookings = applyTabFilter(fetchedBookings);
                 const hadPendingSeeds = (pendingSeedBookingsRef.current || []).length > 0;
                 const { relevantSeeds, remainingSeeds } = splitPendingSeeds(filteredFetchedBookings);
                 setBookings(mergeBookingsById(filteredFetchedBookings, relevantSeeds));
