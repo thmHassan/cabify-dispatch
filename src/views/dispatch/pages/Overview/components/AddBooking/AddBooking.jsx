@@ -1823,14 +1823,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
                     values.destination_longitude
                 );
 
-            if (isPlotBasedDispatchEnabled && !isEditMode) {
-                if (!pickupCoords) {
-                    const message = "Pickup location is required.";
-                    setBookingErrors({ pickup_location: message });
-                    toast.error(message);
-                    return;
-                }
-
+            if (isPlotBasedDispatchEnabled && !isEditMode && pickupCoords) {
                 const pickupPlot = await resolvePickupPlot({
                     latitude: pickupCoords.latitude,
                     longitude: pickupCoords.longitude,
@@ -1839,21 +1832,11 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
                 });
 
                 if (!pickupPlot?.id) {
-                    const message = "Outside of plot";
-                    setBookingErrors({ pickup_location: message });
-                    toast.error(message);
-                    return;
+                    toast("Pickup is outside a service plot. Booking will be created for manual dispatch.");
                 }
             }
 
-            if (requiresPlotBasedPickupValidation(values)) {
-                if (!pickupCoords) {
-                    const message = "Pickup location is required for plot-based dispatch.";
-                    setBookingErrors({ pickup_location: message });
-                    toast.error(message);
-                    return;
-                }
-
+            if (requiresPlotBasedPickupValidation(values) && pickupCoords) {
                 const plotValidation = await validatePlotBasedPickup({
                     latitude: pickupCoords.latitude,
                     longitude: pickupCoords.longitude,
@@ -1863,9 +1846,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
                 });
 
                 if (!plotValidation.ok) {
-                    setBookingErrors({ pickup_location: plotValidation.message });
-                    toast.error(plotValidation.message);
-                    return;
+                    toast(`${plotValidation.message} Booking will be created for manual dispatch.`);
                 }
             }
 

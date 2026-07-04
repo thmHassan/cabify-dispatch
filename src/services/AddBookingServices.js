@@ -198,6 +198,8 @@ export const getDashboardCards = async () => {
     }
 };
 
+export const getDriverStateSnapshot = () => socketApi.get("/drivers/state");
+
 const updateDriverRankViaSocket = (socket, payload) =>
     new Promise((resolve, reject) => {
         if (!socket?.connected) {

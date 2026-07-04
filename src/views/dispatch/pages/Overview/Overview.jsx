@@ -27,7 +27,7 @@ import {
 } from "../../../../utils/functions/plotMapGeometry";
 import AppLogoLoader from "../../../../components/shared/AppLogoLoader/AppLogoLoader";
 import CompanyTimezoneClock from "../../../../components/shared/CompanyTimezoneClock/CompanyTimezoneClock";
-import { getBookings, getDashboardCards, apiGetAllPlot, apiUpdateDriverRank } from "../../../../services/AddBookingServices";
+import { getBookings, getDashboardCards, apiGetAllPlot, apiUpdateDriverRank, getDriverStateSnapshot } from "../../../../services/AddBookingServices";
 import { apiLogoutDriver, apiGetDriverManagement } from "../../../../services/DriverManagementService";
 import toast from "react-hot-toast";
 import { apiGetBackupPlot, apiGetPlot } from "../../../../services/PlotService";
@@ -64,6 +64,17 @@ const WAITING_DRIVERS_STORAGE_BASE = "waitingDrivers_persistent";
 const getOnJobStorageKey = () => getTenantScopedStorageKey(ON_JOB_STORAGE_BASE);
 const getDriverDataStorageKey = () => getTenantScopedStorageKey(DRIVER_DATA_STORAGE_BASE);
 const getWaitingDriversStorageKey = () => getTenantScopedStorageKey(WAITING_DRIVERS_STORAGE_BASE);
+
+const getPayloadDatabase = (payload) => {
+  const data = payload?.data && typeof payload.data === "object" ? payload.data : payload;
+  return data?.database || data?.tenant || data?.tenant_id || data?.db || data?.client_id || null;
+};
+
+const isCurrentTenantPayload = (payload) => {
+  const payloadDatabase = getPayloadDatabase(payload);
+  const tenantId = getTenantId();
+  return !payloadDatabase || !tenantId || String(payloadDatabase) === String(tenantId);
+};
 
 const loadFromStorage = (key, fallback) => {
   try {
@@ -1187,7 +1198,10 @@ const DefaultMapSection = ({ mapRef, mapInstance, markers, driverData, setDriver
 };
 
 const usePersistedOnJobDrivers = () => {
-  const [onJobDrivers, setRaw] = useState(() => loadFromStorage(getOnJobStorageKey(), []));
+  const [onJobDrivers, setRaw] = useState(() => {
+    try { localStorage.removeItem(getOnJobStorageKey()); } catch { }
+    return [];
+  });
   const setOnJobDrivers = useCallback((updater) => {
     setRaw((prev) => {
       const next = typeof updater === "function" ? updater(prev) : updater;
@@ -1199,16 +1213,9 @@ const usePersistedOnJobDrivers = () => {
 };
 
 const usePersistedDriverData = () => {
-  // ── load from storage; set driving_status=busy for any on-job driver ────────
   const [driverData, setRaw] = useState(() => {
     const storedDrivers = loadFromStorage(getDriverDataStorageKey(), {});
-    const onJobDrivers = loadFromStorage(getOnJobStorageKey(), []);
-    const onJobIds = new Set(onJobDrivers.map(d => String(d.id || d.driver_id || d.dispatcher_id || "")));
-    const merged = { ...storedDrivers };
-    Object.keys(merged).forEach(id => {
-      if (onJobIds.has(id)) merged[id] = { ...merged[id], driving_status: "busy", status: "busy" };
-    });
-    return merged;
+    return { ...storedDrivers };
   });
   const setDriverData = useCallback((updater) => {
     setRaw((prev) => {
@@ -1445,6 +1452,76 @@ const Overview = () => {
 
   const syncWaitingDriversFromApi = useCallback(async () => {
     try {
+      try {
+        const snapshotResponse = await getDriverStateSnapshot();
+        if (snapshotResponse?.data?.success) {
+          const snapshot = snapshotResponse.data.data || {};
+          const normalizeSnapshotDriver = (driver) => {
+            const formatted = {
+              ...driver,
+              id: driver.id || driver.driver_id,
+              name: driver.name || driver.driver_name || driver.driverName,
+              plot_id: getDriverPlotId(driver),
+              plot: driver.plot_name || driver.plot || "N/A",
+              rank: driver.rank || driver.ranking || 1,
+              updatedAt: Date.now(),
+            };
+
+            let lat = driver.latitude ?? driver.lat;
+            let lng = driver.longitude ?? driver.lng;
+            if ((lat == null || lng == null) && formatted.plot_id) {
+              const plot = plotsDataRef.current.find(
+                (p) => p.id == formatted.plot_id || p.plot_id == formatted.plot_id
+              );
+              if (plot) {
+                const coords = parseCoordinates(plot);
+                if (coords.length > 0) {
+                  lat = coords.reduce((s, c) => s + c.lat, 0) / coords.length;
+                  lng = coords.reduce((s, c) => s + c.lng, 0) / coords.length;
+                }
+              }
+            }
+
+            return lat != null && lng != null
+              ? { ...formatted, position: { lat: Number(lat), lng: Number(lng) } }
+              : formatted;
+          };
+
+          const idle = (snapshot.waiting || []).map(normalizeSnapshotDriver).filter(isWaitingListDriver);
+          const busy = (snapshot.onJob || []).map(normalizeSnapshotDriver);
+          const rankedIdle = sortWaitingDrivers(idle);
+
+          setWaitingDrivers(rankedIdle);
+          setOnJobDrivers(busy);
+
+          const activeIds = new Set([...rankedIdle, ...busy].map((d) => getDriverKey(d)).filter(Boolean));
+          setDriverData((prev) => {
+            const updated = { ...prev };
+            Object.keys(updated).forEach((id) => {
+              if (!activeIds.has(id)) delete updated[id];
+            });
+            [...rankedIdle, ...busy].forEach((driver) => {
+              const driverId = getDriverKey(driver);
+              if (!driverId) return;
+              const isBusy = (driver.driving_status || driver.status || "").toLowerCase() === "busy";
+              updated[driverId] = {
+                ...updated[driverId],
+                ...driver,
+                ...(driver.position ? { position: driver.position } : {}),
+                status: isBusy ? "busy" : "idle",
+                driving_status: isBusy ? "busy" : "idle",
+                online_status: "online",
+              };
+            });
+            saveToStorage(getDriverDataStorageKey(), updated);
+            return updated;
+          });
+          return;
+        }
+      } catch (snapshotErr) {
+        console.warn("Driver state snapshot failed, falling back to driver list:", snapshotErr.message);
+      }
+
       const response = await apiGetDriverManagement({ page: 1, perPage: 500 });
       if (response?.data?.success !== 1) return;
 
@@ -1491,20 +1568,10 @@ const Overview = () => {
       const rankedIdle = assignDefaultRanks(idle);
       setWaitingDrivers(rankedIdle);
 
-      const idleIds = new Set(rankedIdle.map((d) => getDriverKey(d)).filter(Boolean));
-      if (busy.length || idleIds.size) {
-        setOnJobDrivers((prev) =>
-          mergeOnJobDrivers(
-            prev.filter((d) => !idleIds.has(getDriverKey(d))),
-            busy
-          )
-        );
-      }
+      setOnJobDrivers(busy);
 
       const waitingIds = new Set(rankedIdle.map((d) => getDriverKey(d)).filter(Boolean));
-      const onJobIds = new Set(
-        (onJobDriversRef.current || []).map((d) => getDriverKey(d)).filter(Boolean)
-      );
+      const onJobIds = new Set(busy.map((d) => getDriverKey(d)).filter(Boolean));
 
       setDriverData((prev) => {
         const updated = { ...prev };
@@ -1567,6 +1634,9 @@ const Overview = () => {
 
     const fetchInitialDrivers = async () => {
       try {
+        await syncWaitingDriversFromApi();
+        return;
+
         const response = await apiGetDriverManagement({ page: 1, perPage: 500 });
         if (cancelled || response?.data?.success !== 1) return;
 
@@ -1630,7 +1700,7 @@ const Overview = () => {
 
     fetchInitialDrivers();
     return () => { cancelled = true; };
-  }, [allPlots, setWaitingDrivers, setOnJobDrivers, setDriverData]);
+  }, [allPlots, setWaitingDrivers, setOnJobDrivers, setDriverData, syncWaitingDriversFromApi]);
 
   useEffect(() => {
     if (!socket) return;
@@ -1737,7 +1807,10 @@ const Overview = () => {
       }
     };
 
-    const handleDashboardUpdate = (data) => setDashboardCounts(data);
+    const handleDashboardUpdate = (data) => {
+      if (!isCurrentTenantPayload(data)) return;
+      setDashboardCounts(data);
+    };
     const handleNotificationRide = (rawData) => {
       let data;
       try {
@@ -1745,6 +1818,7 @@ const Overview = () => {
       } catch {
         data = rawData;
       }
+      if (!isCurrentTenantPayload(data)) return;
       showRideNotification(data);
 
       const booking = data?.booking ?? (data?.booking_status ? data : null);
@@ -1760,6 +1834,7 @@ const Overview = () => {
       } catch {
         data = rawData;
       }
+      if (!isCurrentTenantPayload(data)) return;
 
       const driversList = data?.drivers;
       if (!Array.isArray(driversList)) return;
@@ -1805,6 +1880,7 @@ const Overview = () => {
       } catch {
         data = rawData;
       }
+      if (!isCurrentTenantPayload(data)) return;
 
       if (!isWaitingListDriver(data)) return;
 
@@ -1829,6 +1905,7 @@ const Overview = () => {
       } catch {
         data = rawData;
       }
+      if (!isCurrentTenantPayload(data)) return;
 
       if (Array.isArray(data)) {
         setOnJobDrivers(data);
@@ -1846,6 +1923,7 @@ const Overview = () => {
       } catch {
         data = rawData;
       }
+      if (!isCurrentTenantPayload(data)) return;
 
       const booking = data?.booking
         ? {
@@ -1878,6 +1956,7 @@ const Overview = () => {
       } catch {
         data = rawData;
       }
+      if (!isCurrentTenantPayload(data)) return;
 
       const driverId =
         data?.driver_id ||
@@ -1904,6 +1983,7 @@ const Overview = () => {
       } catch {
         data = rawData;
       }
+      if (!isCurrentTenantPayload(data)) return;
 
       const booking = data?.booking ?? data;
       if (!booking?.id) return;
@@ -1918,6 +1998,7 @@ const Overview = () => {
       } catch {
         data = rawData;
       }
+      if (!isCurrentTenantPayload(data)) return;
 
       const status = data?.status || data?.booking_status;
       if (!status) return;
@@ -1945,6 +2026,7 @@ const Overview = () => {
     const handleDriverLocationUpdate = (rawData) => {
       const data = parseDriverData(rawData);
       if (!data) return;
+      if (!isCurrentTenantPayload(data)) return;
       const driverId = data.id || data.driver_id || data.dispatcher_id || data.client_id;
       if (!driverId) return;
       const sId = String(driverId);
@@ -1952,6 +2034,7 @@ const Overview = () => {
 
       if ((data.online_status || "").toLowerCase() === "offline") {
         removeDriverFromWaitingAndMap(sId);
+        removeDriverFromOnJob(sId);
         return;
       }
 
@@ -1967,9 +2050,13 @@ const Overview = () => {
       }
 
       setWaitingDrivers((prev) => {
-        const exists = prev.some((d) => String(d.id || d.driver_id || d.dispatcher_id) === sId);
-        if (exists) return prev.map((d) => String(d.id || d.driver_id || d.dispatcher_id) === sId ? { ...d, ...data, updatedAt: now } : d);
-        return prev;
+        const formatted = formatWaitingDriverFromSocket({
+          ...data,
+          updatedAt: now,
+        });
+        const next = upsertWaitingDriver(prev, formatted);
+        pruneMapForWaitingList(next, true);
+        return next;
       });
     };
 
@@ -1991,6 +2078,7 @@ const Overview = () => {
       } catch {
         data = rawData;
       }
+      if (!isCurrentTenantPayload(data)) return;
       showRideNotification({
         ...data,
         isFailedDispatch: true,
@@ -2037,6 +2125,7 @@ const Overview = () => {
       } catch {
         data = rawData;
       }
+      if (!isCurrentTenantPayload(data)) return;
       showRideNotification({
         ...data,
         isFailedDispatch: true,
@@ -2054,13 +2143,22 @@ const Overview = () => {
       } catch {
         data = rawData;
       }
+      if (!isCurrentTenantPayload(data)) return;
 
       const driverId = getOfflineDriverIdFromPayload(data);
       if (!driverId) return;
 
       removeDriverFromWaitingAndMap(driverId);
+      removeDriverFromOnJob(driverId);
     };
 
+    const handleSocketStateRefresh = () => {
+      syncWaitingDriversFromApi();
+      fetchDashboardCards();
+    };
+
+    socket.on("connect", handleSocketStateRefresh);
+    socket.on("reconnect", handleSocketStateRefresh);
     socket.on("dashboard-cards-update", handleDashboardUpdate);
     socket.on("my-rank-update", handleMyRankUpdate);
     socket.on("waiting-driver-event", handleWaitingDriverOnline);
@@ -2117,6 +2215,8 @@ const Overview = () => {
       socket.off("booking-status-updated", handleBookingStatusUpdated);
       socket.off("driver-offline-event", handleDriverOffline);
       socket.off("driver-offline", handleDriverOffline);
+      socket.off("connect", handleSocketStateRefresh);
+      socket.off("reconnect", handleSocketStateRefresh);
     };
   }, [socket, fetchDashboardCards, syncWaitingDriversFromApi]);
 
