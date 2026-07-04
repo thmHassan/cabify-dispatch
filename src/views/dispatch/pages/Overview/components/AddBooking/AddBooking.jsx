@@ -64,6 +64,7 @@ import {
 } from "../../../../../../utils/functions/bookingDateFilter";
 import {
     formatCompanyTimeForApi,
+    getCompanyNowParts,
     getCompanyTodayForInput,
     isCompanyFutureDateTime,
 } from "../../../../../../utils/functions/appDateTime";
@@ -351,7 +352,7 @@ const DEFAULT_FORM_VALUES = {
     pickup_plot_id: null, destination_plot_id: null, via_plot_id: [],
     sub_company: "", account: "", vehicle: "", driver: "",
     journey_type: "one_way", booking_system: "auto_dispatch",
-    auto_dispatch: true, bidding: false, request_for_vehicle: false,
+    auto_dispatch: true, bidding: false, bidding_fallback: false, request_for_vehicle: false,
     pickup_time_type: "asap", pickup_time: "", reminder_minutes: "",
     booking_date: "", booking_type: "outstation",
     name: "", email: "", phone_no: "", tel_no: "",
@@ -364,6 +365,15 @@ const DEFAULT_FORM_VALUES = {
     distance: "", user_id: "",
     multi_days: [], multi_start_at: "", multi_end_at: "", week_pattern: "",
 };
+
+const isEnabledDispatchStep = (item) => ["enable", "enabled", "1", 1, true].includes(item?.status);
+
+const hasEnabledDispatchStep = (items, systemKey, stepKey = null) =>
+    items.some((item) =>
+        item?.dispatch_system === systemKey &&
+        (!stepKey || item?.steps === stepKey) &&
+        isEnabledDispatchStep(item)
+    );
 
 const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOpen = false }) => {
     const isEditMode = Boolean(editBooking?.id);
@@ -423,6 +433,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
     const [isManualDispatchOnly, setIsManualDispatchOnly] = useState(false);
     const [isPlotBasedDispatchEnabled, setIsPlotBasedDispatchEnabled] = useState(false);
     const [loadingDispatchSystem, setLoadingDispatchSystem] = useState(true);
+    const [companyBiddingFallbackEnabled, setCompanyBiddingFallbackEnabled] = useState(false);
     const dispatcherId = getDispatcherId();
     const [alertModal, setAlertModal] = useState({ isOpen: false, message: '', closeBookingOnClose: false });
     const [vehicleSelectionModalOpen, setVehicleSelectionModalOpen] = useState(false);
@@ -586,14 +597,34 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
                     }
                 }
                 const plotBasedDispatchEnabled = dispatchSystemListHasPlotBased(data);
+                const autoDispatchEnabled =
+                    hasEnabledDispatchStep(data, "auto_dispatch_plot_base") ||
+                    hasEnabledDispatchStep(data, "auto_dispatch_nearest_driver");
+                const biddingOnlyEnabled = hasEnabledDispatchStep(data, "bidding") || hasEnabledDispatchStep(data, "bidding_fixed_fare_plot_base");
+                const biddingFallbackEnabled =
+                    hasEnabledDispatchStep(data, "auto_dispatch_plot_base", "put_in_bidding_panel") ||
+                    hasEnabledDispatchStep(data, "auto_dispatch_nearest_driver", "put_in_bidding_panel");
 
                 setIsPlotBasedDispatchEnabled(plotBasedDispatchEnabled);
                 setIsManualDispatchOnly(data.some(isManualDispatchOnlySystem));
+                setCompanyBiddingFallbackEnabled(biddingFallbackEnabled);
+                if (!isEditMode) {
+                    setInitialFormValues((prev) => ({
+                        ...prev,
+                        auto_dispatch: autoDispatchEnabled || !biddingOnlyEnabled,
+                        bidding: biddingOnlyEnabled || biddingFallbackEnabled,
+                        bidding_fallback: biddingFallbackEnabled,
+                        booking_system: autoDispatchEnabled || !biddingOnlyEnabled ? "auto_dispatch" : "bidding",
+                        driver: biddingOnlyEnabled && !autoDispatchEnabled ? "" : prev.driver,
+                    }));
+                    setNewBookingFormKey((key) => key + 1);
+                }
 
                 await fetchPlotsForDispatch(plotBasedDispatchEnabled);
             } catch {
                 setIsManualDispatchOnly(false);
                 setIsPlotBasedDispatchEnabled(false);
+                setCompanyBiddingFallbackEnabled(false);
                 await fetchPlotsForDispatch(false);
             }
             finally { setLoadingDispatchSystem(false); }
@@ -1395,7 +1426,11 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
         }
         if (!values.booking_type || values.booking_type === "outstation") errors.booking_type = "Please select a booking type";
         if (!isMultiBooking && !values.booking_date) errors.booking_date = "Booking date is required";
+        if (!isMultiBooking && isPastCompanyDate(values.booking_date)) errors.booking_date = "Booking date cannot be in the past";
         if (values.pickup_time_type === "time" && !values.pickup_time) errors.pickup_time = "Pickup time is required";
+        if (values.pickup_time_type === "time" && isPastCompanyPickupTime(values.booking_date, values.pickup_time)) {
+            errors.pickup_time = "Pickup time cannot be in the past";
+        }
         if (
             values.pickup_time_type === "time" &&
             values.reminder_minutes &&
@@ -1410,6 +1445,8 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
             if (!values.multi_days || values.multi_days.length === 0) errors.multi_days = "Please select at least one day";
             if (!values.multi_start_at) errors.multi_start_at = "Start date is required";
             if (!values.multi_end_at) errors.multi_end_at = "End date is required";
+            if (isPastCompanyDate(values.multi_start_at)) errors.multi_start_at = "Start date cannot be in the past";
+            if (isPastCompanyDate(values.multi_end_at)) errors.multi_end_at = "End date cannot be in the past";
             if (values.multi_start_at && values.multi_end_at && new Date(values.multi_start_at) > new Date(values.multi_end_at))
                 errors.multi_end_at = "End date cannot be before start date";
             if (
@@ -1566,22 +1603,44 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
         formData.append("account_id", value);
     };
 
+    const resolveBookingSystemValue = (values) => values.auto_dispatch ? "auto_dispatch" : "bidding";
+
+    const resolveBiddingFallbackValue = (values) => values.auto_dispatch && values.bidding ? "yes" : "no";
+
+    const isPastCompanyDate = (dateValue) => {
+        if (!dateValue) return false;
+        const today = getCompanyTodayForInput();
+        return Boolean(today) && dateValue < today;
+    };
+
+    const isPastCompanyPickupTime = (dateValue, pickupTime) => {
+        if (!dateValue || !pickupTime || dateValue !== getCompanyTodayForInput()) return false;
+        const now = getCompanyNowParts();
+        if (!now) return false;
+        const [hour = 0, minute = 0] = String(pickupTime).split(":").map((part) => Number(part) || 0);
+        if (hour !== now.hour) return hour < now.hour;
+        return minute < now.minute;
+    };
+
     const shouldSendDriverOnSubmit = (values, { isEdit = false } = {}) => {
-        if (!values.auto_dispatch) return false;
-        if (!isEdit && isPlotBasedDispatchEnabled && !isManualDispatchOnly) return false;
-        return true;
+        return Boolean(values.driver) && (values.auto_dispatch || isManualDispatchOnly || isEdit);
     };
 
     const shouldShowDriverField = (values, isEdit = false) =>
-        (values.auto_dispatch || isManualDispatchOnly) &&
-        !values.bidding &&
-        (isManualDispatchOnly || !isPlotBasedDispatchEnabled || isEdit);
+        (values.auto_dispatch || isManualDispatchOnly || isEdit) && !(values.bidding && !values.auto_dispatch);
+
+    const driverMatchesVehicle = (driver, vehicleId) => {
+        if (!vehicleId) return true;
+        const selectedVehicleId = vehicleId.toString();
+        return [driver.assigned_vehicle, driver.vehicle_type_id, driver.vehicle_type]
+            .filter((value) => value !== undefined && value !== null && value !== "")
+            .some((value) => value.toString() === selectedVehicleId);
+    };
 
     const requiresPlotBasedPickupValidation = (values) =>
         isPlotBasedDispatchEnabled &&
         !isManualDispatchOnly &&
-        Boolean(values.auto_dispatch) &&
-        !values.bidding;
+        Boolean(values.auto_dispatch);
 
     const handleCalculateFares = async (values, setFieldValue) => {
         const errors = validateCalculateFares(values);
@@ -1925,7 +1984,8 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
             formData.append('hand_luggage', values.hand_luggage || '0');
             formData.append('special_request', values.special_request || '');
             formData.append('payment_reference', values.payment_reference || '');
-            formData.append('booking_system', values.booking_system || 'auto_dispatch');
+            formData.append('booking_system', resolveBookingSystemValue(values));
+            formData.append('bidding_fallback', resolveBiddingFallbackValue(values));
             formData.append('payment_method', values.payment_method || '');
             formData.append('parking_charge', values.parking_charges || '');
             formData.append('waiting_charge', values.waiting_charges || '');
@@ -2125,7 +2185,8 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
             formData.append("hand_luggage", values.hand_luggage || "0");
             formData.append("special_request", values.special_request || "");
             formData.append("payment_reference", values.payment_reference || "");
-            formData.append("booking_system", values.booking_system || "auto_dispatch");
+            formData.append("booking_system", resolveBookingSystemValue(values));
+            formData.append("bidding_fallback", resolveBiddingFallbackValue(values));
             formData.append("payment_method", values.payment_method || "");
             formData.append("parking_charge", values.parking_charges || "");
             formData.append("waiting_charge", values.waiting_charges || "");
@@ -2266,6 +2327,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
                             setFieldValue("total_charges", parseFloat((baseFare + additionalCharges).toFixed(2)));
                         }, 0);
                     };
+                    const visibleDriverList = driverList.filter((driver) => driverMatchesVehicle(driver, values.vehicle));
 
                     return (
                         <Form className="w-full">
@@ -2388,6 +2450,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
                                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
                                             <FormField label="Start Date">
                                                 <input type="date"
+                                                    min={getCompanyTodayForInput()}
                                                     className={`${formInputClass} ${bookingErrors.multi_start_at ? formInputErrorClass : ""}`}
                                                     value={values.multi_start_at || ""}
                                                     onChange={(e) => {
@@ -2400,6 +2463,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
                                             </FormField>
                                             <FormField label="End Date">
                                                 <input type="date"
+                                                    min={values.multi_start_at || getCompanyTodayForInput()}
                                                     className={`${formInputClass} ${bookingErrors.multi_end_at ? formInputErrorClass : ""}`}
                                                     value={values.multi_end_at || ""}
                                                     onChange={(e) => {
@@ -2450,6 +2514,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
                                                         </FormField>
                                                         <FormField label={isMultiBooking ? "Reference Date" : "Booking Date"}>
                                                                 <input type="date"
+                                                                    min={getCompanyTodayForInput()}
                                                                     className={`${formInputClass} ${bookingErrors.booking_date ? formInputErrorClass : ""}`}
                                                                     value={values.booking_date || ""}
                                                                     disabled={isMultiBooking}
@@ -2574,17 +2639,56 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
                                                     </select>
                                                 </FormField>
                                             </div>
-                                            <div className={`inline-flex rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] p-0.5 w-full mt-1 ${isManualDispatchOnly ? "opacity-50" : ""}`}>
-                                                <button type="button" disabled={isManualDispatchOnly}
-                                                    onClick={() => { setFieldValue("auto_dispatch", true); setFieldValue("bidding", false); setFieldValue("booking_system", "auto_dispatch"); }}
-                                                    className={`flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition ${values.auto_dispatch && !values.bidding ? "bg-white text-[#1F41BB] shadow-sm" : "text-[#6B7280]"}`}>
-                                                    Auto
-                                                </button>
-                                                <button type="button" disabled={isManualDispatchOnly}
-                                                    onClick={() => { setFieldValue("auto_dispatch", false); setFieldValue("bidding", true); setFieldValue("booking_system", "bidding"); setFieldValue("driver", ""); clearBookingError("driver"); }}
-                                                    className={`flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition ${values.bidding && !values.auto_dispatch ? "bg-white text-[#1F41BB] shadow-sm" : "text-[#6B7280]"}`}>
+                                            <div className={`grid grid-cols-1 gap-2 rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] p-2 w-full mt-1 sm:grid-cols-2 ${isManualDispatchOnly ? "opacity-50" : ""}`}>
+                                                <label className="flex cursor-pointer items-center gap-2 rounded-md bg-white px-3 py-2 text-xs font-medium text-[#111827] shadow-sm">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={Boolean(values.auto_dispatch)}
+                                                        disabled={isManualDispatchOnly}
+                                                        onChange={(e) => {
+                                                            const checked = e.target.checked;
+                                                            setFieldValue("auto_dispatch", checked);
+                                                            setFieldValue("booking_system", checked ? "auto_dispatch" : "bidding");
+                                                            if (!checked && values.bidding) {
+                                                                setFieldValue("driver", "");
+                                                                clearBookingError("driver");
+                                                            }
+                                                            clearBookingError("booking_system");
+                                                        }}
+                                                        className="h-4 w-4 rounded border-[#D1D5DB] text-[#1F41BB] focus:ring-[#1F41BB]"
+                                                    />
+                                                    Auto Dispatch
+                                                </label>
+                                                <label className="flex cursor-pointer items-center gap-2 rounded-md bg-white px-3 py-2 text-xs font-medium text-[#111827] shadow-sm">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={Boolean(values.bidding)}
+                                                        disabled={isManualDispatchOnly}
+                                                        onChange={(e) => {
+                                                            const checked = e.target.checked;
+                                                            setFieldValue("bidding", checked);
+                                                            setFieldValue("bidding_fallback", checked && values.auto_dispatch);
+                                                            setFieldValue("booking_system", values.auto_dispatch ? "auto_dispatch" : "bidding");
+                                                            if (checked && !values.auto_dispatch) {
+                                                                setFieldValue("driver", "");
+                                                                clearBookingError("driver");
+                                                            }
+                                                            clearBookingError("booking_system");
+                                                        }}
+                                                        className="h-4 w-4 rounded border-[#D1D5DB] text-[#1F41BB] focus:ring-[#1F41BB]"
+                                                    />
                                                     Bidding
-                                                </button>
+                                                </label>
+                                                {values.auto_dispatch && values.bidding && (
+                                                    <p className="text-[11px] text-[#6B7280] sm:col-span-2">
+                                                        Bidding opens only if auto dispatch is exhausted.
+                                                    </p>
+                                                )}
+                                                {!values.auto_dispatch && values.bidding && (
+                                                    <p className="text-[11px] text-[#6B7280] sm:col-span-2">
+                                                        Job goes straight to eligible drivers in the bidding screen.
+                                                    </p>
+                                                )}
                                             </div>
                                             <FieldError message={bookingErrors.booking_system} />
                                             <div className="grid grid-cols-1 gap-x-3 gap-y-2 md:grid-cols-2">
@@ -2620,7 +2724,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
                                                             disabled={loadingSubCompanies}
                                                             className={`${formSelectClass} ${bookingErrors.driver ? formInputErrorClass : ""}`}>
                                                             <option value="">Driver</option>
-                                                            {driverList?.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}
+                                                            {visibleDriverList?.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}
                                                         </select>
                                                         <FieldError message={bookingErrors.driver} />
                                                     </FormField>
@@ -2643,7 +2747,18 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
                                                 {values.request_for_vehicle && (
                                                     <FormField label="Vehicle" className="col-span-2">
                                                         <select name="vehicle" value={values.vehicle || ""}
-                                                            onChange={(e) => { setFieldValue("vehicle", e.target.value); invalidateFare(); clearFieldErrors("vehicle"); }}
+                                                            onChange={(e) => {
+                                                                const vehicleId = e.target.value;
+                                                                setFieldValue("vehicle", vehicleId);
+                                                                if (values.driver) {
+                                                                    const selectedDriver = driverList.find((driver) => driver.value === values.driver);
+                                                                    if (selectedDriver && !driverMatchesVehicle(selectedDriver, vehicleId)) {
+                                                                        setFieldValue("driver", "");
+                                                                    }
+                                                                }
+                                                                invalidateFare();
+                                                                clearFieldErrors("vehicle");
+                                                            }}
                                                             disabled={loadingSubCompanies}
                                                             className={`${formSelectClass} ${(calculateErrors.vehicle || bookingErrors.vehicle) ? formInputErrorClass : ""}`}>
                                                             <option value="">Vehicle</option>

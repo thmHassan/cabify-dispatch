@@ -64,6 +64,7 @@ export const mapBookingToFormValues = (booking, { mode = "copy" } = {}) => {
 
     const bookingSystem = booking.booking_system || "auto_dispatch";
     const autoDispatch = bookingSystem !== "bidding" && bookingSystem !== "manual_dispatch";
+    const biddingFallback = booking.bidding_fallback === true || booking.bidding_fallback === 1 || booking.bidding_fallback === "1";
     const requestForVehicle = Boolean(
         booking.request_for_vehicle === "yes" ||
         booking.request_for_vehicle === true ||
@@ -91,7 +92,8 @@ export const mapBookingToFormValues = (booking, { mode = "copy" } = {}) => {
         journey_type: booking.journey_type || "one_way",
         booking_system: bookingSystem,
         auto_dispatch: autoDispatch,
-        bidding: bookingSystem === "bidding",
+        bidding: bookingSystem === "bidding" || biddingFallback,
+        bidding_fallback: biddingFallback,
         request_for_vehicle: requestForVehicle,
         pickup_time_type:
             booking.pickup_time_type ||
