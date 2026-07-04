@@ -549,6 +549,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
             if (Array.isArray(payload)) return payload;
             if (Array.isArray(payload.data)) return payload.data;
             if (Array.isArray(payload.data?.data)) return payload.data.data;
+            if (Array.isArray(payload.list)) return payload.list;
             if (Array.isArray(payload.list?.data)) return payload.list.data;
             return [];
         };

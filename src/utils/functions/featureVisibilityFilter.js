@@ -2,7 +2,6 @@ export const ROUTE_FEATURE_MAP = {
     "accounts": "accounts",
     // "map": "map",
     "manage-zones": "manage_zones",
-    "plots": "zone",
     "lost-found": "lost_found",
     "dispatcher": "dispatcher",
     "sub-company": "sub_company",
