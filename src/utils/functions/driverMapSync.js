@@ -47,7 +47,15 @@ export const sortWaitingDrivers = (drivers) =>
         const plotA = String(a?.plot_id ?? "");
         const plotB = String(b?.plot_id ?? "");
         if (plotA !== plotB) return plotA.localeCompare(plotB, undefined, { numeric: true });
-        return (a.rank || a.ranking || 0) - (b.rank || b.ranking || 0);
+        const rankDelta = (Number(a.rank || a.ranking || 0)) - (Number(b.rank || b.ranking || 0));
+        if (rankDelta !== 0) return rankDelta;
+        const reconnectDelta = Number(Boolean(a.is_reconnecting)) - Number(Boolean(b.is_reconnecting));
+        if (reconnectDelta !== 0) return reconnectDelta;
+        const nameA = String(a.name || a.driver_name || a.driverName || "");
+        const nameB = String(b.name || b.driver_name || b.driverName || "");
+        const nameDelta = nameA.localeCompare(nameB, undefined, { numeric: true });
+        if (nameDelta !== 0) return nameDelta;
+        return String(getDriverKey(a)).localeCompare(String(getDriverKey(b)), undefined, { numeric: true });
     });
 
 export const mergeWaitingDriversByPlot = (prev, plotId, incomingDrivers) => {

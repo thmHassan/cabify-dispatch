@@ -16,6 +16,19 @@ import {
     upsertOnJobDriver,
     upsertWaitingDriver,
 } from "../utils/functions/driverMapSync";
+import { getDriverStateSnapshot } from "../services/AddBookingServices";
+import { getTenantId } from "../utils/functions/tokenEncryption";
+
+const getPayloadDatabase = (payload) => {
+    const data = payload?.data && typeof payload.data === "object" ? payload.data : payload;
+    return data?.database || data?.tenant || data?.tenant_id || data?.db || null;
+};
+
+const isCurrentTenantPayload = (payload) => {
+    const payloadDatabase = getPayloadDatabase(payload);
+    const tenantId = getTenantId();
+    return !payloadDatabase || !tenantId || String(payloadDatabase) === String(tenantId);
+};
 
 const resolvePlotCentroid = (plot) => {
     if (!plot) return null;
@@ -192,6 +205,34 @@ export function useMapDriverSync({ socket, plotsData = [] }) {
 
     const syncWaitingDriversFromApi = useCallback(async () => {
         try {
+            const snapshotResponse = await getDriverStateSnapshot();
+            if (snapshotResponse?.data?.success) {
+                const snapshot = snapshotResponse.data.data || snapshotResponse.data;
+                const waiting = (snapshot.waiting || []).map(formatWaitingDriverFromSocket);
+                const busy = snapshot.onJob || [];
+                const rankedIdle = sortWaitingDrivers(waiting.filter(isWaitingListDriver));
+
+                setWaitingDrivers(rankedIdle);
+                setOnJobDrivers(busy);
+                setDriverData((prev) => {
+                    const updated = {};
+                    [...rankedIdle, ...busy].forEach((driver) => {
+                        const driverKey = getDriverKey(driver);
+                        if (!driverKey) return;
+                        const status = (driver.driving_status || driver.status || "").toLowerCase() === "busy" ? "busy" : "idle";
+                        updated[driverKey] = applyDriverToMapData(
+                            { [driverKey]: prev[driverKey] },
+                            driver,
+                            plotsDataRef.current,
+                            status
+                        )[driverKey];
+                    });
+                    saveDriverDataToStorage(updated);
+                    return updated;
+                });
+                return;
+            }
+
             const response = await apiGetDriverManagement({ page: 1, perPage: 500 });
             if (response?.data?.success !== 1) return;
 
@@ -291,6 +332,7 @@ export function useMapDriverSync({ socket, plotsData = [] }) {
             } catch {
                 data = rawData;
             }
+            if (!isCurrentTenantPayload(data)) return;
 
             const driversList = data?.drivers;
             if (!Array.isArray(driversList)) return;
@@ -320,7 +362,10 @@ export function useMapDriverSync({ socket, plotsData = [] }) {
                 .filter(isWaitingListDriver)
                 .filter((d) => !onJobIds.has(getDriverKey(d)));
 
-            syncWaitingListAndMap(formattedDrivers);
+            const next = plotId != null
+                ? mergeWaitingDriversByPlot(waitingDriversRef.current, plotId, formattedDrivers)
+                : formattedDrivers;
+            syncWaitingListAndMap(next);
         };
 
         const handleWaitingDriverOnline = (rawData) => {
@@ -330,6 +375,7 @@ export function useMapDriverSync({ socket, plotsData = [] }) {
             } catch {
                 data = rawData;
             }
+            if (!isCurrentTenantPayload(data)) return;
 
             if (!isWaitingListDriver(data)) return;
 
@@ -351,6 +397,7 @@ export function useMapDriverSync({ socket, plotsData = [] }) {
             } catch {
                 data = rawData;
             }
+            if (!isCurrentTenantPayload(data)) return;
 
             if (Array.isArray(data)) {
                 setOnJobDrivers(data);
@@ -369,6 +416,7 @@ export function useMapDriverSync({ socket, plotsData = [] }) {
             } catch {
                 data = rawData;
             }
+            if (!isCurrentTenantPayload(data)) return;
 
             const driver = buildOnJobDriverFromPayload(data);
             if (driver) promoteDriverToOnJob(driver);
@@ -381,6 +429,7 @@ export function useMapDriverSync({ socket, plotsData = [] }) {
             } catch {
                 data = rawData;
             }
+            if (!isCurrentTenantPayload(data)) return;
 
             const driverId =
                 data?.driver_id
@@ -404,6 +453,7 @@ export function useMapDriverSync({ socket, plotsData = [] }) {
             }
             if (Array.isArray(data)) data = data[0];
             if (!data) return;
+            if (!isCurrentTenantPayload(data)) return;
 
             const driverId = data.id || data.driver_id || data.dispatcher_id || data.client_id;
             if (!driverId) return;
@@ -424,13 +474,9 @@ export function useMapDriverSync({ socket, plotsData = [] }) {
                 setOnJobDrivers((prev) => prev.filter((d) => getDriverKey(d) !== driverKey));
             }
 
-            const activeIds = getActiveDriverIds(
-                waitingDriversRef.current,
-                onJobDriversRef.current.filter((d) => getDriverKey(d) !== driverKey)
-            );
-            if (!activeIds.has(driverKey)) return;
-
-            setDriverData((prev) => applyDriverToMapData(prev, data, plotsDataRef.current, drivingStatus || "idle"));
+            const formatted = formatWaitingDriverFromSocket(data);
+            const next = upsertWaitingDriver(waitingDriversRef.current, formatted);
+            syncWaitingListAndMap(next, true);
         };
 
         const handleDriverOffline = (rawData) => {
@@ -440,6 +486,7 @@ export function useMapDriverSync({ socket, plotsData = [] }) {
             } catch {
                 data = rawData;
             }
+            if (!isCurrentTenantPayload(data)) return;
 
             const driverId = getOfflineDriverIdFromPayload(data);
             if (driverId) removeDriverFromActiveMap(driverId);

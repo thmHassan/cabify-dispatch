@@ -64,6 +64,45 @@ const Col = ({ w, children, className = "" }) => (
 );
 
 const PENDING_BOOKINGS_STORAGE_KEY = "dispatch_overview_pending_bookings";
+const TERMINAL_BOOKING_STATUSES = new Set(["cancelled", "completed", "no_show"]);
+
+const normalizeBookingEventPayload = (payload = {}, fallbackStatus = null) => {
+    const booking = payload?.booking && typeof payload.booking === "object" ? payload.booking : {};
+    const status = payload?.booking_status || payload?.status || booking?.booking_status || fallbackStatus;
+    const id = booking?.id ?? payload?.id ?? payload?.booking_id_numeric ?? (
+        Number.isFinite(Number(payload?.booking_id)) ? Number(payload.booking_id) : null
+    );
+    const publicBookingId = booking?.booking_id ?? payload?.booking_reference ?? (
+        Number.isFinite(Number(payload?.booking_id)) ? null : payload?.booking_id
+    );
+
+    return {
+        ...booking,
+        ...(id != null ? { id } : {}),
+        ...(publicBookingId ? { booking_id: publicBookingId } : {}),
+        ...(status ? { booking_status: status } : {}),
+    };
+};
+
+const sameBookingIdentity = (booking, eventBooking) => {
+    if (!booking || !eventBooking) return false;
+    const bookingId = booking.id != null ? String(booking.id) : null;
+    const eventId = eventBooking.id != null ? String(eventBooking.id) : null;
+    if (bookingId && eventId && bookingId === eventId) return true;
+
+    const publicId = booking.booking_id != null ? String(booking.booking_id) : null;
+    const eventPublicId = eventBooking.booking_id != null ? String(eventBooking.booking_id) : null;
+    return Boolean(publicId && eventPublicId && publicId === eventPublicId);
+};
+
+const mergeBookingEvent = (current, eventBooking) => {
+    const currentStatus = String(current?.booking_status || "").toLowerCase();
+    const nextStatus = String(eventBooking?.booking_status || "").toLowerCase();
+    if (TERMINAL_BOOKING_STATUSES.has(currentStatus) && nextStatus === "pending") {
+        return current;
+    }
+    return { ...current, ...eventBooking };
+};
 
 const loadPendingBookingsFromStorage = () => {
     try {
@@ -149,6 +188,27 @@ const OverViewDetails = ({
             );
         }, delayMs);
     }, []);
+
+    const applyBookingEvent = useCallback((payload, fallbackStatus = null, { addIfMissing = false } = {}) => {
+        const eventBooking = normalizeBookingEventPayload(payload, fallbackStatus);
+        if (!eventBooking.id && !eventBooking.booking_id) return;
+
+        setBookings((prev) => {
+            const safe = prev.filter(Boolean);
+            let found = false;
+            const next = safe.map((booking) => {
+                if (!sameBookingIdentity(booking, eventBooking)) return booking;
+                found = true;
+                return mergeBookingEvent(booking, eventBooking);
+            });
+
+            if (!found && addIfMissing) {
+                next.unshift(eventBooking);
+            }
+
+            return applyTabFilter(next);
+        });
+    }, [applyTabFilter]);
 
     useEffect(() => {
         if (seedBookings?.length) {
@@ -533,13 +593,7 @@ const OverViewDetails = ({
         const handleJobAccepted = (data) => {
             console.log("job-accepted-by-driver:", data);
             if (!data?.booking_id) return;
-            setBookings((prev) =>
-                mapBookings(prev, (b) =>
-                    b.id === data.booking_id
-                        ? { ...b, ...data.booking, booking_status: "ongoing" }
-                        : b
-                )
-            );
+            applyBookingEvent(data, "ongoing");
             showNotification({
                 booking_id: data.booking_id,
                 driver_name: data.driver_name,
@@ -551,11 +605,7 @@ const OverViewDetails = ({
         const handleJobRejected = (data) => {
             console.log("job-rejected-by-driver:", data);
             if (!data?.booking_id) return;
-            setBookings((prev) =>
-                mapBookings(prev, (b) =>
-                    b.id === data.booking_id ? { ...b, booking_status: "pending" } : b
-                )
-            );
+            applyBookingEvent(data, data?.booking_status || data?.booking?.booking_status || "pending");
             showNotification({
                 booking_id: data.booking_id,
                 driver_name: data.driver_name,
@@ -695,11 +745,7 @@ const OverViewDetails = ({
         const handleBookingCancelled = (data) => {
             console.log("booking-cancelled:", data);
             if (!data?.booking_id) return;
-            setBookings((prev) =>
-                prev.filter(Boolean).map((b) =>
-                    b.id === data.booking_id ? { ...b, booking_status: "cancelled" } : b
-                )
-            );
+            applyBookingEvent(data, "cancelled", { addIfMissing: true });
             showNotification({
                 booking_id: data.booking_id,
                 message: data.message || "Booking has been cancelled by customer",
@@ -727,13 +773,7 @@ const OverViewDetails = ({
         const handleFollowOnSentToDriver = (data) => {
             console.log("follow-on-job-sent-to-driver:", data);
             if (!data?.booking_id) return;
-            setBookings((prev) =>
-                mapBookings(prev, (b) =>
-                    b.id === data.booking_id
-                        ? { ...b, ...data.booking, booking_status: "pending_acceptance" }
-                        : b
-                )
-            );
+            applyBookingEvent(data, "pending_acceptance");
             showNotification({
                 booking_id: data.booking_id,
                 driver_name: data.driver_name,
@@ -745,13 +785,7 @@ const OverViewDetails = ({
         const handleFollowOnTimeout = (data) => {
             console.log("follow-on-job-timeout:", data);
             if (!data?.booking_id) return;
-            setBookings((prev) =>
-                prev.filter(Boolean).map((b) =>
-                    b.id === data.booking_id
-                        ? { ...b, booking_status: "pending", driver: null, driverDetail: null }
-                        : b
-                )
-            );
+            applyBookingEvent({ ...data, booking: { ...(data.booking || {}), driver: null, driverDetail: null } }, "pending");
             showNotification({
                 booking_id: data.booking_id,
                 driver_name: data.driver_name,
@@ -811,20 +845,19 @@ const OverViewDetails = ({
                     PLOT_DISPATCH_SOCKET_EVENTS.STATUS
                 );
             }
-            setBookings((prev) => {
-                const safe = prev.filter(Boolean);
-                const exists = safe.some((b) => b.id === booking.id);
+            applyBookingEvent({ booking }, booking.booking_status, { addIfMissing: true });
+            setRefreshTrigger((prev) => prev + 1);
+        };
 
-                if (!exists) {
-                    return shouldShowBookingInOverviewTab(booking, filter, overviewTabOptions)
-                        ? [booking, ...safe]
-                        : safe;
-                }
-
-                return safe
-                    .map((b) => (b.id === booking.id ? { ...b, ...booking } : b))
-                    .filter((b) => shouldShowBookingInOverviewTab(b, filter, overviewTabOptions));
-            });
+        const handleBookingStatusUpdated = (rawData) => {
+            let data;
+            try {
+                data = typeof rawData === "string" ? JSON.parse(rawData) : rawData;
+            } catch {
+                data = rawData;
+            }
+            if (!data) return;
+            applyBookingEvent(data, data?.booking_status || data?.status, { addIfMissing: true });
             setRefreshTrigger((prev) => prev + 1);
         };
 
@@ -866,6 +899,7 @@ const OverViewDetails = ({
         socket.on("follow-on-job-removed", handleFollowOnRemoved);
         socket.on("send-reminder", handleSendReminder);
         socket.on("booking-updated-event", handleBookingUpdated);
+        socket.on("booking-status-updated", handleBookingStatusUpdated);
         socket.on("refresh-bookings-list", handleRefreshBookingsList);
 
         return () => {
@@ -894,6 +928,7 @@ const OverViewDetails = ({
             socket.off("follow-on-job-removed", handleFollowOnRemoved);
             socket.off("send-reminder", handleSendReminder);
             socket.off("booking-updated-event", handleBookingUpdated);
+            socket.off("booking-status-updated", handleBookingStatusUpdated);
             socket.off("refresh-bookings-list", handleRefreshBookingsList);
         };
 
@@ -904,6 +939,7 @@ const OverViewDetails = ({
         applyTabFilter,
         nearestDriverDispatchEnabled,
         plotBasedDispatchEnabled,
+        applyBookingEvent,
         applyPlotDispatchUpdate,
         clearHighlightLater,
         syncPlotDispatchStatus,

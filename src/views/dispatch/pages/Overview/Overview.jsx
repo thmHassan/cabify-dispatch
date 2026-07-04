@@ -786,12 +786,16 @@ const getDriverPlotLabel = (driver) =>
 
 const buildPopupHTML = (data) => {
   const name = data.name || data.driver_name || data.driverName || "Unknown Driver";
-  const phone = data.phone_no || data.phone || "N/A";
+  const phone = data.phone_no || data.driver_phone || data.phone || "N/A";
   const plate = data.plate_no || data.plate || "N/A";
+  const vehicleName = data.vehicle_name || data.vehicleTypeName || data.vehicle_type_name || "No vehicle details";
+  const vehicleType = data.vehicle_type || data.vehicle_service || data.vehicle_type_service || data.assigned_vehicle || "";
+  const plotLabel = getDriverPlotLabel(data);
+  const rank = data.rank || data.ranking || "-";
   const status = (data.driving_status || data.status || "idle").toLowerCase();
-  const statusLabel = status.charAt(0).toUpperCase() + status.slice(1);
+  const statusLabel = data.is_reconnecting ? "Reconnecting" : status.charAt(0).toUpperCase() + status.slice(1);
   const statusColor = status === "busy" ? "#10b981" : "#ef4444";
-  return `<div style="font-family:'Inter',sans-serif;min-width:150px;padding:4px 6px;"><div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="color:#4b5563;"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg><span style="font-weight:700;color:#111827;font-size:15px;">${name}</span></div><div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="color:#6b7280;"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg><span style="color:#4b5563;font-size:13px;">${phone}</span></div><div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="color:#6b7280;"><rect x="1" y="3" width="22" height="18" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg><span style="background:#f9fafb;color:#374151;font-weight:600;font-size:12px;padding:1px 6px;border-radius:4px;border:1px solid #e5e7eb;">${plate}</span></div><div style="display:flex;align-items:center;gap:6px;border-top:1px solid #f3f4f6;padding-top:8px;"><span style="height:7px;width:7px;background-color:${statusColor};border-radius:50%;display:inline-block;"></span><span style="color:${statusColor};font-weight:700;font-size:12px;text-transform:capitalize;border:1px solid ${statusColor}40;padding:1px 8px;border-radius:20px;background:${statusColor}10;">${statusLabel}</span></div></div>`;
+  return `<div style="font-family:'Inter',sans-serif;min-width:190px;padding:4px 6px;"><div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="color:#4b5563;"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg><span style="font-weight:700;color:#111827;font-size:15px;">${name}</span></div><div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;"><span style="color:#4b5563;font-size:13px;">${phone}</span></div><div style="color:#4b5563;font-size:12px;margin-bottom:6px;"><strong>Plot:</strong> ${plotLabel} &nbsp; <strong>Rank:</strong> ${rank}</div><div style="color:#4b5563;font-size:12px;margin-bottom:6px;"><strong>Vehicle:</strong> ${vehicleName}${vehicleType ? ` (${vehicleType})` : ""}</div><div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;"><span style="background:#f9fafb;color:#374151;font-weight:600;font-size:12px;padding:1px 6px;border-radius:4px;border:1px solid #e5e7eb;">${plate}</span></div><div style="display:flex;align-items:center;gap:6px;border-top:1px solid #f3f4f6;padding-top:8px;"><span style="height:7px;width:7px;background-color:${statusColor};border-radius:50%;display:inline-block;"></span><span style="color:${statusColor};font-weight:700;font-size:12px;text-transform:capitalize;border:1px solid ${statusColor}40;padding:1px 8px;border-radius:20px;background:${statusColor}10;">${statusLabel}</span></div></div>`;
 };
 
 const GoogleMapSection = ({ mapRef, mapInstance, markers, driverData, setDriverData, socket, countryCenter, plotsData, apiKeys, waitingDrivers, onJobDrivers, mapType }) => {
@@ -1214,13 +1218,12 @@ const usePersistedOnJobDrivers = () => {
 
 const usePersistedDriverData = () => {
   const [driverData, setRaw] = useState(() => {
-    const storedDrivers = loadFromStorage(getDriverDataStorageKey(), {});
-    return { ...storedDrivers };
+    try { localStorage.removeItem(getDriverDataStorageKey()); } catch { }
+    return {};
   });
   const setDriverData = useCallback((updater) => {
     setRaw((prev) => {
       const next = typeof updater === "function" ? updater(prev) : updater;
-      saveToStorage(getDriverDataStorageKey(), next);
       return next;
     });
   }, []);
@@ -1229,14 +1232,12 @@ const usePersistedDriverData = () => {
 
 const usePersistedWaitingDrivers = () => {
   const [waitingDrivers, setRaw] = useState(() => {
-    const stored = loadFromStorage(getWaitingDriversStorageKey(), []);
-    const now = Date.now();
-    return stored.filter((d) => !d.updatedAt || now - d.updatedAt < 15 * 60 * 1000);
+    try { localStorage.removeItem(getWaitingDriversStorageKey()); } catch { }
+    return [];
   });
   const setWaitingDrivers = useCallback((updater) => {
     setRaw((prev) => {
       const next = typeof updater === "function" ? updater(prev) : updater;
-      saveToStorage(getWaitingDriversStorageKey(), next);
       return next;
     });
   }, []);
@@ -1869,8 +1870,10 @@ const Overview = () => {
         .filter(isWaitingListDriver)
         .filter((d) => !onJobIds.has(getDriverKey(d)));
 
-      // Socket drivers[] is authoritative for who is online + waiting
-      syncWaitingListAndMap(formattedDrivers);
+      const next = plotId != null
+        ? mergeWaitingDriversByPlot(waitingDriversRef.current, plotId, formattedDrivers)
+        : formattedDrivers;
+      syncWaitingListAndMap(next);
     };
 
     const handleWaitingDriverOnline = (rawData) => {
