@@ -472,7 +472,7 @@ const OverViewDetails = ({
     }, [filter]);
 
     useEffect(() => {
-        setTableLoading(true);
+        setTableLoading(bookingsRef.current.length === 0);
         const fetchBookings = async () => {
             try {
                 const params = { page, limit };
@@ -751,7 +751,6 @@ const OverViewDetails = ({
                 message: data.message || "Booking has been cancelled by customer",
                 type: "cancelled",
             });
-            setRefreshTrigger(prev => prev + 1);
         };
 
         const handleFollowOnLinked = (data) => {
@@ -846,7 +845,6 @@ const OverViewDetails = ({
                 );
             }
             applyBookingEvent({ booking }, booking.booking_status, { addIfMissing: true });
-            setRefreshTrigger((prev) => prev + 1);
         };
 
         const handleBookingStatusUpdated = (rawData) => {
@@ -858,7 +856,10 @@ const OverViewDetails = ({
             }
             if (!data) return;
             applyBookingEvent(data, data?.booking_status || data?.status, { addIfMissing: true });
-            setRefreshTrigger((prev) => prev + 1);
+        };
+
+        const handleDashboardCardsUpdate = (data) => {
+            console.log("dashboard-cards-update:", data);
         };
 
         socket.onAny((event, ...args) => {
@@ -889,10 +890,7 @@ const OverViewDetails = ({
         socket.on("booking-cancelled-event", handleBookingCancelled);
         socket.on("booking-cancelled", handleBookingCancelled);
         socket.on("cancel-booking-event", handleBookingCancelled);
-        socket.on("dashboard-cards-update", (data) => {
-            console.log("dashboard-cards-update (triggering refresh)");
-            setRefreshTrigger(prev => prev + 1);
-        });
+        socket.on("dashboard-cards-update", handleDashboardCardsUpdate);
         socket.on("follow-on-job-linked", handleFollowOnLinked);
         socket.on("follow-on-job-sent-to-driver", handleFollowOnSentToDriver);
         socket.on("follow-on-job-timeout", handleFollowOnTimeout);
@@ -921,7 +919,7 @@ const OverViewDetails = ({
             socket.off("booking-cancelled-event", handleBookingCancelled);
             socket.off("booking-cancelled", handleBookingCancelled);
             socket.off("cancel-booking-event", handleBookingCancelled);
-            socket.off("dashboard-cards-update");
+            socket.off("dashboard-cards-update", handleDashboardCardsUpdate);
             socket.off("follow-on-job-linked", handleFollowOnLinked);
             socket.off("follow-on-job-sent-to-driver", handleFollowOnSentToDriver);
             socket.off("follow-on-job-timeout", handleFollowOnTimeout);

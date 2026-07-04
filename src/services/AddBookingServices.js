@@ -15,8 +15,6 @@ const buildBookingParams = ({
     filter,
 }) => {
     const params = { page, limit };
-    const dispatcherId = getDispatcherId();
-    if (dispatcherId != null) params.dispatcher_id = dispatcherId;
     if (search) params.search = search;
     if (status) params.status = status;
     if (sub_company) params.sub_company = sub_company;
@@ -47,7 +45,6 @@ const fetchBookingsFromLaravel = async ({
     const params = {
         page,
         perPage: limit,
-        dispatcher_id: getDispatcherId(),
     };
 
     if (search) params.search = search;
@@ -187,9 +184,7 @@ export const sendConfirmationEmail = (bookingId, dispatcherName) => {
 
 export const getDashboardCards = async () => {
     try {
-        const dispatcherId = getDispatcherId();
-        const params = dispatcherId != null ? { dispatcher_id: dispatcherId } : undefined;
-        const res = await socketApi.get("/bookings/dashboard-cards", params ? { params } : undefined);
+        const res = await socketApi.get("/bookings/dashboard-cards");
         if (res?.data?.success) return res;
         throw new Error("Socket dashboard cards API returned unsuccessful response");
     } catch (err) {
