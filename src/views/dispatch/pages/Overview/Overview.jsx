@@ -1400,6 +1400,10 @@ const Overview = () => {
 
   useEffect(() => { fetchDashboardCards(); }, [fetchDashboardCards]);
 
+  useEffect(() => {
+    fetchDashboardCards();
+  }, [activeBookingFilter, fetchDashboardCards]);
+
   const handleBookingCreated = useCallback((meta) => {
     const createdBookings = Array.isArray(meta?.createdBookings) ? meta.createdBookings.filter(Boolean) : [];
     const createdCount = createdBookings.length || (Number(meta?.createdCount) || 0);
@@ -1810,7 +1814,7 @@ const Overview = () => {
 
     const handleDashboardUpdate = (data) => {
       if (!isCurrentTenantPayload(data)) return;
-      setDashboardCounts(data);
+      fetchDashboardCards();
     };
     const handleNotificationRide = (rawData) => {
       let data;
