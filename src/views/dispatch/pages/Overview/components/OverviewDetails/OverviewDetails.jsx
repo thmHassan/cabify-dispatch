@@ -1341,21 +1341,21 @@ const OverViewDetails = ({
                         </div>
                     ) : (
                         <div className="overflow-x-auto xl:overflow-x-visible min-h-[320px]">
-                            <div className="min-w-[1648px] xl:min-w-0">
+                            <div className="min-w-[1502px] xl:min-w-0">
                                 <div className="flex border-b text-sm font-semibold text-gray-700 bg-gray-50">
-                                    <Col w="w-[56px]">ID</Col>
-                                    <Col w="w-[108px]">Pickup Date</Col>
-                                    <Col w="w-[74px]">Time</Col>
-                                    <Col w="w-[82px]">Reminder</Col>
-                                    <Col w="w-[82px]">Passenger</Col>
-                                    <Col w="w-[150px]">Mobile No.</Col>
-                                    <Col w="w-[210px]">Pickup</Col>
-                                    <Col w="w-[210px]">Destination</Col>
-                                    <Col w="w-[104px]">Fare</Col>
-                                    <Col w="w-[112px]">Vehicle</Col>
-                                    <Col w="w-[126px]">Sub Company</Col>
+                                    <Col w="w-[50px]">ID</Col>
+                                    <Col w="w-[104px]">Pickup Date</Col>
+                                    <Col w="w-[70px]">Time</Col>
+                                    <Col w="w-[76px]">Reminder</Col>
+                                    <Col w="w-[76px]">Passenger</Col>
+                                    <Col w="w-[132px]">Mobile No.</Col>
+                                    <Col w="w-[190px]">Pickup</Col>
+                                    <Col w="w-[190px]">Destination</Col>
+                                    <Col w="w-[96px]">Fare</Col>
+                                    <Col w="w-[90px]">Vehicle</Col>
+                                    <Col w="w-[110px]">Sub Company</Col>
                                     {/* <Col w="w-[100px]">OTP</Col> */}
-                                    <Col w="w-[144px]">Status</Col>
+                                    <Col w="w-[128px]">Status</Col>
                                     <Col w="w-[190px]">Action</Col>
                                 </div>
 
@@ -1396,53 +1396,53 @@ const OverViewDetails = ({
                                             key={b.id}
                                             className="flex border-b text-sm bg-white hover:bg-gray-50 transition-colors"
                                         >
-                                            <Col w="w-[56px]">{rowNumber}</Col>
+                                            <Col w="w-[50px]">{rowNumber}</Col>
 
-                                            <Col w="w-[108px]">
+                                            <Col w="w-[104px]">
                                                 {formatBookingDate(b.booking_date)}
                                             </Col>
 
-                                            <Col w="w-[74px]">
+                                            <Col w="w-[70px]">
                                                 {formatPickupTime(b)}
                                             </Col>
 
-                                            <Col w="w-[82px]">
+                                            <Col w="w-[76px]">
                                                 {formatReminderLabel(b.reminder_minutes)}
                                             </Col>
 
-                                            <Col w="w-[82px]">{b.passenger ?? 1}</Col>
-                                            <Col w="w-[150px]">{b.phone_no ?? "N/A"}</Col>
+                                            <Col w="w-[76px]">{b.passenger ?? 1}</Col>
+                                            <Col w="w-[132px]">{b.phone_no ?? "N/A"}</Col>
 
-                                            <Col w="w-[210px]" className="truncate" title={getLocationDisplay(b, "pickup_location")}>
+                                            <Col w="w-[190px]" className="truncate" title={getLocationDisplay(b, "pickup_location")}>
                                                 {getLocationDisplay(b, "pickup_location")}
                                             </Col>
 
-                                            <Col w="w-[210px]" className="truncate" title={getLocationDisplay(b, "destination_location")}>
+                                            <Col w="w-[190px]" className="truncate" title={getLocationDisplay(b, "destination_location")}>
                                                 {getLocationDisplay(b, "destination_location")}
                                             </Col>
 
-                                            <Col w="w-[104px]">
+                                            <Col w="w-[96px]">
                                                 <div className="flex flex-col">
                                                     <span>{formatCurrency(b.booking_amount ?? b.offered_amount ?? 0)}</span>
                                                     <span className="text-xs text-gray-500">{formatStatus(b.payment_method)}</span>
                                                 </div>
                                             </Col>
 
-                                            <Col w="w-[112px]">
+                                            <Col w="w-[90px]">
                                                 <div className="flex flex-col">
                                                     <span>{b.vehicleDetail?.vehicle_type_name ?? "-"}</span>
                                                     <span className="text-xs text-gray-500">{b.vehicleDetail?.vehicle_type_service ?? ""}</span>
                                                 </div>
                                             </Col>
 
-                                            <Col w="w-[126px]">
+                                            <Col w="w-[110px]">
                                                 <div className="flex flex-col">
                                                     <span>{b.subCompanyDetail?.name ?? "-"}</span>
                                                     <span className="text-xs text-gray-500">{b.subCompanyDetail?.email ?? ""}</span>
                                                 </div>
                                             </Col>
 
-                                            <Col w="w-[144px]">
+                                            <Col w="w-[128px]">
                                                 <div className="flex flex-col gap-1">
                                                     <button
                                                         ref={(el) => (btnRef.current = el)}
@@ -1476,8 +1476,10 @@ const OverViewDetails = ({
                                                 </div>
                                             </Col>
 
-                                            <Col w="w-[190px]" className="whitespace-normal break-words">
-                                                {cleanDispatcherAction(b.dispatcher_action) || "-"}
+                                            <Col w="w-[190px]" className="whitespace-normal">
+                                                <span className="line-clamp-2 text-[12px] leading-snug" title={cleanDispatcherAction(b.dispatcher_action) || "-"}>
+                                                    {cleanDispatcherAction(b.dispatcher_action) || "-"}
+                                                </span>
                                             </Col>
                                         </div>
                                     );

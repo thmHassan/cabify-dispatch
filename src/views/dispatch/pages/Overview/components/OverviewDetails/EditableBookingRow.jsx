@@ -4,6 +4,7 @@ import {
     isPlotDispatchInProgress,
     isScheduledBookingWithReminder,
 } from "../../../../../../utils/functions/bookingDateFilter";
+import { FaPen, FaUserPlus } from "react-icons/fa";
 import {
     formatBookingDate,
     formatCurrency,
@@ -88,6 +89,7 @@ const EditableBookingRow = ({
     const progressMessage = plotStatus
         ? formatPlotDispatchProgressMessage(plotStatus)
         : "";
+    const dispatcherAction = cleanDispatcherAction(booking.dispatcher_action) || "-";
 
     const rowClassName = [
         "flex border-b text-sm transition-colors",
@@ -106,48 +108,48 @@ const EditableBookingRow = ({
 
     return (
         <div className={rowClassName}>
-            <Col w="w-[56px]">{rowNumber ?? index + 1}</Col>
+            <Col w="w-[50px]">{rowNumber ?? index + 1}</Col>
 
-            <Col w="w-[108px]">{formatBookingDate(booking.booking_date)}</Col>
+            <Col w="w-[104px]">{formatBookingDate(booking.booking_date)}</Col>
 
-            <Col w="w-[74px]">{formatPickupTime(booking)}</Col>
+            <Col w="w-[70px]">{formatPickupTime(booking)}</Col>
 
-            <Col w="w-[82px]">{formatReminderLabel(booking.reminder_minutes)}</Col>
+            <Col w="w-[76px]">{formatReminderLabel(booking.reminder_minutes)}</Col>
 
-            <Col w="w-[82px]">{booking.passenger ?? 1}</Col>
+            <Col w="w-[76px]">{booking.passenger ?? 1}</Col>
 
-            <Col w="w-[150px]">{booking.phone_no ?? "N/A"}</Col>
+            <Col w="w-[132px]">{booking.phone_no ?? "N/A"}</Col>
 
-            <Col w="w-[210px]" className="truncate" title={pickupDisplay}>
+            <Col w="w-[190px]" className="truncate" title={pickupDisplay}>
                 {pickupDisplay}
             </Col>
 
-            <Col w="w-[210px]" className="truncate" title={destinationDisplay}>
+            <Col w="w-[190px]" className="truncate" title={destinationDisplay}>
                 {destinationDisplay}
             </Col>
 
-            <Col w="w-[104px]">
+            <Col w="w-[96px]">
                 <div className="flex flex-col">
                     <span>{formatCurrency(booking.booking_amount ?? booking.offered_amount ?? 0)}</span>
                     <span className="text-xs text-gray-500">{formatStatus(booking.payment_method)}</span>
                 </div>
             </Col>
 
-            <Col w="w-[112px]">
+            <Col w="w-[90px]">
                 <div className="flex flex-col">
                     <span>{booking.vehicleDetail?.vehicle_type_name ?? "-"}</span>
                     <span className="text-xs text-gray-500">{booking.vehicleDetail?.vehicle_type_service ?? ""}</span>
                 </div>
             </Col>
 
-            <Col w="w-[126px]">
+            <Col w="w-[110px]">
                 <div className="flex flex-col">
                     <span>{booking.subCompanyDetail?.name ?? "-"}</span>
                     <span className="text-xs text-gray-500">{booking.subCompanyDetail?.email ?? ""}</span>
                 </div>
             </Col>
 
-            <Col w="w-[144px]">
+            <Col w="w-[128px]">
                 <div className="flex flex-col gap-1">
                     <button
                         ref={(el) => (btnRef.current = el)}
@@ -181,13 +183,14 @@ const EditableBookingRow = ({
                 </div>
             </Col>
 
-            <Col w="w-[190px]" className="whitespace-normal break-words">
-                <div className="flex flex-col gap-1">
+            <Col w="w-[190px]" className="whitespace-normal">
+                <div className="flex min-w-0 flex-col gap-1.5">
                     {plotBasedDispatchEnabled && progressMessage ? (
                         <button
                             type="button"
                             onClick={() => onOpenPlotDispatchPanel?.(booking, plotStatus)}
-                            className={`text-left text-[11px] font-medium leading-snug ${
+                            title={progressMessage}
+                            className={`line-clamp-2 text-left text-[11px] font-medium leading-snug ${
                                 plotDispatchExhausted
                                     ? "text-amber-700"
                                     : plotDispatchActive
@@ -198,27 +201,37 @@ const EditableBookingRow = ({
                             {progressMessage}
                         </button>
                     ) : (
-                        <span>{cleanDispatcherAction(booking.dispatcher_action) || "-"}</span>
+                        <span className="line-clamp-2 text-[12px] leading-snug" title={dispatcherAction}>
+                            {dispatcherAction}
+                        </span>
                     )}
 
-                    {showManualAssign && (
-                        <button
-                            type="button"
-                            onClick={() => onOpenAllocateModal(booking, "allocate_driver")}
-                            className="self-start rounded bg-amber-500 px-2 py-1 text-[10px] font-semibold text-white hover:bg-amber-600"
-                        >
-                            Manual Assign
-                        </button>
-                    )}
+                    {(showManualAssign || showEdit) && (
+                        <div className="flex flex-wrap items-center gap-1.5">
+                            {showManualAssign && (
+                                <button
+                                    type="button"
+                                    onClick={() => onOpenAllocateModal(booking, "allocate_driver")}
+                                    title="Manual assign"
+                                    className="inline-flex items-center gap-1 rounded-md bg-amber-500 px-2 py-1 text-[10px] font-semibold text-white hover:bg-amber-600"
+                                >
+                                    <FaUserPlus className="text-[10px]" />
+                                    Assign
+                                </button>
+                            )}
 
-                    {showEdit && onOpenEditBooking && (
-                        <button
-                            type="button"
-                            onClick={() => onOpenEditBooking(booking)}
-                            className="self-start rounded border border-[#1F41BB] px-2 py-1 text-[10px] font-semibold text-[#1F41BB] hover:bg-[#EEF2FF]"
-                        >
-                            Edit
-                        </button>
+                            {showEdit && onOpenEditBooking && (
+                                <button
+                                    type="button"
+                                    onClick={() => onOpenEditBooking(booking)}
+                                    title="Edit booking"
+                                    aria-label="Edit booking"
+                                    className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-[#1F41BB] text-[10px] text-[#1F41BB] hover:bg-[#EEF2FF]"
+                                >
+                                    <FaPen />
+                                </button>
+                            )}
+                        </div>
                     )}
                 </div>
             </Col>
