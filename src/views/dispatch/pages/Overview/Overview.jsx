@@ -47,6 +47,7 @@ import {
 import { usePausableAutoDismiss } from "../../../../hooks/usePausableAutoDismiss";
 import {
   dispatchSystemListHasNearestDriver,
+  dispatchSystemListHasManualOnly,
   dispatchSystemListHasPlotBased,
 } from "../../../../utils/functions/dispatchSystem";
 import {
@@ -116,7 +117,8 @@ const normalizeDispatchSystemList = (response) => {
   return data;
 };
 
-const isNearestDriverDispatchEnabled = (items) => dispatchSystemListHasNearestDriver(items);
+const shouldHidePlotAndRank = (items) =>
+  dispatchSystemListHasNearestDriver(items) || dispatchSystemListHasManualOnly(items);
 
 const isPlotBasedDispatchEnabled = (items) => dispatchSystemListHasPlotBased(items);
 
@@ -1376,7 +1378,7 @@ const Overview = () => {
       try {
         const response = await apiGetDispatchSystem();
         const data = normalizeDispatchSystemList(response);
-        setHidePlotAndRank(isNearestDriverDispatchEnabled(data));
+        setHidePlotAndRank(shouldHidePlotAndRank(data));
         setPlotBasedDispatchEnabled(isPlotBasedDispatchEnabled(data));
       } catch {
         setHidePlotAndRank(false);

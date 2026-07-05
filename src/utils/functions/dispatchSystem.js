@@ -25,3 +25,6 @@ export const dispatchSystemListHasPlotBased = (items) =>
 
 export const dispatchSystemListHasNearestDriver = (items) =>
     Array.isArray(items) && items.some(isNearestDriverDispatchSystem);
+
+export const dispatchSystemListHasManualOnly = (items) =>
+    Array.isArray(items) && items.some(isManualDispatchOnlySystem);

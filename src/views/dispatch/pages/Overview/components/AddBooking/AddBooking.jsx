@@ -645,6 +645,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
                     }
                 }
                 const plotBasedDispatchEnabled = dispatchSystemListHasPlotBased(data);
+                const manualDispatchOnlyEnabled = data.some(isManualDispatchOnlySystem);
                 const autoDispatchEnabled =
                     hasEnabledDispatchStep(data, "auto_dispatch_plot_base") ||
                     hasEnabledDispatchStep(data, "auto_dispatch_nearest_driver");
@@ -654,20 +655,22 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
                     hasEnabledDispatchStep(data, "auto_dispatch_nearest_driver", "put_in_bidding_panel");
 
                 setIsPlotBasedDispatchEnabled(plotBasedDispatchEnabled);
-                setIsManualDispatchOnly(data.some(isManualDispatchOnlySystem));
+                setIsManualDispatchOnly(manualDispatchOnlyEnabled);
                 setCompanyBiddingFallbackEnabled(biddingFallbackEnabled);
                 if (!isEditMode) {
+                    const nextAutoDispatch = !manualDispatchOnlyEnabled && (autoDispatchEnabled || !biddingOnlyEnabled);
+                    const nextBidding = !manualDispatchOnlyEnabled && (biddingOnlyEnabled || biddingFallbackEnabled);
                     setInitialFormValues((prev) => ({
                         ...prev,
-                        auto_dispatch: autoDispatchEnabled || !biddingOnlyEnabled,
-                        bidding: biddingOnlyEnabled || biddingFallbackEnabled,
-                        bidding_fallback: biddingFallbackEnabled,
-                        booking_system: autoDispatchEnabled || !biddingOnlyEnabled ? "auto_dispatch" : "bidding",
+                        auto_dispatch: nextAutoDispatch,
+                        bidding: nextBidding,
+                        bidding_fallback: !manualDispatchOnlyEnabled && biddingFallbackEnabled,
+                        booking_system: manualDispatchOnlyEnabled ? "manual_dispatch" : (nextAutoDispatch ? "auto_dispatch" : "bidding"),
                         auto_release: releaseSettings.enabled,
                         dispatch_release_mode: releaseSettings.mode,
                         dispatch_release_at: "",
                         dispatch_release_override: false,
-                        driver: biddingOnlyEnabled && !autoDispatchEnabled ? "" : prev.driver,
+                        driver: (biddingOnlyEnabled && !autoDispatchEnabled) || manualDispatchOnlyEnabled ? "" : prev.driver,
                     }));
                     setNewBookingFormKey((key) => key + 1);
                 }
@@ -1495,7 +1498,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
         if (!values.destination_location?.trim()) errors.destination_location = "Destination is required";
         if (values.request_for_vehicle && !values.vehicle) errors.vehicle = "Vehicle type is required";
         if (!values.journey_type) errors.journey_type = "Journey type is required";
-        if (!values.auto_dispatch && !values.bidding) {
+        if (!isManualDispatchOnly && !values.auto_dispatch && !values.bidding) {
             errors.booking_system = "Select Auto Dispatch or Bidding";
         }
         if (!values.booking_type || values.booking_type === "outstation") errors.booking_type = "Please select a booking type";
@@ -1688,9 +1691,13 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
         formData.append("account_id", value);
     };
 
-    const resolveBookingSystemValue = (values) => values.auto_dispatch ? "auto_dispatch" : "bidding";
+    const resolveBookingSystemValue = (values) => {
+        if (isManualDispatchOnly) return "manual_dispatch";
+        return values.auto_dispatch ? "auto_dispatch" : "bidding";
+    };
 
-    const resolveBiddingFallbackValue = (values) => values.auto_dispatch && values.bidding ? "yes" : "no";
+    const resolveBiddingFallbackValue = (values) =>
+        !isManualDispatchOnly && values.auto_dispatch && values.bidding ? "yes" : "no";
 
     const appendDispatchReleaseFields = (formData, values) => {
         const scheduled = values.pickup_time_type === "time";
