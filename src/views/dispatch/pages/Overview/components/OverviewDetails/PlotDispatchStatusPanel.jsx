@@ -107,9 +107,6 @@ const PlotDispatchStatusPanel = ({
                                 {status.pending_drivers.map((driver) => (
                                     <div key={driver.id} className="flex justify-between text-xs bg-blue-50 rounded px-2 py-1">
                                         <span className="font-medium text-gray-800">{driver.name}</span>
-                                        {driver.priority != null && (
-                                            <span className="text-gray-500">Priority {driver.priority}</span>
-                                        )}
                                     </div>
                                 ))}
                             </div>
@@ -123,9 +120,6 @@ const PlotDispatchStatusPanel = ({
                                 {status.rejected_drivers.map((driver) => (
                                     <div key={driver.id} className="flex justify-between text-xs bg-red-50 rounded px-2 py-1">
                                         <span className="font-medium text-gray-800">{driver.name}</span>
-                                        {driver.priority != null && (
-                                            <span className="text-gray-500">Priority {driver.priority}</span>
-                                        )}
                                     </div>
                                 ))}
                             </div>

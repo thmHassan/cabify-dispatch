@@ -854,7 +854,7 @@ const getDriverPlotLabel = (driver) =>
     ? `${driver.plot_name} (${driver.plot_id})`
     : (driver.plot_name || driver.plot || "N/A");
 
-const buildPopupHTML = (data) => {
+const buildPopupHTML = (data, { hidePlotAndRank = false } = {}) => {
   const name = data.name || data.driver_name || data.driverName || "Driver details loading";
   const phone = data.phone_no || data.driver_phone || data.phone || "N/A";
   const plate = data.plate_no || data.plate || "N/A";
@@ -865,10 +865,13 @@ const buildPopupHTML = (data) => {
   const status = (data.driving_status || data.status || "idle").toLowerCase();
   const statusLabel = data.is_reconnecting ? "Reconnecting" : status.charAt(0).toUpperCase() + status.slice(1);
   const statusColor = status === "busy" ? "#10b981" : "#ef4444";
-  return `<div style="font-family:'Inter',sans-serif;min-width:190px;padding:4px 6px;"><div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="color:#4b5563;"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg><span style="font-weight:700;color:#111827;font-size:15px;">${name}</span></div><div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;"><span style="color:#4b5563;font-size:13px;">${phone}</span></div><div style="color:#4b5563;font-size:12px;margin-bottom:6px;"><strong>Plot:</strong> ${plotLabel} &nbsp; <strong>Rank:</strong> ${rank}</div><div style="color:#4b5563;font-size:12px;margin-bottom:6px;"><strong>Vehicle:</strong> ${vehicleName}${vehicleType ? ` (${vehicleType})` : ""}</div><div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;"><span style="background:#f9fafb;color:#374151;font-weight:600;font-size:12px;padding:1px 6px;border-radius:4px;border:1px solid #e5e7eb;">${plate}</span></div><div style="display:flex;align-items:center;gap:6px;border-top:1px solid #f3f4f6;padding-top:8px;"><span style="height:7px;width:7px;background-color:${statusColor};border-radius:50%;display:inline-block;"></span><span style="color:${statusColor};font-weight:700;font-size:12px;text-transform:capitalize;border:1px solid ${statusColor}40;padding:1px 8px;border-radius:20px;background:${statusColor}10;">${statusLabel}</span></div></div>`;
+  const plotRankLine = hidePlotAndRank
+    ? ""
+    : `<div style="color:#4b5563;font-size:12px;margin-bottom:6px;"><strong>Plot:</strong> ${plotLabel} &nbsp; <strong>Rank:</strong> ${rank}</div>`;
+  return `<div style="font-family:'Inter',sans-serif;min-width:190px;padding:4px 6px;"><div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="color:#4b5563;"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg><span style="font-weight:700;color:#111827;font-size:15px;">${name}</span></div><div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;"><span style="color:#4b5563;font-size:13px;">${phone}</span></div>${plotRankLine}<div style="color:#4b5563;font-size:12px;margin-bottom:6px;"><strong>Vehicle:</strong> ${vehicleName}${vehicleType ? ` (${vehicleType})` : ""}</div><div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;"><span style="background:#f9fafb;color:#374151;font-weight:600;font-size:12px;padding:1px 6px;border-radius:4px;border:1px solid #e5e7eb;">${plate}</span></div><div style="display:flex;align-items:center;gap:6px;border-top:1px solid #f3f4f6;padding-top:8px;"><span style="height:7px;width:7px;background-color:${statusColor};border-radius:50%;display:inline-block;"></span><span style="color:${statusColor};font-weight:700;font-size:12px;text-transform:capitalize;border:1px solid ${statusColor}40;padding:1px 8px;border-radius:20px;background:${statusColor}10;">${statusLabel}</span></div></div>`;
 };
 
-const GoogleMapSection = ({ mapRef, mapInstance, markers, driverData, setDriverData, socket, countryCenter, plotsData, apiKeys, waitingDrivers, onJobDrivers, mapType }) => {
+const GoogleMapSection = ({ mapRef, mapInstance, markers, driverData, setDriverData, socket, countryCenter, plotsData, apiKeys, waitingDrivers, onJobDrivers, mapType, hidePlotAndRank }) => {
   const { googleKey } = getApiKeys(apiKeys);
   const [isMapReady, setIsMapReady] = useState(false);
   const plotPolygons = useRef([]);
@@ -944,7 +947,7 @@ const GoogleMapSection = ({ mapRef, mapInstance, markers, driverData, setDriverD
       const isOnJob = onJobIds.has(id);
       const validStatus = isOnJob ? "busy" : ((data?.driving_status || data?.status || "idle") === "busy" ? "busy" : "idle");
       const name = data?.name || data?.driverName || data?.driver_name || "Driver details loading";
-      const infoContent = buildPopupHTML({ ...data, driving_status: validStatus });
+      const infoContent = buildPopupHTML({ ...data, driving_status: validStatus }, { hidePlotAndRank });
 
       if (markers.current[id]) {
         const marker = markers.current[id];
@@ -1000,7 +1003,7 @@ const GoogleMapSection = ({ mapRef, mapInstance, markers, driverData, setDriverD
 
     if (socketRef.current) socketRef.current.on("driver-location-update", handle);
     return () => { if (socketRef.current) socketRef.current.off("driver-location-update", handle); };
-  }, [isMapReady, waitingDrivers, onJobDrivers]);
+  }, [isMapReady, waitingDrivers, onJobDrivers, hidePlotAndRank]);
 
   useEffect(() => {
     Object.values(markers.current).forEach((m) => m.setVisible(true));
@@ -1037,7 +1040,7 @@ const GoogleMapSection = ({ mapRef, mapInstance, markers, driverData, setDriverD
   );
 };
 
-const DefaultMapSection = ({ mapRef, mapInstance, markers, driverData, setDriverData, socket, countryCenter, plotsData, apiKeys, waitingDrivers, onJobDrivers, mapType }) => {
+const DefaultMapSection = ({ mapRef, mapInstance, markers, driverData, setDriverData, socket, countryCenter, plotsData, apiKeys, waitingDrivers, onJobDrivers, mapType, hidePlotAndRank }) => {
   const [mapReady, setMapReady] = useState(false);
   const { mapifyStyle, barikoiStyle } = getApiKeys(apiKeys);
   const mapStyle = mapifyStyle || barikoiStyle;
@@ -1155,7 +1158,7 @@ const DefaultMapSection = ({ mapRef, mapInstance, markers, driverData, setDriver
       const isOnJob = onJobIds.has(String(driverId));
       const validStatus = isOnJob ? "busy" : ((data.driving_status || "idle") === "busy" ? "busy" : "idle");
       const name = data.name || data.driverName || data.driver_name || "Driver details loading";
-      const popupHTML = buildPopupHTML({ ...data, driving_status: validStatus });
+      const popupHTML = buildPopupHTML({ ...data, driving_status: validStatus }, { hidePlotAndRank });
 
       setDriverData((prev) => {
         const updated = { ...prev, [driverId]: { ...data, position: { lat, lng }, status: validStatus, driving_status: validStatus, name } };
@@ -1217,7 +1220,7 @@ const DefaultMapSection = ({ mapRef, mapInstance, markers, driverData, setDriver
 
     if (socketRef.current) socketRef.current.on("driver-location-update", handle);
     return () => { if (socketRef.current) socketRef.current.off("driver-location-update", handle); };
-  }, [mapReady, waitingDrivers, onJobDrivers]);
+  }, [mapReady, waitingDrivers, onJobDrivers, hidePlotAndRank]);
 
   useEffect(() => {
     if (mapReady && mapInstance.current && !mapInstance.current._hasFittedOnce && Object.keys(markers.current).length > 0) {
@@ -2428,7 +2431,7 @@ const Overview = () => {
     }
   };
 
-  const mapProps = { mapRef, mapInstance, markers, driverData, setDriverData, socket, countryCenter, plotsData: allPlots, apiKeys, waitingDrivers, onJobDrivers, mapType };
+  const mapProps = { mapRef, mapInstance, markers, driverData, setDriverData, socket, countryCenter, plotsData: allPlots, apiKeys, waitingDrivers, onJobDrivers, mapType, hidePlotAndRank };
 
   return (
     <div className="h-full">

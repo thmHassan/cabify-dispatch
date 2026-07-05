@@ -68,7 +68,6 @@ const normalizeDriverList = (drivers) => {
         .map((driver) => ({
             id: driver.id ?? driver.driver_id,
             name: driver.name ?? driver.driver_name ?? `Driver ${driver.id ?? driver.driver_id ?? ""}`,
-            priority: driver.priority ?? driver.rank ?? null,
         }));
 };
 
