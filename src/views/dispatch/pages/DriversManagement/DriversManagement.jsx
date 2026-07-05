@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { useAppSelector } from "../../../../store";
 import { PAGE_SIZE_OPTIONS, STATUS_OPTIONS } from "../../../../constants/selectOptions";
 import PageTitle from "../../../../components/ui/PageTitle/PageTitle";
 import PageSubTitle from "../../../../components/ui/PageSubTitle/PageSubTitle";
@@ -29,15 +28,8 @@ const DriversManagement = () => {
   const [selectedStatus, setSelectedStatus] = useState(
     STATUS_OPTIONS.find(o => o.value === "all")
   );
-  const savedPagination = useAppSelector(
-    state => state?.app?.app?.pagination?.companies
-  );
-  const [currentPage, setCurrentPage] = useState(
-    Number(savedPagination?.currentPage) || 1
-  );
-  const [itemsPerPage, setItemsPerPage] = useState(
-    Number(savedPagination?.itemsPerPage) || 10
-  );
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
 
   const dispatcherId = getDispatcherId();
 
@@ -74,8 +66,17 @@ const DriversManagement = () => {
       const response = await apiGetDriverManagement(params);
 
       if (response?.data?.success === 1) {
-        setDriversData(response.data.list?.data || []);
-        setTotalPages(response.data.list?.last_page || 1);
+        const rows = response.data.list?.data || [];
+        const lastPage = response.data.list?.last_page || 1;
+        const total = response.data.list?.total || 0;
+
+        if (currentPage > lastPage && total > 0) {
+          setCurrentPage(1);
+          return;
+        }
+
+        setDriversData(rows);
+        setTotalPages(lastPage);
       } else {
         setDriversData([]);
       }

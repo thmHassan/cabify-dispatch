@@ -5,7 +5,6 @@ import PageSubTitle from "../../../../components/ui/PageSubTitle/PageSubTitle";
 import PlusIcon from "../../../../components/svg/PlusIcon";
 import Button from "../../../../components/ui/Button/Button";
 import Modal from "../../../../components/shared/Modal/Modal";
-import { useAppSelector } from "../../../../store";
 import CardContainer from "../../../../components/shared/CardContainer";
 import SearchBar from "../../../../components/shared/SearchBar/SearchBar";
 import { PAGE_SIZE_OPTIONS, STATUS_OPTIONS } from "../../../../constants/selectOptions";
@@ -43,9 +42,8 @@ const Plots = () => {
   const [_selectedStatus, setSelectedStatus] = useState(
     STATUS_OPTIONS.find((o) => o.value === "all") ?? STATUS_OPTIONS[0]
   );
-  const savedPagination = useAppSelector((state) => state?.app?.app?.pagination?.companies);
-  const [currentPage, setCurrentPage] = useState(Number(savedPagination?.currentPage) || 1);
-  const [itemsPerPage, setItemsPerPage] = useState(Number(savedPagination?.itemsPerPage) || 10);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
   const [totalItems, setTotalItems] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
@@ -165,6 +163,10 @@ const Plots = () => {
       const response = await apiGetPlot(params);
       if (response?.data?.success === 1) {
         const normalized = normalizePlotListResponse(response);
+        if (currentPage > normalized.totalPages && normalized.total > 0) {
+          setCurrentPage(1);
+          return;
+        }
         setPlotsData(normalized.rows);
         setTotalItems(normalized.total);
         setTotalPages(normalized.totalPages);

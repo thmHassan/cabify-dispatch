@@ -650,8 +650,19 @@ const OverViewDetails = ({
                 const hadPendingSeeds = (pendingSeedBookingsRef.current || []).length > 0;
                 const { relevantSeeds, remainingSeeds } = splitPendingSeeds(fetchedBookings);
                 const fetchedWithSeeds = mergeBookingsById(fetchedBookings, relevantSeeds);
+                const shouldPreserveLiveList =
+                    hasCompletedInitialFetchRef.current &&
+                    page === 1 &&
+                    !search &&
+                    !normalizedStatus &&
+                    !normalizedSubCompany &&
+                    isEditableOverviewTab(filter) &&
+                    (totalRows > 0 || fetchedWithSeeds.length > 0);
+
                 if (fetchedBookings.length === 0 && totalRows > 0 && bookingsRef.current.length > 0) {
                     setBookings((prev) => applyTabFilter(mergeBookingCollections(prev, relevantSeeds)));
+                } else if (shouldPreserveLiveList) {
+                    setBookings((prev) => applyTabFilter(mergeBookingCollections(prev, fetchedWithSeeds)));
                 } else {
                     setBookings(mergeBookingCollections([], fetchedWithSeeds));
                 }
