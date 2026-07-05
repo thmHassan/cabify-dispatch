@@ -164,11 +164,9 @@ export const getBookings = async (bookingParams) => {
     try {
         const res = await socketApi.get("/bookings", { params });
         if (isApiSuccess(res?.data)) {
-            const rows = res?.data?.data || [];
-            if (rows.length > 0 || !bookingParams?.filter) {
-                return res;
-            }
+            return res;
         }
+        console.warn("Socket bookings API returned unsuccessful response, falling back to Laravel");
     } catch (err) {
         console.warn("Socket bookings API failed, falling back to Laravel:", err.message);
     }

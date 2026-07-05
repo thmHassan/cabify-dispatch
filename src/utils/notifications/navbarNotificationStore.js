@@ -58,8 +58,24 @@ export const addNavbarNotification = (notification) => {
     id: notification.id || `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     timestamp: notification.timestamp || new Date().toISOString(),
   };
+  const nextDedupeKey = nextNotification.dedupeKey || nextNotification.id;
 
-  const updated = [nextNotification, ...loadFromStorage()].slice(0, MAX_NOTIFICATIONS);
+  const existing = loadFromStorage();
+  const previous = existing.find((item) => (item.dedupeKey || item.id) === nextDedupeKey);
+  const filtered = existing.filter((item) => (item.dedupeKey || item.id) !== nextDedupeKey);
+  const mergedNotification = previous
+    ? {
+      ...previous,
+      ...nextNotification,
+      id: previous.id || nextNotification.id,
+      dedupeKey: nextDedupeKey,
+      read: previous.read && previous.type === nextNotification.type,
+    }
+    : {
+      ...nextNotification,
+      dedupeKey: nextDedupeKey,
+    };
+  const updated = [mergedNotification, ...filtered].slice(0, MAX_NOTIFICATIONS);
   saveToStorage(updated);
   notifyListeners(updated);
   return updated;

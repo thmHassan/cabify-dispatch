@@ -11,6 +11,7 @@ import {
     formatReminderLabel,
 } from "../../../../../../utils/functions/formatters";
 import {
+    cleanDispatcherAction,
     formatPlotDispatchProgressMessage,
     getBookingPlotDispatchStatus,
     isPlotDispatchPhaseActive,
@@ -35,6 +36,14 @@ export const canEditBookingRow = (booking, filter) => {
 
 export const shouldBlinkPendingTodaysRow = (booking, filter) =>
     filter === "todays_booking" && booking?.booking_status === "pending";
+
+const hasAssignedDriver = (booking) => Boolean(
+    booking?.driver ||
+    booking?.driver_id ||
+    booking?.pending_driver_id ||
+    booking?.driverDetail?.id ||
+    booking?.driver_detail?.id
+);
 
 const EditableBookingRow = ({
     booking,
@@ -64,6 +73,15 @@ const EditableBookingRow = ({
     );
     const plotDispatchExhausted = plotBasedDispatchEnabled && (
         isPlotDispatchStatusExhausted(plotStatus) || isPlotDispatchExhausted(booking)
+    );
+    const showManualAssign = Boolean(onOpenAllocateModal) && (
+        plotDispatchExhausted ||
+        (
+            isEditableOverviewTab(filter) &&
+            String(booking?.booking_status || "").toLowerCase() === "pending" &&
+            !plotDispatchActive &&
+            !hasAssignedDriver(booking)
+        )
     );
     const isHighlighted = highlightedBookingId != null && Number(highlightedBookingId) === Number(booking.id);
     const progressMessage = plotStatus
@@ -179,10 +197,10 @@ const EditableBookingRow = ({
                             {progressMessage}
                         </button>
                     ) : (
-                        <span>{booking.dispatcher_action ?? "-"}</span>
+                        <span>{cleanDispatcherAction(booking.dispatcher_action) || "-"}</span>
                     )}
 
-                    {plotDispatchExhausted && (
+                    {showManualAssign && (
                         <button
                             type="button"
                             onClick={() => onOpenAllocateModal(booking, "allocate_driver")}

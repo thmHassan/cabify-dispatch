@@ -16,6 +16,24 @@ import { apiDeletePlot, apiGetPlot } from "../../../../services/PlotService";
 import _ from "lodash";
 import AppLogoLoader from "../../../../components/shared/AppLogoLoader";
 
+const normalizePlotListResponse = (payload) => {
+  const root = payload?.data ?? payload ?? {};
+  const list = root.list ?? root.data ?? [];
+  const rows = Array.isArray(list)
+    ? list
+    : Array.isArray(list?.data)
+      ? list.data
+      : Array.isArray(root?.data?.data)
+        ? root.data.data
+        : [];
+
+  return {
+    rows,
+    total: Number(list?.total ?? root?.total ?? rows.length),
+    totalPages: Number(list?.last_page ?? root?.last_page ?? root?.total_pages ?? 1),
+  };
+};
+
 const Plots = () => {
   const [isPlotsModelOpen, setIsPlotsModelOpen] = useState({ type: "new", isOpen: false });
   const [searchQuery, setSearchQuery] = useState("");
@@ -146,10 +164,10 @@ const Plots = () => {
       if (debouncedSearchQuery?.trim()) params.search = debouncedSearchQuery.trim();
       const response = await apiGetPlot(params);
       if (response?.data?.success === 1) {
-        const listData = response?.data?.list;
-        setPlotsData(listData?.data || []);
-        setTotalItems(listData?.total || 0);
-        setTotalPages(listData?.last_page || 1);
+        const normalized = normalizePlotListResponse(response);
+        setPlotsData(normalized.rows);
+        setTotalItems(normalized.total);
+        setTotalPages(normalized.totalPages);
       }
     } catch (error) {
       console.error("Error fetching plots:", error);

@@ -36,9 +36,14 @@ export const isTodayDate = (dateValue) => isCompanyToday(dateValue);
 
 export const isFutureDate = (dateValue) => isCompanyFutureDate(dateValue);
 
+export const TERMINAL_BOOKING_STATUSES = ["completed", "no_show", "cancelled"];
+
+export const isTerminalOverviewStatus = (booking) =>
+    TERMINAL_BOOKING_STATUSES.includes(String(booking?.booking_status || "").toLowerCase());
+
 export const isUpcomingScheduledPreBooking = (booking) => {
-    if (!isScheduledPreBooking(booking)) return false;
     if (!booking?.booking_date) return false;
+    if (isTerminalOverviewStatus(booking)) return false;
 
     return isFutureDate(booking.booking_date);
 };
@@ -173,33 +178,9 @@ export const shouldHideFromTodaysBookingForNearestDispatch = (
     booking,
     nearestDriverDispatchEnabled = false
 ) => {
-    if (!booking || !nearestDriverDispatchEnabled) {
-        return false;
-    }
-
-    if (isScheduledPreBooking(booking)) {
-        return false;
-    }
-
-    if (isNearestDispatchInProgress(booking)) {
-        return true;
-    }
-
-    const action = booking?.dispatcher_action || "";
-    if (/no driver accepted|manual dispatch|available for manual/i.test(action)) {
-        return false;
-    }
-
-    if (
-        !action &&
-        isAsapPickupBooking(booking) &&
-        booking.booking_status === "pending" &&
-        !booking.driver &&
-        !booking.pending_driver_id
-    ) {
-        return true;
-    }
-
+    // Today is a calendar bucket, not a dispatch-progress bucket. Active
+    // dispatch jobs stay visible in the table while live strips/cards add
+    // operational context.
     return false;
 };
 
@@ -211,33 +192,9 @@ export const shouldHideFromTodaysBookingForPlotDispatch = (
         return false;
     }
 
-    if (isScheduledPreBooking(booking)) {
-        return false;
-    }
-
-    if (isPlotDispatchExhausted(booking)) {
-        return false;
-    }
-
-    if (isPlotDispatchInProgress(booking)) {
-        return true;
-    }
-
-    const action = booking?.dispatcher_action || "";
-    if (/no driver accepted|manual dispatch|available for manual/i.test(action)) {
-        return false;
-    }
-
-    if (
-        !action &&
-        isAsapPickupBooking(booking) &&
-        booking.booking_status === "pending" &&
-        !booking.driver &&
-        !booking.pending_driver_id
-    ) {
-        return true;
-    }
-
+    // Plot-dispatch jobs must remain visible in the booking table while the
+    // progress strip shows live assignment state. Counts and rows should use
+    // the same status/date rules instead of hiding active plot-dispatch rows.
     return false;
 };
 
@@ -367,8 +324,7 @@ export const isScheduledBookingWithReminder = (booking) =>
     hasScheduledPickupTime(booking) && hasReminderMinutes(booking);
 
 export const isUserVisibleTodayBookingStatus = (booking) => {
-    const status = String(booking?.booking_status || "").toLowerCase();
-    return ["pending", "pending_acceptance", "started", "unassigned"].includes(status);
+    return !isTerminalOverviewStatus(booking);
 };
 
 export const extractUpdatedBookingFromResponse = (responseData, fallbackBooking = {}) => {

@@ -4,6 +4,22 @@ import {
     PLOT_DISPATCH_ACTIVE_PREFIX,
 } from "../functions/bookingDateFilter";
 
+export const TERMINAL_BOOKING_STATUSES = new Set(["cancelled", "completed", "no_show"]);
+
+export const isTerminalBookingStatus = (status) =>
+    TERMINAL_BOOKING_STATUSES.has(String(status || "").toLowerCase());
+
+export const isTerminalBooking = (booking) =>
+    isTerminalBookingStatus(booking?.booking_status);
+
+export const cleanDispatcherAction = (action) => {
+    if (typeof action !== "string") return action || "";
+    if (action.startsWith(PLOT_DISPATCH_ACTIVE_PREFIX)) {
+        return action.slice(PLOT_DISPATCH_ACTIVE_PREFIX.length);
+    }
+    return action;
+};
+
 export const PLOT_DISPATCH_SOCKET_EVENTS = {
     STATUS: "plot-dispatch-status",
     STARTED: "plot-dispatch-started",
@@ -206,13 +222,23 @@ export const formatPlotDispatchProgressMessage = (status, { now = Date.now() } =
         return `${driverPart}${timer}`;
     }
 
-    if (status.dispatcher_action) return status.dispatcher_action;
+    if (status.dispatcher_action) return cleanDispatcherAction(status.dispatcher_action);
     if (status.message) return status.message;
     return "";
 };
 
 export const mergePlotDispatchIntoBooking = (booking, status) => {
     if (!booking || !status) return booking;
+
+    const incomingBooking = status.booking || {};
+    const mergedBase = { ...booking, ...incomingBooking };
+    if (isTerminalBooking(mergedBase)) {
+        return {
+            ...mergedBase,
+            dispatcher_action: cleanDispatcherAction(mergedBase.dispatcher_action),
+            plot_dispatch_status: null,
+        };
+    }
 
     const progressMessage = formatPlotDispatchProgressMessage(status);
     const dispatcher_action =
@@ -224,7 +250,7 @@ export const mergePlotDispatchIntoBooking = (booking, status) => {
 
     return {
         ...booking,
-        ...(status.booking || {}),
+        ...incomingBooking,
         dispatcher_action,
         plot_dispatch_status: {
             ...(booking.plot_dispatch_status || {}),

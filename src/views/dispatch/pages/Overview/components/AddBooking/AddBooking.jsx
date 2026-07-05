@@ -2482,11 +2482,11 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
                                     {/* Row 1: Schedule */}
                                     <div className="lg:col-span-7 lg:col-start-1 lg:row-start-1 min-w-0">
                                         <FormSection title="">
-                                                    <div className={`grid gap-x-3 gap-y-2 w-full ${values.pickup_time_type === "time" ? "grid-cols-1 lg:grid-cols-4" : "grid-cols-1 lg:grid-cols-3"}`}>
+                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-x-3 gap-y-2 w-full">
                                                         <FormField label="Pickup Time">
-                                                            <div className="flex gap-2">
+                                                            <div className="flex flex-col sm:flex-row gap-2 min-w-0">
                                                                 <select
-                                                                    className={formSelectClass}
+                                                                    className={`${formSelectClass} min-w-0`}
                                                                     value={values.pickup_time_type || ""}
                                                                     onChange={(e) => {
                                                                         const val = e.target.value;
@@ -2505,7 +2505,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
                                                                 </select>
                                                                 {values.pickup_time_type === "time" && (
                                                                     <input type="time"
-                                                                        className={`${formInputClass} ${bookingErrors.pickup_time ? formInputErrorClass : ""}`}
+                                                                        className={`${formInputClass} min-w-0 ${bookingErrors.pickup_time ? formInputErrorClass : ""}`}
                                                                         value={values.pickup_time || ""}
                                                                         onChange={(e) => { setFieldValue("pickup_time", e.target.value); clearBookingError("pickup_time"); }} />
                                                                 )}
@@ -2515,7 +2515,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
                                                         <FormField label={isMultiBooking ? "Reference Date" : "Booking Date"}>
                                                                 <input type="date"
                                                                     min={getCompanyTodayForInput()}
-                                                                    className={`${formInputClass} ${bookingErrors.booking_date ? formInputErrorClass : ""}`}
+                                                                    className={`${formInputClass} min-w-0 ${bookingErrors.booking_date ? formInputErrorClass : ""}`}
                                                                     value={values.booking_date || ""}
                                                                     disabled={isMultiBooking}
                                                                     onChange={(e) => { setFieldValue("booking_date", e.target.value); clearBookingError("booking_date"); }} />
@@ -2528,7 +2528,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
                                                         </FormField>
                                                         <FormField label="Booking Type">
                                                                 <select
-                                                                    className={`${formSelectClass} ${bookingErrors.booking_type ? formInputErrorClass : ""}`}
+                                                                    className={`${formSelectClass} min-w-0 ${bookingErrors.booking_type ? formInputErrorClass : ""}`}
                                                                     value={values.booking_type || ""}
                                                                     onChange={(e) => { setFieldValue("booking_type", e.target.value); clearBookingError("booking_type"); }}>
                                                                     <option value="outstation">Select type</option>
@@ -2539,7 +2539,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
                                                         {values.pickup_time_type === "time" && (
                                                             <FormField label="Reminder Time">
                                                                 <select
-                                                                    className={`${formSelectClass} ${bookingErrors.reminder_minutes ? formInputErrorClass : ""}`}
+                                                                    className={`${formSelectClass} min-w-0 ${bookingErrors.reminder_minutes ? formInputErrorClass : ""}`}
                                                                     value={values.reminder_minutes || ""}
                                                                     onChange={(e) => {
                                                                         setFieldValue("reminder_minutes", e.target.value);

@@ -422,6 +422,47 @@ const applyWaitingDriversToDriverData = (prev, formattedDrivers, plots) => {
 const notifListeners = new Set();
 const showRideNotification = (data) => notifListeners.forEach((fn) => fn(data));
 
+const normalizeRideNotificationData = (data = {}) => {
+  const booking = data.booking && typeof data.booking === "object" ? data.booking : {};
+  return {
+    ...booking,
+    ...data,
+    booking,
+    booking_id:
+      data.booking_id ||
+      data.bookingId ||
+      data.booking_reference ||
+      booking.booking_id ||
+      booking.id ||
+      data.id,
+    pickup_location: data.pickup_location || booking.pickup_location || "",
+    destination_location: data.destination_location || booking.destination_location || "",
+    pickup_point: data.pickup_point || booking.pickup_point || "",
+    destination_point: data.destination_point || booking.destination_point || "",
+    offered_amount: data.offered_amount ?? booking.offered_amount ?? booking.booking_amount,
+    payment_method: data.payment_method || booking.payment_method,
+    ride_type: data.ride_type || booking.booking_type,
+  };
+};
+
+const getRideNotificationKey = (data = {}) => {
+  const normalized = normalizeRideNotificationData(data);
+  const bookingId = normalized.booking_id || normalized.id;
+  if (!bookingId) return null;
+
+  const eventType = normalized.isFailedDispatch
+    ? normalized.isPlotDispatchFailure
+      ? "plot-dispatch-failed"
+      : "dispatch-failed"
+    : normalized.booking_status || normalized.status || "ride-request";
+
+  return [
+    normalized.database || normalized.booking?.database || getTenantId() || "tenant",
+    eventType,
+    bookingId,
+  ].join(":");
+};
+
 const formatCoord = (str) => {
   if (!str) return "—";
   const [lat, lng] = str.split(",").map((s) => parseFloat(s.trim()));
@@ -579,7 +620,23 @@ const DispatchFailedCard = ({ data, onClose }) => {
 const RideNotificationContainer = () => {
   const [notifications, setNotifications] = useState([]);
   useEffect(() => {
-    const handler = (data) => { const id = Date.now() + Math.random(); setNotifications((prev) => [...prev, { id, data }]); };
+    const handler = (data) => {
+      const normalizedData = normalizeRideNotificationData(data);
+      const id = getRideNotificationKey(normalizedData) || `${Date.now()}-${Math.random()}`;
+      setNotifications((prev) => {
+        const existingIndex = prev.findIndex((notification) => notification.id === id);
+        if (existingIndex === -1) return [...prev, { id, data: normalizedData }];
+        const next = [...prev];
+        next[existingIndex] = {
+          id,
+          data: {
+            ...next[existingIndex].data,
+            ...normalizedData,
+          },
+        };
+        return next;
+      });
+    };
     notifListeners.add(handler);
     return () => notifListeners.delete(handler);
   }, []);
@@ -2069,6 +2126,7 @@ const Overview = () => {
 
     const handleNearestDispatchFailed = (rawData) => {
       let data; try { data = typeof rawData === "string" ? JSON.parse(rawData) : rawData; } catch { data = rawData; }
+      if (!isCurrentTenantPayload(data)) return;
       showRideNotification({
         ...data,
         isFailedDispatch: true,
@@ -2361,7 +2419,6 @@ const Overview = () => {
 
   return (
     <div className="h-full">
-      <RideNotificationContainer />
       <div className="px-5 pt-10 flex flex-col sm:flex-row sm:justify-between items-center sm:items-start gap-4 sm:gap-02 xl:mb-6 1.5xl:mb-10">
         <div className="w-full sm:w-[calc(100%-240px)] flex justify-center sm:justify-start">
           <div className="flex flex-col gap-2.5 text-center sm:text-left">

@@ -31,12 +31,14 @@ import FollowOnJobModal from "./Followonjobmodal";
 import PlotDispatchActiveStrip from "./PlotDispatchActiveStrip";
 import PlotDispatchStatusPanel from "./PlotDispatchStatusPanel";
 import {
+    cleanDispatcherAction,
     formatPlotDispatchProgressMessage,
     getPlotDispatchBookingId,
     inferPhaseFromEvent,
     isPlotDispatchPhaseActive,
     isPlotDispatchPhaseTerminal,
     isPlotDispatchStatusActive,
+    isTerminalBooking,
     mergePlotDispatchIntoBooking,
     normalizePlotDispatchStatus,
     PLOT_DISPATCH_SOCKET_EVENTS,
@@ -64,7 +66,6 @@ const Col = ({ w, children, className = "" }) => (
 );
 
 const PENDING_BOOKINGS_STORAGE_KEY = "dispatch_overview_pending_bookings";
-const TERMINAL_BOOKING_STATUSES = new Set(["cancelled", "completed", "no_show"]);
 
 const normalizeBookingEventPayload = (payload = {}, fallbackStatus = null) => {
     const booking = payload?.booking && typeof payload.booking === "object" ? payload.booking : {};
@@ -96,13 +97,86 @@ const sameBookingIdentity = (booking, eventBooking) => {
 };
 
 const mergeBookingEvent = (current, eventBooking) => {
-    const currentStatus = String(current?.booking_status || "").toLowerCase();
-    const nextStatus = String(eventBooking?.booking_status || "").toLowerCase();
-    if (TERMINAL_BOOKING_STATUSES.has(currentStatus) && nextStatus === "pending") {
-        return current;
+    if (!current) {
+        return isTerminalBooking(eventBooking)
+            ? {
+                ...eventBooking,
+                dispatcher_action: cleanDispatcherAction(eventBooking?.dispatcher_action),
+                plot_dispatch_status: null,
+            }
+            : eventBooking;
     }
-    return { ...current, ...eventBooking };
+
+    const currentIsTerminal = isTerminalBooking(current);
+    const nextIsTerminal = isTerminalBooking(eventBooking);
+
+    if (currentIsTerminal && !nextIsTerminal) {
+        return {
+            ...current,
+            dispatcher_action: cleanDispatcherAction(current.dispatcher_action),
+            plot_dispatch_status: null,
+        };
+    }
+
+    const merged = { ...current, ...eventBooking };
+    return isTerminalBooking(merged)
+        ? {
+            ...merged,
+            dispatcher_action: cleanDispatcherAction(merged.dispatcher_action),
+            plot_dispatch_status: null,
+        }
+        : merged;
 };
+
+const mergeBookingCollections = (current = [], incoming = []) => {
+    const next = (current || []).filter(Boolean);
+
+    (incoming || []).filter(Boolean).forEach((incomingBooking) => {
+        const existingIndex = next.findIndex((booking) =>
+            sameBookingIdentity(booking, incomingBooking)
+        );
+
+        if (existingIndex === -1) {
+            next.push(incomingBooking);
+            return;
+        }
+
+        next[existingIndex] = mergeBookingEvent(next[existingIndex], incomingBooking);
+    });
+
+    return next;
+};
+
+const getBookingNotificationId = (data = {}) => {
+    const booking = data.booking || {};
+    return (
+        data.booking_id ||
+        data.bookingId ||
+        data.booking_reference ||
+        booking.id ||
+        booking.booking_id ||
+        null
+    );
+};
+
+const buildAssignmentNotificationKey = (data = {}) => {
+    const bookingId = getBookingNotificationId(data);
+    if (!bookingId) return null;
+    return [
+        data.database || data.booking?.database || "tenant",
+        data.type || data.status || data.booking_status || data.booking?.booking_status || "default",
+        bookingId,
+    ].join(":");
+};
+
+const resolveDriverName = (data = {}) => (
+    data.driver_name ||
+    data.driverName ||
+    data.booking?.driverDetail?.name ||
+    data.booking?.driver_name ||
+    data.booking?.driver?.name ||
+    null
+);
 
 const loadPendingBookingsFromStorage = () => {
     try {
@@ -125,6 +199,15 @@ const savePendingBookingsToStorage = (bookings) => {
     } catch {
         // ignore storage errors
     }
+};
+
+const normalizeOverviewSelectValue = (value) => {
+    if (value == null) return "";
+    const normalized = String(value).trim();
+    if (!normalized || normalized === "all" || normalized === "All Status" || normalized === "All Sub Companies") {
+        return "";
+    }
+    return normalized;
 };
 
 const OverViewDetails = ({
@@ -171,6 +254,8 @@ const OverViewDetails = ({
     const [plotDispatchPanel, setPlotDispatchPanel] = useState(null);
     const pendingSeedBookingsRef = useRef(loadPendingBookingsFromStorage());
     const bookingsRef = useRef([]);
+    const latestFetchKeyRef = useRef("");
+    const hasCompletedInitialFetchRef = useRef(false);
     const highlightTimeoutRef = useRef(null);
     const plotDispatchEndpointUnavailableRef = useRef(false);
 
@@ -189,9 +274,33 @@ const OverViewDetails = ({
         }, delayMs);
     }, []);
 
+    const clearPlotDispatchForBooking = useCallback((bookingOrId) => {
+        const bookingId = typeof bookingOrId === "object" ? bookingOrId?.id : bookingOrId;
+        if (bookingId == null) return;
+
+        setPlotDispatchStatusById((prev) => {
+            if (!prev?.[bookingId]) return prev;
+            const next = { ...prev };
+            delete next[bookingId];
+            return next;
+        });
+
+        setPlotDispatchPanel((current) =>
+            Number(current?.booking?.id) === Number(bookingId) ? null : current
+        );
+
+        setHighlightedBookingId((current) =>
+            Number(current) === Number(bookingId) ? null : current
+        );
+    }, []);
+
     const applyBookingEvent = useCallback((payload, fallbackStatus = null, { addIfMissing = false } = {}) => {
         const eventBooking = normalizeBookingEventPayload(payload, fallbackStatus);
         if (!eventBooking.id && !eventBooking.booking_id) return;
+
+        if (isTerminalBooking(eventBooking)) {
+            clearPlotDispatchForBooking(eventBooking);
+        }
 
         setBookings((prev) => {
             const safe = prev.filter(Boolean);
@@ -203,12 +312,12 @@ const OverViewDetails = ({
             });
 
             if (!found && addIfMissing) {
-                next.unshift(eventBooking);
+                next.unshift(mergeBookingEvent(null, eventBooking));
             }
 
             return applyTabFilter(next);
         });
-    }, [applyTabFilter]);
+    }, [applyTabFilter, clearPlotDispatchForBooking]);
 
     useEffect(() => {
         if (seedBookings?.length) {
@@ -260,8 +369,23 @@ const OverViewDetails = ({
     }, [seedBookings, filter, overviewTabOptions, applyTabFilter]);
 
     const showNotification = useCallback((data) => {
-        const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-        setAssignmentNotifications((prev) => [...prev, { id, ...data }]);
+        const notificationKey = buildAssignmentNotificationKey(data);
+        const id = notificationKey || `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+        const normalized = {
+            ...data,
+            id,
+            notificationKey,
+            driver_name: resolveDriverName(data),
+        };
+
+        setAssignmentNotifications((prev) => {
+            if (!notificationKey) return [...prev, normalized];
+            const existingIndex = prev.findIndex((notification) => notification.notificationKey === notificationKey);
+            if (existingIndex === -1) return [...prev, normalized];
+            const next = [...prev];
+            next[existingIndex] = { ...next[existingIndex], ...normalized };
+            return next;
+        });
     }, []);
 
     const handleCloseNotification = useCallback((id) => {
@@ -279,6 +403,13 @@ const OverViewDetails = ({
         );
         const bookingId = getPlotDispatchBookingId(status);
         if (!bookingId) return null;
+
+        const currentBooking = bookingsRef.current.find((b) => Number(b?.id) === Number(bookingId));
+        const incomingBooking = status.booking || parsed.booking || null;
+        if (isTerminalBooking(currentBooking) || isTerminalBooking(incomingBooking)) {
+            clearPlotDispatchForBooking(bookingId);
+            return status;
+        }
 
         setPlotDispatchStatusById((prev) => ({
             ...prev,
@@ -298,6 +429,17 @@ const OverViewDetails = ({
             const exists = safe.some((b) => Number(b.id) === Number(bookingId));
 
             if (mergedBooking) {
+                if (isTerminalBooking(mergedBooking)) {
+                    clearPlotDispatchForBooking(bookingId);
+                    return applyTabFilter(
+                        safe.map((b) =>
+                            Number(b.id) === Number(bookingId)
+                                ? mergeBookingEvent(b, mergedBooking)
+                                : b
+                        )
+                    );
+                }
+
                 if (!exists) {
                     return shouldShowBookingInOverviewTab(mergedBooking, filter, overviewTabOptions)
                         ? applyTabFilter([mergedBooking, ...safe])
@@ -306,7 +448,7 @@ const OverViewDetails = ({
                 return applyTabFilter(
                     safe.map((b) =>
                         Number(b.id) === Number(bookingId)
-                            ? mergePlotDispatchIntoBooking({ ...b, ...mergedBooking }, status)
+                            ? mergeBookingEvent(b, mergePlotDispatchIntoBooking({ ...b, ...mergedBooking }, status))
                             : b
                     )
                 );
@@ -317,7 +459,7 @@ const OverViewDetails = ({
             return applyTabFilter(
                 safe.map((b) =>
                     Number(b.id) === Number(bookingId)
-                        ? mergePlotDispatchIntoBooking(b, status)
+                        ? mergeBookingEvent(b, mergePlotDispatchIntoBooking(b, status))
                         : b
                 )
             );
@@ -352,6 +494,7 @@ const OverViewDetails = ({
                     parsed.message ||
                     "Driver accepted plot dispatch",
                 type: "accepted",
+                status: "ongoing",
             });
         }
 
@@ -364,7 +507,7 @@ const OverViewDetails = ({
         }
 
         return status;
-    }, [applyTabFilter, clearHighlightLater, filter, overviewTabOptions, showNotification]);
+    }, [applyTabFilter, clearHighlightLater, clearPlotDispatchForBooking, filter, overviewTabOptions, showNotification]);
 
     const syncPlotDispatchStatus = useCallback(async (bookingId, { force = false } = {}) => {
         if (!bookingId || !plotBasedDispatchEnabled) return null;
@@ -437,7 +580,8 @@ const OverViewDetails = ({
                     status.booking ||
                     { id: status.booking_id };
                 return { booking, status };
-            });
+            })
+            .filter(({ booking }) => !isTerminalBooking(booking));
     }, [bookings, plotBasedDispatchEnabled, plotDispatchStatusById]);
 
     useEffect(() => {
@@ -472,22 +616,46 @@ const OverViewDetails = ({
     }, [filter]);
 
     useEffect(() => {
-        setTableLoading(bookingsRef.current.length === 0);
+        const normalizedStatus = normalizeOverviewSelectValue(selectedStatus);
+        const normalizedSubCompany = normalizeOverviewSelectValue(selectedSubCompany);
+        const requestKey = JSON.stringify({
+            page,
+            limit,
+            search,
+            status: normalizedStatus,
+            sub_company: normalizedSubCompany,
+            filter,
+            refreshTrigger,
+            externalRefreshTrigger,
+        });
+        latestFetchKeyRef.current = requestKey;
+        setTableLoading(!hasCompletedInitialFetchRef.current && bookingsRef.current.length === 0);
         const fetchBookings = async () => {
             try {
                 const params = { page, limit };
                 if (search) params.search = search;
-                if (selectedStatus) params.status = selectedStatus;
-                if (selectedSubCompany) params.sub_company = selectedSubCompany;
+                if (normalizedStatus) params.status = normalizedStatus;
+                if (normalizedSubCompany) params.sub_company = normalizedSubCompany;
                 if (filter) params.filter = filter;
 
                 let res = await getBookings(params);
                 const fetchedBookings = res?.data?.success ? (res.data.data || []).filter(Boolean) : [];
-                const filteredFetchedBookings = applyTabFilter(fetchedBookings);
+                const pagination = res?.data?.pagination || {};
+                const totalRows = Number(pagination?.total ?? fetchedBookings.length);
+                if (latestFetchKeyRef.current !== requestKey) return;
+                if (page > 1 && fetchedBookings.length === 0 && totalRows > 0) {
+                    setPage(1);
+                    return;
+                }
                 const hadPendingSeeds = (pendingSeedBookingsRef.current || []).length > 0;
-                const { relevantSeeds, remainingSeeds } = splitPendingSeeds(filteredFetchedBookings);
-                setBookings(mergeBookingsById(filteredFetchedBookings, relevantSeeds));
-                setTotalPages(res?.data?.pagination?.total_pages || 1);
+                const { relevantSeeds, remainingSeeds } = splitPendingSeeds(fetchedBookings);
+                const fetchedWithSeeds = mergeBookingsById(fetchedBookings, relevantSeeds);
+                if (fetchedBookings.length === 0 && totalRows > 0 && bookingsRef.current.length > 0) {
+                    setBookings((prev) => applyTabFilter(mergeBookingCollections(prev, relevantSeeds)));
+                } else {
+                    setBookings(mergeBookingCollections([], fetchedWithSeeds));
+                }
+                setTotalPages(pagination?.total_pages || 1);
                 if (remainingSeeds.length !== (pendingSeedBookingsRef.current || []).length) {
                     pendingSeedBookingsRef.current = remainingSeeds;
                     savePendingBookingsToStorage(remainingSeeds);
@@ -496,11 +664,15 @@ const OverViewDetails = ({
                     onSeedConsumedRef.current?.();
                 }
             } catch (error) {
+                if (latestFetchKeyRef.current !== requestKey) return;
                 console.error("Error fetching booking:", error);
                 const { relevantSeeds } = splitPendingSeeds([]);
-                setBookings(relevantSeeds);
+                setBookings((prev) => applyTabFilter(mergeBookingCollections(prev, relevantSeeds)));
             } finally {
-                setTableLoading(false);
+                if (latestFetchKeyRef.current === requestKey) {
+                    hasCompletedInitialFetchRef.current = true;
+                    setTableLoading(false);
+                }
             }
         };
         fetchBookings();
@@ -596,9 +768,11 @@ const OverViewDetails = ({
             applyBookingEvent(data, "ongoing");
             showNotification({
                 booking_id: data.booking_id,
-                driver_name: data.driver_name,
+                booking: data.booking,
+                driver_name: resolveDriverName(data),
                 message: data.message,
                 type: "accepted",
+                status: "ongoing",
             });
         };
 
@@ -608,7 +782,8 @@ const OverViewDetails = ({
             applyBookingEvent(data, data?.booking_status || data?.booking?.booking_status || "pending");
             showNotification({
                 booking_id: data.booking_id,
-                driver_name: data.driver_name,
+                booking: data.booking,
+                driver_name: resolveDriverName(data),
                 message: data.message,
                 type: "cancelled",
             });
@@ -621,16 +796,22 @@ const OverViewDetails = ({
             if (updatedBooking?.id) {
                 setBookings((prev) => {
                     const safe = prev.filter(Boolean);
-                    const exists = safe.some((b) => b.id === updatedBooking.id);
+                    const existing = safe.find((b) => b.id === updatedBooking.id);
 
-                    if (!exists) {
+                    if (isTerminalBooking(existing)) {
+                        return applyTabFilter(safe);
+                    }
+
+                    if (!existing) {
                         return shouldShowBookingInOverviewTab(updatedBooking, filter, overviewTabOptions)
                             ? [updatedBooking, ...safe]
                             : safe;
                     }
 
                     return applyTabFilter(
-                        safe.map((b) => (b.id === updatedBooking.id ? { ...b, ...updatedBooking } : b))
+                        safe.map((b) =>
+                            b.id === updatedBooking.id ? mergeBookingEvent(b, updatedBooking) : b
+                        )
                     );
                 });
             } else if (bookingId) {
@@ -748,8 +929,25 @@ const OverViewDetails = ({
             applyBookingEvent(data, "cancelled", { addIfMissing: true });
             showNotification({
                 booking_id: data.booking_id,
+                booking: data.booking,
+                driver_name: resolveDriverName(data) || (data.cancelled_by === "user" ? "Customer" : "Admin or Dispatcher"),
                 message: data.message || "Booking has been cancelled by customer",
                 type: "cancelled",
+                status: "cancelled",
+            });
+        };
+
+        const handleBookingNoShow = (data) => {
+            console.log("booking-no-show:", data);
+            if (!data?.booking_id) return;
+            applyBookingEvent(data, "no_show", { addIfMissing: true });
+            showNotification({
+                booking_id: data.booking_id,
+                booking: data.booking,
+                driver_name: resolveDriverName(data),
+                message: data.message || "Driver marked the customer as no show",
+                type: "no_show",
+                status: "no_show",
             });
         };
 
@@ -838,7 +1036,7 @@ const OverViewDetails = ({
             if (!booking?.id) return;
 
             console.log("booking-updated-event:", booking);
-            if (plotBasedDispatchEnabled && (booking.plot_dispatch_status || booking.dispatcher_action)) {
+            if (plotBasedDispatchEnabled && !isTerminalBooking(booking) && (booking.plot_dispatch_status || booking.dispatcher_action)) {
                 applyPlotDispatchUpdate(
                     { booking, ...(booking.plot_dispatch_status || {}) },
                     PLOT_DISPATCH_SOCKET_EVENTS.STATUS
@@ -890,6 +1088,7 @@ const OverViewDetails = ({
         socket.on("booking-cancelled-event", handleBookingCancelled);
         socket.on("booking-cancelled", handleBookingCancelled);
         socket.on("cancel-booking-event", handleBookingCancelled);
+        socket.on("booking-no-show-event", handleBookingNoShow);
         socket.on("dashboard-cards-update", handleDashboardCardsUpdate);
         socket.on("follow-on-job-linked", handleFollowOnLinked);
         socket.on("follow-on-job-sent-to-driver", handleFollowOnSentToDriver);
@@ -919,6 +1118,7 @@ const OverViewDetails = ({
             socket.off("booking-cancelled-event", handleBookingCancelled);
             socket.off("booking-cancelled", handleBookingCancelled);
             socket.off("cancel-booking-event", handleBookingCancelled);
+            socket.off("booking-no-show-event", handleBookingNoShow);
             socket.off("dashboard-cards-update", handleDashboardCardsUpdate);
             socket.off("follow-on-job-linked", handleFollowOnLinked);
             socket.off("follow-on-job-sent-to-driver", handleFollowOnSentToDriver);
@@ -957,16 +1157,19 @@ const OverViewDetails = ({
         setPage(1);
     };
 
-    const handleStatusChange = (option) => { setSelectedStatus(option.value); setPage(1); };
-    const handleSubCompanyChange = (option) => { setSelectedSubCompany(option.value); setPage(1); };
+    const handleStatusChange = (option) => { setSelectedStatus(normalizeOverviewSelectValue(option?.value)); setPage(1); };
+    const handleSubCompanyChange = (option) => { setSelectedSubCompany(normalizeOverviewSelectValue(option?.value)); setPage(1); };
 
     const handleBookingUpdate = (updated) => {
         if (!updated || updated.id == null) return;
         setBookings((prev) =>
             prev
-                .map((b) => (b.id === updated.id ? { ...b, ...updated } : b))
+                .map((b) => (b.id === updated.id ? mergeBookingEvent(b, updated) : b))
                 .filter((b) => shouldShowBookingInOverviewTab(b, filter, overviewTabOptions))
         );
+        if (isTerminalBooking(updated)) {
+            clearPlotDispatchForBooking(updated);
+        }
         setRefreshTrigger((prev) => prev + 1);
     };
 
@@ -1061,17 +1264,19 @@ const OverViewDetails = ({
                 </div>
                 </div>
 
-                <div className="border-t">
+                <div className="border-t min-h-[420px]">
                     {tableLoading ? (
-                        <div className="flex justify-center py-8"><AppLogoLoader /></div>
+                        <div className="min-h-[320px] flex items-center justify-center py-8 text-sm text-gray-500">
+                            Loading bookings...
+                        </div>
                     ) : bookings.length === 0 ? (
-                        <div className="p-8 text-center text-gray-500">
+                        <div className="min-h-[320px] p-8 flex items-center justify-center text-center text-gray-500">
                             {search || selectedStatus || selectedSubCompany
                                 ? "No bookings found matching your filters"
                                 : "No bookings found"}
                         </div>
                     ) : (
-                        <div className="overflow-x-auto">
+                        <div className="overflow-x-auto min-h-[320px]">
                             <div className="min-w-max">
                                 <div className="flex border-b text-sm font-semibold text-gray-700 bg-gray-50">
                                     <Col w="w-[80px]">ID</Col>
@@ -1206,7 +1411,7 @@ const OverViewDetails = ({
                                             </Col>
 
                                             <Col w="w-[230px]" className="whitespace-normal break-words">
-                                                {b.dispatcher_action ?? "-"}
+                                                {cleanDispatcherAction(b.dispatcher_action) || "-"}
                                             </Col>
                                         </div>
                                     );

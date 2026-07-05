@@ -66,7 +66,7 @@ const DriverAssignmentModal = ({
         driver_name,
         message,
         type,
-        title: reminderTitle,
+        title: notificationTitle,
         booking_reference,
         pickup_location,
         pickup_time,
@@ -80,7 +80,7 @@ const DriverAssignmentModal = ({
     const theme = {
         reminder: {
             color: "#d97706",
-            label: reminderTitle || "Booking Reminder",
+            label: notificationTitle || "Booking Reminder",
             gradient: "from-amber-600 via-amber-400 to-amber-600",
             dot: "bg-amber-600",
             ping: "bg-amber-600",
@@ -105,6 +105,15 @@ const DriverAssignmentModal = ({
             avatar: "bg-red-600",
             progress: "bg-red-600",
         },
+        no_show: {
+            color: "#4b5563",
+            label: "Customer No Show",
+            gradient: "from-gray-700 via-gray-500 to-gray-700",
+            dot: "bg-gray-700",
+            ping: "bg-gray-700",
+            avatar: "bg-gray-700",
+            progress: "bg-gray-700",
+        },
         failed: {
             color: "#dc2626",
             label: "Dispatch Failed",
@@ -116,7 +125,7 @@ const DriverAssignmentModal = ({
         },
         default: {
             color: "#1F41BB",
-            label: "Driver Assignment",
+            label: notificationTitle || (driver_name ? "Driver Assignment" : "Dispatch In Progress"),
             gradient: "from-[#1F41BB] via-[#4F6FE8] to-[#1F41BB]",
             dot: "bg-[#1F41BB]",
             ping: "bg-[#1F41BB]",
@@ -126,12 +135,16 @@ const DriverAssignmentModal = ({
     };
 
     const t = theme[type] || theme.default;
+    const shouldShowDriverBlock =
+        !isReminder &&
+        Boolean(driver_name || ["accepted", "cancelled", "no_show"].includes(type));
 
     const statusBadgeStyle = {
         pending_acceptance: { bg: "bg-amber-100", text: "text-amber-700", label: "Pending Acceptance" },
         ongoing: { bg: "bg-blue-100", text: "text-blue-700", label: "Ongoing" },
         pending: { bg: "bg-gray-100", text: "text-gray-600", label: "Pending" },
         cancelled: { bg: "bg-red-100", text: "text-red-700", label: "Cancelled" },
+        no_show: { bg: "bg-gray-200", text: "text-gray-700", label: "No Show" },
         accepted: { bg: "bg-green-100", text: "text-green-700", label: "Accepted" },
     };
 
@@ -165,14 +178,19 @@ const DriverAssignmentModal = ({
                             {t.label}
                         </span>
                     </div>
-                    <button onClick={() => onClose(notification.id)} className="text-gray-400 hover:text-gray-600 transition-colors text-xl leading-none ml-2 -mt-0.5">
+                    <button
+                        type="button"
+                        aria-label="Dismiss notification"
+                        onClick={() => onClose(notification.id)}
+                        className="text-gray-400 hover:text-gray-600 transition-colors text-xl leading-none ml-2 -mt-0.5 p-1"
+                    >
                         ×
                     </button>
                 </div>
 
                 <div className="px-5 pb-4 space-y-3">
 
-                    {!isReminder && (
+                    {shouldShowDriverBlock && (
                         <div className="flex items-center gap-2">
                             <div className={`flex-shrink-0 w-9 h-9 rounded-full ${t.avatar} flex items-center justify-center`}>
                                 <span className="text-white text-sm font-bold">
@@ -181,7 +199,7 @@ const DriverAssignmentModal = ({
                             </div>
                             <div>
                                 <p className="text-xs text-gray-500 leading-none mb-0.5">
-                                    {type === "accepted" ? "Accepted by" : type === "cancelled" ? "Cancelled by" : "Assigned Driver"}
+                                    {type === "accepted" ? "Accepted by" : type === "cancelled" ? "Cancelled by" : type === "no_show" ? "Marked by" : "Assigned Driver"}
                                 </p>
                                 <p className="text-sm font-semibold text-gray-800 leading-tight">
                                     {driver_name ?? "Unknown Driver"}

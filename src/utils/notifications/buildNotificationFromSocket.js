@@ -26,22 +26,46 @@ const formatCoord = (value) => {
   return `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
 };
 
+const normalizeBookingPayload = (data = {}) => {
+  const booking = data.booking && typeof data.booking === "object" ? data.booking : {};
+  return {
+    ...booking,
+    ...data,
+    booking,
+    booking_id:
+      data.booking_id ||
+      data.bookingId ||
+      data.booking_reference ||
+      booking.booking_id ||
+      booking.id ||
+      data.id,
+    pickup_location: data.pickup_location || booking.pickup_location || "",
+    destination_location: data.destination_location || booking.destination_location || "",
+    pickup_point: data.pickup_point || booking.pickup_point || "",
+    destination_point: data.destination_point || booking.destination_point || "",
+    booking_date: data.booking_date || booking.booking_date || "",
+    pickup_time: data.pickup_time || booking.pickup_time || "",
+  };
+};
+
 const buildRideDescription = (data) => {
-  const pickup = data.pickup_location || formatCoord(data.pickup_point);
-  const destination = data.destination_location || formatCoord(data.destination_point);
+  const normalized = normalizeBookingPayload(data);
+  const pickup = normalized.pickup_location || formatCoord(normalized.pickup_point);
+  const destination = normalized.destination_location || formatCoord(normalized.destination_point);
   const parts = [];
 
   if (pickup) parts.push(`Pickup: ${pickup}`);
   if (destination) parts.push(`Destination: ${destination}`);
 
-  return parts.join(" • ") || data.message || "New ride request received";
+  return parts.join(" • ") || normalized.message || "New ride request received";
 };
 
 const buildBookingMeta = (data) => {
-  const bookingReference = data.booking_reference || data.bookingReference;
+  const normalized = normalizeBookingPayload(data);
+  const bookingReference = normalized.booking_reference || normalized.bookingReference;
   if (bookingReference) return `Ref: ${bookingReference}`;
 
-  const bookingId = data.booking_id || data.bookingId || data.booking?.id;
+  const bookingId = normalized.booking_id || normalized.bookingId || normalized.booking?.id;
   if (!bookingId) return null;
   return `Booking #${bookingId}`;
 };
@@ -68,10 +92,32 @@ const buildReminderDescription = (data) => {
 export const buildNotificationFromSocket = (event, rawData) => {
   const data = parseSocketPayload(rawData);
   if (!data) return null;
+  const canonicalEvent = (() => {
+    if (["booking-cancelled-event", "booking-cancelled", "cancel-booking-event"].includes(event)) {
+      return "booking-cancelled";
+    }
+    if (["notification-ride", "new-booking-event"].includes(event)) {
+      return "ride-request";
+    }
+    if (["plot-dispatch-failed", "nearest-dispatch-failed", "auto-dispatch-failed"].includes(event)) {
+      return "dispatch-failed";
+    }
+    return event;
+  })();
+  const booking = normalizeBookingPayload(data);
+  const notificationBookingId =
+    booking.booking_id ||
+    booking.bookingId ||
+    booking.booking_reference ||
+    booking.id ||
+    null;
+  const status = booking.booking_status || booking.status || event;
 
   const base = {
-    type: event,
-    meta: buildBookingMeta(data),
+    type: canonicalEvent,
+    meta: buildBookingMeta(booking),
+    id: notificationBookingId ? `${booking.database || "tenant"}:${canonicalEvent}:${status}:${notificationBookingId}` : undefined,
+    dedupeKey: notificationBookingId ? `${booking.database || "tenant"}:${canonicalEvent}:${status}:${notificationBookingId}` : undefined,
   };
 
   switch (event) {
@@ -92,14 +138,14 @@ export const buildNotificationFromSocket = (event, rawData) => {
     case "notification-ride":
       return {
         ...base,
-        title: "New Ride Request",
-        description: buildRideDescription(data),
+        title: "Ride Request",
+        description: buildRideDescription(booking),
       };
 
     case "nearest-dispatch-failed":
       return {
         ...base,
-        title: "Nearest Dispatch Failed",
+        title: "Dispatch Failed",
         description: sanitizeNearestDispatchMessage(
           data.message ||
           data.reason ||
@@ -111,7 +157,7 @@ export const buildNotificationFromSocket = (event, rawData) => {
     case "plot-dispatch-failed":
       return {
         ...base,
-        title: "Plot Dispatch Failed",
+        title: "Dispatch Failed",
         description: sanitizePlotDispatchMessage(
           data.message ||
           data.reason ||
@@ -123,7 +169,7 @@ export const buildNotificationFromSocket = (event, rawData) => {
       const booking = data.booking || data;
       return {
         ...base,
-        type: event,
+        type: canonicalEvent,
         title: "New Booking",
         description:
           booking.message ||
@@ -145,7 +191,7 @@ export const buildNotificationFromSocket = (event, rawData) => {
     case "job-accepted-by-driver":
       return {
         ...base,
-        title: "Job Accepted",
+        title: "Ride Accepted",
         description:
           data.message ||
           `${data.driver_name || "Driver"} accepted the job.`,
@@ -174,8 +220,15 @@ export const buildNotificationFromSocket = (event, rawData) => {
     case "cancel-booking-event":
       return {
         ...base,
-        title: "Booking Cancelled",
+        title: "Ride Cancelled",
         description: data.message || "Booking has been cancelled.",
+      };
+
+    case "booking-no-show-event":
+      return {
+        ...base,
+        title: "No Show",
+        description: data.message || "Driver marked the customer as no show.",
       };
 
     case "follow-on-job-linked":
@@ -236,6 +289,7 @@ export const NAVBAR_SOCKET_EVENTS = [
   "booking-cancelled-event",
   "booking-cancelled",
   "cancel-booking-event",
+  "booking-no-show-event",
   "follow-on-job-linked",
   "follow-on-job-sent-to-driver",
   "follow-on-job-timeout",
