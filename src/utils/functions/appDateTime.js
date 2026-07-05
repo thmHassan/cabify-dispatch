@@ -5,6 +5,7 @@ const COMPANY_TIMEZONE_STORAGE_KEY = "company_timezone";
 const DEFAULT_APP_LOCALE = "en-GB";
 
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const CALENDAR_DATE_PREFIX_RE = /^(\d{4})-(\d{2})-(\d{2})(?:$|[T\s])/;
 
 let cachedTimezone = null;
 let timezoneLoadPromise = null;
@@ -61,31 +62,25 @@ export const parseCalendarDate = (value) => {
     }
 
     const raw = String(value).trim();
-    const plainDateMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    if (plainDateMatch) {
-        const [, y, m, d] = plainDateMatch.map(Number);
-        return new Date(y, m - 1, d);
-    }
-
-    if (/^\d{4}-\d{2}-\d{2}[T\s]/.test(raw)) {
-        const parsedDateTime = new Date(raw);
-        if (Number.isNaN(parsedDateTime.getTime())) return null;
-
-        const parts = getZonedParts(parsedDateTime);
-        if (!parts) return null;
-
-        return new Date(parts.year, parts.month - 1, parts.day);
-    }
-
-    const isoMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
-    if (isoMatch) {
-        const [, y, m, d] = isoMatch.map(Number);
+    const calendarDateMatch = raw.match(CALENDAR_DATE_PREFIX_RE);
+    if (calendarDateMatch) {
+        const [, y, m, d] = calendarDateMatch.map(Number);
         return new Date(y, m - 1, d);
     }
 
     const parsed = new Date(raw);
     if (Number.isNaN(parsed.getTime())) return null;
     return new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
+};
+
+export const formatCalendarDateForInput = (date) => {
+    if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "";
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+};
+
+export const formatCalendarDateForDisplay = (date, fallback = "—") => {
+    if (!(date instanceof Date) || Number.isNaN(date.getTime())) return fallback;
+    return `${String(date.getDate()).padStart(2, "0")}/${String(date.getMonth() + 1).padStart(2, "0")}/${date.getFullYear()}`;
 };
 
 const readStoredTimezone = () => {
@@ -239,7 +234,7 @@ export const formatDateForInputInCompanyTimezone = (date) => {
 
     const parsed = parseCalendarDate(date);
     if (!parsed) return "";
-    return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, "0")}-${String(parsed.getDate()).padStart(2, "0")}`;
+    return formatCalendarDateForInput(parsed);
 };
 
 export const formatInCompanyTimezone = (
@@ -286,14 +281,14 @@ export const isCompanyToday = (dateValue) => {
     const date = parseCalendarDate(dateValue);
     const today = getCompanyTodayForInput();
     if (!date || !today) return false;
-    return formatDateForInputInCompanyTimezone(date) === today;
+    return formatCalendarDateForInput(date) === today;
 };
 
 export const isCompanyFutureDate = (dateValue) => {
     const date = parseCalendarDate(dateValue);
     const today = getCompanyTodayForInput();
     if (!date || !today) return false;
-    return formatDateForInputInCompanyTimezone(date) > today;
+    return formatCalendarDateForInput(date) > today;
 };
 
 const parseBookingDateParts = (bookingDate) => {
@@ -309,17 +304,7 @@ const parseBookingDateParts = (bookingDate) => {
 export const formatCompanyBookingCalendarDate = (value, fallback = "—") => {
     const parsed = parseCalendarDate(value);
     if (!parsed) return fallback;
-
-    const anchor = new Date(Date.UTC(
-        parsed.getFullYear(),
-        parsed.getMonth(),
-        parsed.getDate(),
-        12,
-        0,
-        0
-    ));
-
-    return formatInCompanyTimezone(anchor, APP_DATE_DISPLAY_OPTIONS, { fallback });
+    return formatCalendarDateForDisplay(parsed, fallback);
 };
 
 export const isCompanyFutureDateTime = (bookingDate, pickupTime = "00:00") => {

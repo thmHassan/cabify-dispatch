@@ -612,6 +612,11 @@ const OverViewDetails = ({
     }, [onSeedConsumed]);
 
     useEffect(() => {
+        hasCompletedInitialFetchRef.current = false;
+        bookingsRef.current = [];
+        setBookings([]);
+        setTotalPages(1);
+        setTableLoading(true);
         setPage(1);
     }, [filter]);
 
