@@ -257,6 +257,7 @@ const OverViewDetails = ({
     const latestFetchKeyRef = useRef("");
     const hasCompletedInitialFetchRef = useRef(false);
     const highlightTimeoutRef = useRef(null);
+    const refreshTimeoutRef = useRef(null);
     const plotDispatchEndpointUnavailableRef = useRef(false);
 
     useEffect(() => {
@@ -271,6 +272,16 @@ const OverViewDetails = ({
             setHighlightedBookingId((current) =>
                 Number(current) === Number(bookingId) ? null : current
             );
+        }, delayMs);
+    }, []);
+
+    const scheduleBookingsRefresh = useCallback((delayMs = 800) => {
+        if (refreshTimeoutRef.current) {
+            clearTimeout(refreshTimeoutRef.current);
+        }
+
+        refreshTimeoutRef.current = setTimeout(() => {
+            setRefreshTrigger((prev) => prev + 1);
         }, delayMs);
     }, []);
 
@@ -728,6 +739,9 @@ const OverViewDetails = ({
         if (highlightTimeoutRef.current) {
             clearTimeout(highlightTimeoutRef.current);
         }
+        if (refreshTimeoutRef.current) {
+            clearTimeout(refreshTimeoutRef.current);
+        }
     }, []);
 
     useEffect(() => {
@@ -740,13 +754,17 @@ const OverViewDetails = ({
         const handleNewBooking = (booking) => {
             console.log("new-booking-event:", booking);
             if (!booking || booking.id == null) return;
-            if (!shouldShowBookingInOverviewTab(booking, filter, overviewTabOptions)) return;
+            if (!shouldShowBookingInOverviewTab(booking, filter, overviewTabOptions)) {
+                scheduleBookingsRefresh();
+                return;
+            }
 
             setBookings((prev) => {
                 const safe = prev.filter(Boolean);
                 if (safe.find((b) => b.id === booking.id)) return safe;
                 return [booking, ...safe];
             });
+            scheduleBookingsRefresh();
 
             if (
                 plotBasedDispatchEnabled &&
@@ -819,9 +837,10 @@ const OverViewDetails = ({
                     }
 
                     if (!existing) {
-                        return shouldShowBookingInOverviewTab(updatedBooking, filter, overviewTabOptions)
-                            ? [updatedBooking, ...safe]
-                            : safe;
+                        if (shouldShowBookingInOverviewTab(updatedBooking, filter, overviewTabOptions)) {
+                            return [updatedBooking, ...safe];
+                        }
+                        return safe;
                     }
 
                     return applyTabFilter(
@@ -830,10 +849,11 @@ const OverViewDetails = ({
                         )
                     );
                 });
+                scheduleBookingsRefresh();
             } else if (bookingId) {
-                setRefreshTrigger((prev) => prev + 1);
+                scheduleBookingsRefresh();
             } else {
-                setRefreshTrigger((prev) => prev + 1);
+                scheduleBookingsRefresh();
             }
 
             return { updatedBooking, bookingId };
@@ -901,6 +921,7 @@ const OverViewDetails = ({
         const handlePlotDispatchEvent = (eventName) => (rawData) => {
             console.log(`${eventName}:`, rawData);
             applyPlotDispatchUpdate(rawData, eventName);
+            scheduleBookingsRefresh();
         };
 
         const handleManualDispatchRequired = (rawData) => {
@@ -936,7 +957,28 @@ const OverViewDetails = ({
                 applyPlotDispatchUpdate(payload, PLOT_DISPATCH_SOCKET_EVENTS.STATUS);
             }
 
-            setRefreshTrigger((prev) => prev + 1);
+            const payloadFilter = payload?.filter;
+            const payloadPage = Number(payload?.page || 1);
+            const payloadBookings = Array.isArray(payload?.data)
+                ? payload.data.filter(Boolean)
+                : [];
+            const canApplyListImmediately =
+                payloadBookings.length > 0 &&
+                payloadPage === 1 &&
+                page === 1 &&
+                (!payloadFilter || payloadFilter === filter) &&
+                !search &&
+                !normalizeOverviewSelectValue(selectedStatus) &&
+                !normalizeOverviewSelectValue(selectedSubCompany);
+
+            if (canApplyListImmediately) {
+                setBookings(applyTabFilter(mergeBookingCollections([], payloadBookings)));
+                setTotalPages(payload?.pagination?.total_pages || 1);
+                hasCompletedInitialFetchRef.current = true;
+                setTableLoading(false);
+            }
+
+            scheduleBookingsRefresh(900);
         };
 
         const handleBookingCancelled = (data) => {
@@ -1074,6 +1116,7 @@ const OverViewDetails = ({
 
         const handleDashboardCardsUpdate = (data) => {
             console.log("dashboard-cards-update:", data);
+            scheduleBookingsRefresh();
         };
 
         socket.onAny((event, ...args) => {
@@ -1157,6 +1200,11 @@ const OverViewDetails = ({
         applyPlotDispatchUpdate,
         clearHighlightLater,
         syncPlotDispatchStatus,
+        scheduleBookingsRefresh,
+        page,
+        search,
+        selectedStatus,
+        selectedSubCompany,
     ]);
 
     const getButtonRef = (id) => {
