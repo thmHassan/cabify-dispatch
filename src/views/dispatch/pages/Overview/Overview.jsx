@@ -243,10 +243,10 @@ const isOnJobBookingStatus = (status) =>
   ON_JOB_BOOKING_STATUSES.has(String(status || "").toLowerCase());
 
 const isNearestDispatchAcceptAction = (action) =>
-  /nearest dispatch.*accepted by driver/i.test(String(action || ""));
+  /nearest dispatch.*accepted by/i.test(String(action || ""));
 
 const isPlotDispatchAcceptAction = (action) =>
-  /plot[- ]based dispatch.*accepted by driver/i.test(String(action || ""));
+  /plot[- ]based dispatch.*accepted by/i.test(String(action || ""));
 
 const shouldRemoveDriverFromOnJob = (status) =>
   ["completed", "cancelled", "no_show"].includes(String(status || "").toLowerCase());
@@ -259,9 +259,10 @@ const buildOnJobDriverFromBooking = (booking) => {
 
   const name =
     booking.driverDetail?.name ||
+    booking.driver_detail?.name ||
     booking.driver_name ||
     booking.driverName ||
-    `Driver ${driverId}`;
+    "Driver details loading";
 
   return {
     ...booking.driverDetail,
@@ -299,7 +300,7 @@ const buildOnJobDriverFromPayload = (data) => {
     data.driverName ||
     data.name ||
     data.driver?.name ||
-    `Driver ${driverId}`;
+    "Driver details loading";
 
   return {
     ...data,
@@ -854,7 +855,7 @@ const getDriverPlotLabel = (driver) =>
     : (driver.plot_name || driver.plot || "N/A");
 
 const buildPopupHTML = (data) => {
-  const name = data.name || data.driver_name || data.driverName || "Unknown Driver";
+  const name = data.name || data.driver_name || data.driverName || "Driver details loading";
   const phone = data.phone_no || data.driver_phone || data.phone || "N/A";
   const plate = data.plate_no || data.plate || "N/A";
   const vehicleName = data.vehicle_name || data.vehicleTypeName || data.vehicle_type_name || "No vehicle details";
@@ -942,7 +943,7 @@ const GoogleMapSection = ({ mapRef, mapInstance, markers, driverData, setDriverD
       // ── on-job drivers always show as green (busy) ──
       const isOnJob = onJobIds.has(id);
       const validStatus = isOnJob ? "busy" : ((data?.driving_status || data?.status || "idle") === "busy" ? "busy" : "idle");
-      const name = data?.name || data?.driverName || data?.driver_name || `Driver ${id}`;
+      const name = data?.name || data?.driverName || data?.driver_name || "Driver details loading";
       const infoContent = buildPopupHTML({ ...data, driving_status: validStatus });
 
       if (markers.current[id]) {
@@ -1153,7 +1154,7 @@ const DefaultMapSection = ({ mapRef, mapInstance, markers, driverData, setDriver
       const lngLat = [lng, lat];
       const isOnJob = onJobIds.has(String(driverId));
       const validStatus = isOnJob ? "busy" : ((data.driving_status || "idle") === "busy" ? "busy" : "idle");
-      const name = data.name || data.driverName || data.driver_name || `Driver ${driverId}`;
+      const name = data.name || data.driverName || data.driver_name || "Driver details loading";
       const popupHTML = buildPopupHTML({ ...data, driving_status: validStatus });
 
       setDriverData((prev) => {
@@ -2619,7 +2620,7 @@ const Overview = () => {
                 {onJobDrivers.length > 0 ? onJobDrivers.map((driver, i) => (
                   <tr key={driver.id || driver.driver_id || i} className="border-t">
                     <td className="py-1">{i + 1}</td>
-                    <td>{driver.name || driver.driver_name || `Driver ${i + 1}`}</td>
+                    <td>{driver.name || driver.driver_name || driver.driverName || "Driver details loading"}</td>
                     <td className="text-right py-1">
                       <button
                         type="button"

@@ -260,6 +260,9 @@ export const extractCreatedBookings = (responseData, formMeta = {}) => {
             booking.pre_booking ??
             (formMeta.isScheduled ? true : false),
         dispatch_released: booking.dispatch_released ?? false,
+        dispatch_release_at: booking.dispatch_release_at ?? formMeta.dispatchReleaseAt ?? null,
+        dispatch_release_mode: booking.dispatch_release_mode ?? formMeta.dispatchReleaseMode ?? null,
+        dispatch_release_override: booking.dispatch_release_override ?? Boolean(formMeta.dispatchReleaseAt),
         reminder_minutes: booking.reminder_minutes ?? formMeta.reminderMinutes ?? null,
         booking_date: booking.booking_date ?? formMeta.bookingDate ?? null,
         pickup_time: booking.pickup_time ?? formMeta.pickupTime ?? null,

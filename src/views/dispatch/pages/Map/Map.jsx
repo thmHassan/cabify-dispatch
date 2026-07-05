@@ -50,7 +50,7 @@ const createSvgMarkerEl = (status) => {
 };
 
 const buildDriverPopupHTML = (data) => {
-  const name = data.name || data.driver_name || data.driverName || "Unknown Driver";
+  const name = data.name || data.driver_name || data.driverName || "Driver details loading";
   const phone = data.phone_no || data.phone || "N/A";
   const plate = data.plate_no || data.plate || "N/A";
   const status = (data.driving_status || data.status || "idle").toLowerCase();
@@ -713,7 +713,7 @@ export default Map;
 // };
 
 // const buildDriverPopupHTML = (data) => {
-//   const name = data.name || data.driver_name || data.driverName || "Unknown Driver";
+//   const name = data.name || data.driver_name || data.driverName || "Driver details loading";
 //   const phone = data.phone_no || data.phone || "N/A";
 //   const plate = data.plate_no || data.plate || "N/A";
 //   const status = (data.driving_status || data.status || "idle").toLowerCase();

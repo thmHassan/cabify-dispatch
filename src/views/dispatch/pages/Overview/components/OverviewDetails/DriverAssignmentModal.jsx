@@ -135,9 +135,10 @@ const DriverAssignmentModal = ({
     };
 
     const t = theme[type] || theme.default;
+    const driverLabel = driver_name || booking?.driverDetail?.name || booking?.driver_detail?.name || "Driver details loading";
     const shouldShowDriverBlock =
         !isReminder &&
-        Boolean(driver_name || ["accepted", "cancelled", "no_show"].includes(type));
+        Boolean(driverLabel || ["accepted", "cancelled", "no_show"].includes(type));
 
     const statusBadgeStyle = {
         pending_acceptance: { bg: "bg-amber-100", text: "text-amber-700", label: "Pending Acceptance" },
@@ -161,14 +162,14 @@ const DriverAssignmentModal = ({
     return (
         <>
             <div
-                className="pointer-events-auto w-full max-w-sm bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden shrink-0"
+                className="pointer-events-auto w-full max-w-[320px] bg-white rounded-xl shadow-xl border border-gray-100 overflow-hidden shrink-0"
                 style={{ animation: "slideInUp 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) forwards" }}
                 onMouseEnter={handleMouseEnter}
                 onMouseLeave={handleMouseLeave}
             >
                 <div className={`h-1 w-full bg-gradient-to-r ${t.gradient}`} />
 
-                <div className="flex items-start justify-between px-5 pt-4 pb-2">
+                <div className="flex items-start justify-between px-4 pt-3 pb-1.5">
                     <div className="flex items-center gap-2">
                         <span className="relative flex h-3 w-3">
                             <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${t.ping} opacity-60`} />
@@ -188,13 +189,13 @@ const DriverAssignmentModal = ({
                     </button>
                 </div>
 
-                <div className="px-5 pb-4 space-y-3">
+                <div className="px-4 pb-3 space-y-2">
 
                     {shouldShowDriverBlock && (
                         <div className="flex items-center gap-2">
-                            <div className={`flex-shrink-0 w-9 h-9 rounded-full ${t.avatar} flex items-center justify-center`}>
-                                <span className="text-white text-sm font-bold">
-                                    {driver_name?.charAt(0)?.toUpperCase() ?? "D"}
+                            <div className={`flex-shrink-0 w-7 h-7 rounded-full ${t.avatar} flex items-center justify-center`}>
+                                <span className="text-white text-xs font-bold">
+                                    {driverLabel?.charAt(0)?.toUpperCase() ?? "D"}
                                 </span>
                             </div>
                             <div>
@@ -202,16 +203,16 @@ const DriverAssignmentModal = ({
                                     {type === "accepted" ? "Accepted by" : type === "cancelled" ? "Cancelled by" : type === "no_show" ? "Marked by" : "Assigned Driver"}
                                 </p>
                                 <p className="text-sm font-semibold text-gray-800 leading-tight">
-                                    {driver_name ?? "Unknown Driver"}
+                                    {driverLabel}
                                 </p>
                             </div>
                         </div>
                     )}
 
-                    {message && <p className="text-sm text-gray-600 leading-snug">{message}</p>}
+                    {message && <p className="text-xs text-gray-600 leading-snug line-clamp-2">{message}</p>}
 
                     {(booking || isReminder) && (
-                        <div className="bg-gray-50 rounded-xl px-4 py-3 space-y-1.5 border border-gray-100">
+                        <div className="bg-gray-50 rounded-lg px-3 py-2 space-y-1 border border-gray-100">
                             {(booking_reference || booking?.booking_id || booking?.id || booking_id) && (
                                 <Row
                                     label="Booking"

@@ -353,6 +353,7 @@ const DEFAULT_FORM_VALUES = {
     sub_company: "", account: "", vehicle: "", driver: "",
     journey_type: "one_way", booking_system: "auto_dispatch",
     auto_dispatch: true, bidding: false, bidding_fallback: false, request_for_vehicle: false,
+    auto_release: true, dispatch_release_at: "", dispatch_release_mode: "auto_then_bidding", dispatch_release_override: false,
     pickup_time_type: "asap", pickup_time: "", reminder_minutes: "",
     booking_date: "", booking_type: "outstation",
     name: "", email: "", phone_no: "", tel_no: "",
@@ -374,6 +375,50 @@ const hasEnabledDispatchStep = (items, systemKey, stepKey = null) =>
         (!stepKey || item?.steps === stepKey) &&
         isEnabledDispatchStep(item)
     );
+
+const DEFAULT_RELEASE_SETTINGS = {
+    enabled: true,
+    lead_minutes: 60,
+    mode: "auto_then_bidding",
+    modes: ["auto_dispatch", "bidding", "auto_then_bidding", "manual_review"],
+};
+
+const normalizeReleaseSettings = (raw) => {
+    const value = raw && typeof raw === "object" ? raw : {};
+    const leadMinutes = Number(value.lead_minutes);
+    const mode = value.mode || DEFAULT_RELEASE_SETTINGS.mode;
+
+    return {
+        enabled: value.enabled !== false && value.enabled !== 0 && value.enabled !== "0",
+        lead_minutes: Number.isFinite(leadMinutes) ? Math.max(0, Math.min(leadMinutes, 1440)) : DEFAULT_RELEASE_SETTINGS.lead_minutes,
+        mode: DEFAULT_RELEASE_SETTINGS.modes.includes(mode) ? mode : DEFAULT_RELEASE_SETTINGS.mode,
+        modes: Array.isArray(value.modes) && value.modes.length ? value.modes : DEFAULT_RELEASE_SETTINGS.modes,
+    };
+};
+
+const padDatePart = (value) => String(value).padStart(2, "0");
+
+const formatDateTimeLocal = (date) => (
+    `${date.getFullYear()}-${padDatePart(date.getMonth() + 1)}-${padDatePart(date.getDate())}T${padDatePart(date.getHours())}:${padDatePart(date.getMinutes())}`
+);
+
+const computeReleaseDateTimeLocal = (bookingDate, pickupTime, leadMinutes = DEFAULT_RELEASE_SETTINGS.lead_minutes) => {
+    if (!bookingDate || !pickupTime) return "";
+    const [hour = 0, minute = 0] = String(pickupTime).split(":").map((part) => Number(part) || 0);
+    const pickup = new Date(`${bookingDate}T${padDatePart(hour)}:${padDatePart(minute)}:00`);
+    if (Number.isNaN(pickup.getTime())) return "";
+    pickup.setMinutes(pickup.getMinutes() - Number(leadMinutes || 0));
+    return formatDateTimeLocal(pickup);
+};
+
+const toApiDateTime = (value) => (value ? String(value).replace("T", " ") : "");
+
+const releaseModeLabels = {
+    auto_dispatch: "Auto Dispatch",
+    bidding: "Bidding",
+    auto_then_bidding: "Auto then Bidding",
+    manual_review: "Manual Review",
+};
 
 const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOpen = false }) => {
     const isEditMode = Boolean(editBooking?.id);
@@ -434,6 +479,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
     const [isPlotBasedDispatchEnabled, setIsPlotBasedDispatchEnabled] = useState(false);
     const [loadingDispatchSystem, setLoadingDispatchSystem] = useState(true);
     const [companyBiddingFallbackEnabled, setCompanyBiddingFallbackEnabled] = useState(false);
+    const [companyReleaseSettings, setCompanyReleaseSettings] = useState(DEFAULT_RELEASE_SETTINGS);
     const dispatcherId = getDispatcherId();
     const [alertModal, setAlertModal] = useState({ isOpen: false, message: '', closeBookingOnClose: false });
     const [vehicleSelectionModalOpen, setVehicleSelectionModalOpen] = useState(false);
@@ -586,6 +632,8 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
             try {
                 setLoadingDispatchSystem(true);
                 const response = await apiGetDispatchSystem();
+                const releaseSettings = normalizeReleaseSettings(response?.data?.release_settings);
+                setCompanyReleaseSettings(releaseSettings);
                 let data = response?.data?.data || response?.data || response;
                 if (!Array.isArray(data)) {
                     if (data && typeof data === 'object') {
@@ -615,6 +663,10 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
                         bidding: biddingOnlyEnabled || biddingFallbackEnabled,
                         bidding_fallback: biddingFallbackEnabled,
                         booking_system: autoDispatchEnabled || !biddingOnlyEnabled ? "auto_dispatch" : "bidding",
+                        auto_release: releaseSettings.enabled,
+                        dispatch_release_mode: releaseSettings.mode,
+                        dispatch_release_at: "",
+                        dispatch_release_override: false,
                         driver: biddingOnlyEnabled && !autoDispatchEnabled ? "" : prev.driver,
                     }));
                     setNewBookingFormKey((key) => key + 1);
@@ -625,6 +677,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
                 setIsManualDispatchOnly(false);
                 setIsPlotBasedDispatchEnabled(false);
                 setCompanyBiddingFallbackEnabled(false);
+                setCompanyReleaseSettings(DEFAULT_RELEASE_SETTINGS);
                 await fetchPlotsForDispatch(false);
             }
             finally { setLoadingDispatchSystem(false); }
@@ -1415,6 +1468,27 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
         return errors;
     };
 
+    const syncDefaultReleaseAt = (nextValues, setFieldValue) => {
+        if (!companyReleaseSettings.enabled || nextValues.pickup_time_type !== "time") {
+            setFieldValue("dispatch_release_at", "");
+            setFieldValue("dispatch_release_override", false);
+            return;
+        }
+
+        if (nextValues.dispatch_release_override) {
+            return;
+        }
+
+        const nextReleaseAt = computeReleaseDateTimeLocal(
+            nextValues.booking_date,
+            nextValues.pickup_time,
+            companyReleaseSettings.lead_minutes
+        );
+
+        setFieldValue("dispatch_release_at", nextReleaseAt);
+        setFieldValue("dispatch_release_mode", nextValues.dispatch_release_mode || companyReleaseSettings.mode);
+    };
+
     const validateCreateBooking = (values) => {
         const errors = {};
         if (!values.pickup_location?.trim()) errors.pickup_location = "Pickup point is required";
@@ -1430,6 +1504,17 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
         if (values.pickup_time_type === "time" && !values.pickup_time) errors.pickup_time = "Pickup time is required";
         if (values.pickup_time_type === "time" && isPastCompanyPickupTime(values.booking_date, values.pickup_time)) {
             errors.pickup_time = "Pickup time cannot be in the past";
+        }
+        if (values.pickup_time_type === "time" && companyReleaseSettings.enabled && values.auto_release) {
+            if (!values.dispatch_release_at) {
+                errors.dispatch_release_at = "Release time is required";
+            } else {
+                const releaseAt = new Date(values.dispatch_release_at);
+                const pickupAt = new Date(`${values.booking_date}T${values.pickup_time || "00:00"}:00`);
+                if (!Number.isNaN(releaseAt.getTime()) && !Number.isNaN(pickupAt.getTime()) && releaseAt.getTime() > pickupAt.getTime()) {
+                    errors.dispatch_release_at = "Release time cannot be after pickup time";
+                }
+            }
         }
         if (
             values.pickup_time_type === "time" &&
@@ -1606,6 +1691,20 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
     const resolveBookingSystemValue = (values) => values.auto_dispatch ? "auto_dispatch" : "bidding";
 
     const resolveBiddingFallbackValue = (values) => values.auto_dispatch && values.bidding ? "yes" : "no";
+
+    const appendDispatchReleaseFields = (formData, values) => {
+        const scheduled = values.pickup_time_type === "time";
+        const autoReleaseEnabled = scheduled && companyReleaseSettings.enabled && Boolean(values.auto_release);
+        formData.append("dispatch_release_enabled", autoReleaseEnabled ? "yes" : "no");
+        formData.append("auto_release", autoReleaseEnabled ? "yes" : "no");
+        formData.append(
+            "dispatch_release_mode",
+            autoReleaseEnabled ? (values.dispatch_release_mode || companyReleaseSettings.mode) : "manual_review"
+        );
+        if (autoReleaseEnabled && values.dispatch_release_at) {
+            formData.append("dispatch_release_at", toApiDateTime(values.dispatch_release_at));
+        }
+    };
 
     const isPastCompanyDate = (dateValue) => {
         if (!dateValue) return false;
@@ -1859,6 +1958,8 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
             formData.append('booking_date', bookingDate);
             formData.append('booking_type', values.booking_type || '');
             formData.append("dispatcher_id", dispatcherId);
+            const dispatcherName = getDispatcherName();
+            if (dispatcherName) formData.append("dispatcher_name", dispatcherName);
             const pickupCoords = await resolveLocationCoords(
                 values.pickup_location,
                 values.pickup_latitude,
@@ -1986,6 +2087,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
             formData.append('payment_reference', values.payment_reference || '');
             formData.append('booking_system', resolveBookingSystemValue(values));
             formData.append('bidding_fallback', resolveBiddingFallbackValue(values));
+            appendDispatchReleaseFields(formData, values);
             formData.append('payment_method', values.payment_method || '');
             formData.append('parking_charge', values.parking_charges || '');
             formData.append('waiting_charge', values.waiting_charges || '');
@@ -2029,6 +2131,8 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
                             : null,
                         pickupLocation: pickupLocationLabel || null,
                         destinationLocation: destinationLocationLabel || null,
+                        dispatchReleaseAt: values.dispatch_release_at || null,
+                        dispatchReleaseMode: values.dispatch_release_mode || companyReleaseSettings.mode,
                         phoneNo: values.phone_no || null,
                         passenger: values.passenger || 1,
                     }),
@@ -2187,6 +2291,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
             formData.append("payment_reference", values.payment_reference || "");
             formData.append("booking_system", resolveBookingSystemValue(values));
             formData.append("bidding_fallback", resolveBiddingFallbackValue(values));
+            appendDispatchReleaseFields(formData, values);
             formData.append("payment_method", values.payment_method || "");
             formData.append("parking_charge", values.parking_charges || "");
             formData.append("waiting_charge", values.waiting_charges || "");
@@ -2248,7 +2353,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
                     from: ride.pickup_location || ride.pickup_point,
                     to: ride.destination_location || ride.destination_point,
                     status: ride.booking_status,
-                    driver: ride.driver_detail?.name || "N/A",
+                    driver: ride.driverDetail?.name || ride.driver_detail?.name || "N/A",
                     bookingId: ride.booking_id,
                 })));
             } else { setUserHistory([]); }
@@ -2494,8 +2599,13 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
                                                                         if (val === "asap") {
                                                                             setFieldValue("pickup_time", "");
                                                                             setFieldValue("reminder_minutes", "");
+                                                                            setFieldValue("dispatch_release_at", "");
+                                                                            setFieldValue("dispatch_release_override", false);
                                                                         } else if (!values.pickup_time) {
                                                                             setFieldValue("pickup_time", "00:00");
+                                                                            syncDefaultReleaseAt({ ...values, pickup_time_type: val, pickup_time: "00:00" }, setFieldValue);
+                                                                        } else {
+                                                                            syncDefaultReleaseAt({ ...values, pickup_time_type: val }, setFieldValue);
                                                                         }
                                                                         clearBookingError("pickup_time");
                                                                         clearBookingError("reminder_minutes");
@@ -2507,7 +2617,13 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
                                                                     <input type="time"
                                                                         className={`${formInputClass} min-w-0 ${bookingErrors.pickup_time ? formInputErrorClass : ""}`}
                                                                         value={values.pickup_time || ""}
-                                                                        onChange={(e) => { setFieldValue("pickup_time", e.target.value); clearBookingError("pickup_time"); }} />
+                                                                        onChange={(e) => {
+                                                                            const nextPickupTime = e.target.value;
+                                                                            setFieldValue("pickup_time", nextPickupTime);
+                                                                            syncDefaultReleaseAt({ ...values, pickup_time: nextPickupTime }, setFieldValue);
+                                                                            clearBookingError("pickup_time");
+                                                                            clearBookingError("dispatch_release_at");
+                                                                        }} />
                                                                 )}
                                                             </div>
                                                             <FieldError message={bookingErrors.pickup_time} />
@@ -2518,7 +2634,13 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
                                                                     className={`${formInputClass} min-w-0 ${bookingErrors.booking_date ? formInputErrorClass : ""}`}
                                                                     value={values.booking_date || ""}
                                                                     disabled={isMultiBooking}
-                                                                    onChange={(e) => { setFieldValue("booking_date", e.target.value); clearBookingError("booking_date"); }} />
+                                                                    onChange={(e) => {
+                                                                        const nextBookingDate = e.target.value;
+                                                                        setFieldValue("booking_date", nextBookingDate);
+                                                                        syncDefaultReleaseAt({ ...values, booking_date: nextBookingDate }, setFieldValue);
+                                                                        clearBookingError("booking_date");
+                                                                        clearBookingError("dispatch_release_at");
+                                                                    }} />
                                                                 {isMultiBooking && (
                                                                     <p className="text-[10px] text-[#6B7280] mt-0.5 hidden lg:block">
                                                                         Auto from start date
@@ -2690,6 +2812,66 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
                                                     </p>
                                                 )}
                                             </div>
+                                            {values.pickup_time_type === "time" && companyReleaseSettings.enabled && (
+                                                <div className="mt-2 rounded-lg border border-[#DBEAFE] bg-[#EFF6FF] p-2">
+                                                    <div className="grid grid-cols-1 gap-2 md:grid-cols-[minmax(120px,.8fr)_minmax(150px,1fr)_minmax(130px,.8fr)]">
+                                                        <label className="flex cursor-pointer items-center gap-2 rounded-md bg-white px-3 py-2 text-xs font-medium text-[#111827] shadow-sm">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={Boolean(values.auto_release)}
+                                                                onChange={(e) => {
+                                                                    const checked = e.target.checked;
+                                                                    setFieldValue("auto_release", checked);
+                                                                    if (checked) {
+                                                                        syncDefaultReleaseAt({ ...values, auto_release: checked }, setFieldValue);
+                                                                    } else {
+                                                                        setFieldValue("dispatch_release_at", "");
+                                                                        setFieldValue("dispatch_release_mode", "manual_review");
+                                                                        setFieldValue("dispatch_release_override", true);
+                                                                    }
+                                                                    clearBookingError("dispatch_release_at");
+                                                                }}
+                                                                className="h-4 w-4 rounded border-[#D1D5DB] text-[#1F41BB] focus:ring-[#1F41BB]"
+                                                            />
+                                                            Auto Release
+                                                        </label>
+                                                        <input
+                                                            type="datetime-local"
+                                                            className={`${formInputClass} ${bookingErrors.dispatch_release_at ? formInputErrorClass : ""}`}
+                                                            value={values.dispatch_release_at || ""}
+                                                            disabled={!values.auto_release}
+                                                            onChange={(e) => {
+                                                                setFieldValue("dispatch_release_at", e.target.value);
+                                                                setFieldValue("dispatch_release_override", true);
+                                                                clearBookingError("dispatch_release_at");
+                                                            }}
+                                                        />
+                                                        <select
+                                                            className={formSelectClass}
+                                                            value={values.dispatch_release_mode || companyReleaseSettings.mode}
+                                                            disabled={!values.auto_release}
+                                                            onChange={(e) => {
+                                                                setFieldValue("dispatch_release_mode", e.target.value);
+                                                                clearBookingError("dispatch_release_at");
+                                                            }}
+                                                        >
+                                                            {companyReleaseSettings.modes
+                                                                .filter((mode) => mode !== "manual_review")
+                                                                .map((mode) => (
+                                                                    <option key={mode} value={mode}>
+                                                                        {releaseModeLabels[mode] || mode}
+                                                                    </option>
+                                                                ))}
+                                                        </select>
+                                                    </div>
+                                                    <p className="mt-1 text-[11px] text-[#475569]">
+                                                        {values.auto_release && values.dispatch_release_at
+                                                            ? `No driver selected: releases at ${values.dispatch_release_at.replace("T", " ")} via ${releaseModeLabels[values.dispatch_release_mode] || releaseModeLabels[companyReleaseSettings.mode]}.`
+                                                            : "No driver selected: held for manual dispatch until released."}
+                                                    </p>
+                                                    <FieldError message={bookingErrors.dispatch_release_at} />
+                                                </div>
+                                            )}
                                             <FieldError message={bookingErrors.booking_system} />
                                             <div className="grid grid-cols-1 gap-x-3 gap-y-2 md:grid-cols-2">
                                                 {shouldShowDriverField(values, isEditMode) && (

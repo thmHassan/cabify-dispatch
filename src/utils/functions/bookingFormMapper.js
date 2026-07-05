@@ -54,6 +54,15 @@ const formatPickupTimeInput = (pickupTime) => {
     return `${parts[0]}:${parts[1]}`;
 };
 
+const formatDateTimeLocalInput = (value) => {
+    if (!value) return "";
+    const normalized = String(value).replace(" ", "T");
+    const [date, time = ""] = normalized.split("T");
+    if (!date || !time) return "";
+    const [hour = "", minute = ""] = time.split(":");
+    return hour && minute ? `${date}T${hour}:${minute}` : "";
+};
+
 export const mapBookingToFormValues = (booking, { mode = "copy" } = {}) => {
     if (!booking) return null;
 
@@ -94,6 +103,10 @@ export const mapBookingToFormValues = (booking, { mode = "copy" } = {}) => {
         auto_dispatch: autoDispatch,
         bidding: bookingSystem === "bidding" || biddingFallback,
         bidding_fallback: biddingFallback,
+        auto_release: booking.dispatch_release_mode !== "manual_review",
+        dispatch_release_at: formatDateTimeLocalInput(booking.dispatch_release_at),
+        dispatch_release_mode: booking.dispatch_release_mode || "auto_then_bidding",
+        dispatch_release_override: Boolean(booking.dispatch_release_override),
         request_for_vehicle: requestForVehicle,
         pickup_time_type:
             booking.pickup_time_type ||

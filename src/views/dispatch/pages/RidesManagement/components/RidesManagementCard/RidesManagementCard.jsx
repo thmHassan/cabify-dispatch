@@ -27,6 +27,13 @@ const RidesManagementCard = ({ ride, onDelete, distanceUnit }) => {
         return value.charAt(0).toUpperCase() + value.slice(1);
     };
 
+    const driverName =
+        ride?.driverDetail?.name ||
+        ride?.driver_detail?.name ||
+        ride?.driver_name ||
+        ride?.driverName ||
+        (ride?.driver ? "Driver details loading" : "No driver selected");
+
     const actionOptions = [];
 
     if (ride.booking_status?.toLowerCase() === "pending" && onDelete) {
@@ -54,7 +61,7 @@ const RidesManagementCard = ({ ride, onDelete, distanceUnit }) => {
 
                 <div className="inline-flex flex-col px-3 py-2 rounded-full bg-[#EFEFEF] min-w-0">
                     <p className="text-xs font-semibold text-[#6C6C6C] text-center">Driver Name</p>
-                    <p className="text-[#333333] text-center font-semibold text-sm truncate">{capitalizeFirst(ride?.driver_detail?.name || "-")}</p>
+                    <p className="text-[#333333] text-center font-semibold text-sm truncate">{capitalizeFirst(driverName)}</p>
                 </div>
 
                 <div className="inline-flex flex-col px-3 py-2 rounded-full bg-[#EFEFEF] min-w-0">
