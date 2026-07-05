@@ -84,6 +84,17 @@ const normalizePlotChain = (chain) => {
         }));
 };
 
+const toTimestampMs = (value) => {
+    if (value == null || value === "") return null;
+    const numeric = Number(value);
+    if (Number.isFinite(numeric)) {
+        return numeric > 0 && numeric < 10000000000 ? numeric * 1000 : numeric;
+    }
+
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? parsed : null;
+};
+
 export const normalizePlotDispatchStatus = (payload, { eventName } = {}) => {
     const parsed = parsePlotDispatchPayload(payload);
     if (!parsed) return null;
@@ -102,10 +113,17 @@ export const normalizePlotDispatchStatus = (payload, { eventName } = {}) => {
         parsed.timer_seconds
     );
 
-    const receivedAt = parsed.receivedAt ?? Date.now();
-    const expiresAt = Number.isFinite(expiresInSeconds) && expiresInSeconds > 0
-        ? receivedAt + expiresInSeconds * 1000
-        : parsed.expiresAt ?? null;
+    const receivedAt = toTimestampMs(parsed.receivedAt ?? parsed.received_at) ?? Date.now();
+    const explicitExpiresAt = toTimestampMs(
+        parsed.expiresAt ??
+        parsed.expires_at ??
+        parsed.offer_expires_at ??
+        parsed.offerExpiresAt
+    );
+    const expiresAt = explicitExpiresAt ??
+        (Number.isFinite(expiresInSeconds) && expiresInSeconds > 0
+            ? receivedAt + expiresInSeconds * 1000
+            : null);
 
     return {
         booking_id: bookingId,
@@ -170,11 +188,13 @@ export const isPlotDispatchStatusExhausted = (status) => {
 
 export const getPlotDispatchSecondsRemaining = (status, now = Date.now()) => {
     if (!status) return null;
-    if (status.expiresAt) {
-        return Math.max(0, Math.ceil((status.expiresAt - now) / 1000));
+    const expiresAt = toTimestampMs(status.expiresAt);
+    if (expiresAt) {
+        return Math.max(0, Math.ceil((expiresAt - now) / 1000));
     }
     if (Number.isFinite(status.expires_in_seconds)) {
-        const elapsed = Math.floor((now - (status.receivedAt || now)) / 1000);
+        const receivedAt = toTimestampMs(status.receivedAt) ?? now;
+        const elapsed = Math.floor((now - receivedAt) / 1000);
         return Math.max(0, status.expires_in_seconds - elapsed);
     }
     return null;

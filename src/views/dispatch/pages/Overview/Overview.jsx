@@ -625,10 +625,13 @@ const RideNotificationContainer = () => {
       const id = getRideNotificationKey(normalizedData) || `${Date.now()}-${Math.random()}`;
       setNotifications((prev) => {
         const existingIndex = prev.findIndex((notification) => notification.id === id);
-        if (existingIndex === -1) return [...prev, { id, data: normalizedData }];
+        if (existingIndex === -1) {
+          return [...prev, { id, data: normalizedData, createdAt: Date.now() }];
+        }
         const next = [...prev];
         next[existingIndex] = {
           id,
+          createdAt: next[existingIndex].createdAt || Date.now(),
           data: {
             ...next[existingIndex].data,
             ...normalizedData,
@@ -639,6 +642,15 @@ const RideNotificationContainer = () => {
     };
     notifListeners.add(handler);
     return () => notifListeners.delete(handler);
+  }, []);
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const expiryCutoff = Date.now() - (AUTO_DISMISS_MS + 1200);
+      setNotifications((prev) => prev.filter((notification) => (
+        (notification.createdAt || Date.now()) > expiryCutoff
+      )));
+    }, 1000);
+    return () => clearInterval(interval);
   }, []);
   const remove = (id) => setNotifications((prev) => prev.filter((n) => n.id !== id));
   return (

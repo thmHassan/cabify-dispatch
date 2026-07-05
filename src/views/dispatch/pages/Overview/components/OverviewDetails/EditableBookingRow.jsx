@@ -20,7 +20,7 @@ import {
 import StatusMenu from "./StatusMenu";
 
 const Col = ({ w, children, className = "" }) => (
-    <div className={`px-4 py-3 flex-shrink-0 ${w} ${className}`}>{children}</div>
+    <div className={`px-3 py-3 flex-shrink-0 ${w} ${className}`}>{children}</div>
 );
 
 export const isEditableOverviewTab = (filter) =>
@@ -48,6 +48,7 @@ const hasAssignedDriver = (booking) => Boolean(
 const EditableBookingRow = ({
     booking,
     index,
+    rowNumber,
     filter,
     statusColor,
     formatStatus,
@@ -105,53 +106,53 @@ const EditableBookingRow = ({
 
     return (
         <div className={rowClassName}>
-            <Col w="w-[80px]">{index + 1}</Col>
+            <Col w="w-[56px]">{rowNumber ?? index + 1}</Col>
 
-            <Col w="w-[120px]">{formatBookingDate(booking.booking_date)}</Col>
+            <Col w="w-[108px]">{formatBookingDate(booking.booking_date)}</Col>
 
-            <Col w="w-[100px]">{formatPickupTime(booking)}</Col>
+            <Col w="w-[74px]">{formatPickupTime(booking)}</Col>
 
-            <Col w="w-[90px]">{formatReminderLabel(booking.reminder_minutes)}</Col>
+            <Col w="w-[82px]">{formatReminderLabel(booking.reminder_minutes)}</Col>
 
-            <Col w="w-[100px]">{booking.passenger ?? 1}</Col>
+            <Col w="w-[82px]">{booking.passenger ?? 1}</Col>
 
-            <Col w="w-[180px]">{booking.phone_no ?? "N/A"}</Col>
+            <Col w="w-[150px]">{booking.phone_no ?? "N/A"}</Col>
 
-            <Col w="w-[220px]" className="truncate" title={pickupDisplay}>
+            <Col w="w-[210px]" className="truncate" title={pickupDisplay}>
                 {pickupDisplay}
             </Col>
 
-            <Col w="w-[220px]" className="truncate" title={destinationDisplay}>
+            <Col w="w-[210px]" className="truncate" title={destinationDisplay}>
                 {destinationDisplay}
             </Col>
 
-            <Col w="w-[130px]">
+            <Col w="w-[104px]">
                 <div className="flex flex-col">
                     <span>{formatCurrency(booking.booking_amount ?? booking.offered_amount ?? 0)}</span>
                     <span className="text-xs text-gray-500">{formatStatus(booking.payment_method)}</span>
                 </div>
             </Col>
 
-            <Col w="w-[170px]">
+            <Col w="w-[112px]">
                 <div className="flex flex-col">
                     <span>{booking.vehicleDetail?.vehicle_type_name ?? "-"}</span>
                     <span className="text-xs text-gray-500">{booking.vehicleDetail?.vehicle_type_service ?? ""}</span>
                 </div>
             </Col>
 
-            <Col w="w-[170px]">
+            <Col w="w-[126px]">
                 <div className="flex flex-col">
                     <span>{booking.subCompanyDetail?.name ?? "-"}</span>
                     <span className="text-xs text-gray-500">{booking.subCompanyDetail?.email ?? ""}</span>
                 </div>
             </Col>
 
-            <Col w="w-[170px]">
+            <Col w="w-[144px]">
                 <div className="flex flex-col gap-1">
                     <button
                         ref={(el) => (btnRef.current = el)}
                         onClick={() => setOpenMenu(openMenu === booking.id ? null : booking.id)}
-                        className="w-full flex justify-between items-center border rounded px-3 py-1"
+                        className="w-full flex justify-between items-center border rounded px-2 py-1"
                     >
                         <span className={statusColor[booking.booking_status] ?? "text-gray-500"}>
                             ● {booking.booking_status}
@@ -180,7 +181,7 @@ const EditableBookingRow = ({
                 </div>
             </Col>
 
-            <Col w="w-[230px]" className="whitespace-normal break-words">
+            <Col w="w-[190px]" className="whitespace-normal break-words">
                 <div className="flex flex-col gap-1">
                     {plotBasedDispatchEnabled && progressMessage ? (
                         <button

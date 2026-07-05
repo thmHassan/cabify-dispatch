@@ -62,7 +62,7 @@ const statusColor = {
 };
 
 const Col = ({ w, children, className = "" }) => (
-    <div className={`px-4 py-3 flex-shrink-0 ${w} ${className}`}>{children}</div>
+    <div className={`px-3 py-3 flex-shrink-0 ${w} ${className}`}>{children}</div>
 );
 
 const PENDING_BOOKINGS_STORAGE_KEY = "dispatch_overview_pending_bookings";
@@ -1340,28 +1340,29 @@ const OverViewDetails = ({
                                 : "No bookings found"}
                         </div>
                     ) : (
-                        <div className="overflow-x-auto min-h-[320px]">
-                            <div className="min-w-max">
+                        <div className="overflow-x-auto xl:overflow-x-visible min-h-[320px]">
+                            <div className="min-w-[1648px] xl:min-w-0">
                                 <div className="flex border-b text-sm font-semibold text-gray-700 bg-gray-50">
-                                    <Col w="w-[80px]">ID</Col>
-                                    <Col w="w-[120px]">Pickup Date</Col>
-                                    <Col w="w-[100px]">Time</Col>
-                                    <Col w="w-[90px]">Reminder</Col>
-                                    <Col w="w-[100px]">Passenger</Col>
-                                    <Col w="w-[180px]">Mobile No.</Col>
-                                    <Col w="w-[220px]">Pickup</Col>
-                                    <Col w="w-[220px]">Destination</Col>
-                                    <Col w="w-[130px]">Fare</Col>
-                                    <Col w="w-[170px]">Vehicle</Col>
-                                    <Col w="w-[170px]">Sub Company</Col>
+                                    <Col w="w-[56px]">ID</Col>
+                                    <Col w="w-[108px]">Pickup Date</Col>
+                                    <Col w="w-[74px]">Time</Col>
+                                    <Col w="w-[82px]">Reminder</Col>
+                                    <Col w="w-[82px]">Passenger</Col>
+                                    <Col w="w-[150px]">Mobile No.</Col>
+                                    <Col w="w-[210px]">Pickup</Col>
+                                    <Col w="w-[210px]">Destination</Col>
+                                    <Col w="w-[104px]">Fare</Col>
+                                    <Col w="w-[112px]">Vehicle</Col>
+                                    <Col w="w-[126px]">Sub Company</Col>
                                     {/* <Col w="w-[100px]">OTP</Col> */}
-                                    <Col w="w-[170px]">Status</Col>
-                                    <Col w="w-[230px]">Action</Col>
+                                    <Col w="w-[144px]">Status</Col>
+                                    <Col w="w-[190px]">Action</Col>
                                 </div>
 
                                 {bookings.map((b, index) => {
                                     if (!b || b.id == null) return null;
                                     const btnRef = getButtonRef(b.id);
+                                    const rowNumber = (page - 1) * limit + index + 1;
 
                                     if (isEditableOverviewTab(filter)) {
                                         return (
@@ -1369,6 +1370,7 @@ const OverViewDetails = ({
                                                 key={b.id}
                                                 booking={b}
                                                 index={index}
+                                                rowNumber={rowNumber}
                                                 filter={filter}
                                                 statusColor={statusColor}
                                                 formatStatus={formatStatus}
@@ -1394,58 +1396,58 @@ const OverViewDetails = ({
                                             key={b.id}
                                             className="flex border-b text-sm bg-white hover:bg-gray-50 transition-colors"
                                         >
-                                            <Col w="w-[80px]">{index + 1}</Col>
+                                            <Col w="w-[56px]">{rowNumber}</Col>
 
-                                            <Col w="w-[120px]">
+                                            <Col w="w-[108px]">
                                                 {formatBookingDate(b.booking_date)}
                                             </Col>
 
-                                            <Col w="w-[100px]">
+                                            <Col w="w-[74px]">
                                                 {formatPickupTime(b)}
                                             </Col>
 
-                                            <Col w="w-[90px]">
+                                            <Col w="w-[82px]">
                                                 {formatReminderLabel(b.reminder_minutes)}
                                             </Col>
 
-                                            <Col w="w-[100px]">{b.passenger ?? 1}</Col>
-                                            <Col w="w-[180px]">{b.phone_no ?? "N/A"}</Col>
+                                            <Col w="w-[82px]">{b.passenger ?? 1}</Col>
+                                            <Col w="w-[150px]">{b.phone_no ?? "N/A"}</Col>
 
-                                            <Col w="w-[220px]" className="truncate" title={getLocationDisplay(b, "pickup_location")}>
+                                            <Col w="w-[210px]" className="truncate" title={getLocationDisplay(b, "pickup_location")}>
                                                 {getLocationDisplay(b, "pickup_location")}
                                             </Col>
 
-                                            <Col w="w-[220px]" className="truncate" title={getLocationDisplay(b, "destination_location")}>
+                                            <Col w="w-[210px]" className="truncate" title={getLocationDisplay(b, "destination_location")}>
                                                 {getLocationDisplay(b, "destination_location")}
                                             </Col>
 
-                                            <Col w="w-[130px]">
+                                            <Col w="w-[104px]">
                                                 <div className="flex flex-col">
                                                     <span>{formatCurrency(b.booking_amount ?? b.offered_amount ?? 0)}</span>
                                                     <span className="text-xs text-gray-500">{formatStatus(b.payment_method)}</span>
                                                 </div>
                                             </Col>
 
-                                            <Col w="w-[170px]">
+                                            <Col w="w-[112px]">
                                                 <div className="flex flex-col">
                                                     <span>{b.vehicleDetail?.vehicle_type_name ?? "-"}</span>
                                                     <span className="text-xs text-gray-500">{b.vehicleDetail?.vehicle_type_service ?? ""}</span>
                                                 </div>
                                             </Col>
 
-                                            <Col w="w-[170px]">
+                                            <Col w="w-[126px]">
                                                 <div className="flex flex-col">
                                                     <span>{b.subCompanyDetail?.name ?? "-"}</span>
                                                     <span className="text-xs text-gray-500">{b.subCompanyDetail?.email ?? ""}</span>
                                                 </div>
                                             </Col>
 
-                                            <Col w="w-[170px]">
+                                            <Col w="w-[144px]">
                                                 <div className="flex flex-col gap-1">
                                                     <button
                                                         ref={(el) => (btnRef.current = el)}
                                                         onClick={() => setOpenMenu(openMenu === b.id ? null : b.id)}
-                                                        className="w-full flex justify-between items-center border rounded px-3 py-1"
+                                                        className="w-full flex justify-between items-center border rounded px-2 py-1"
                                                     >
                                                         <span className={statusColor[b.booking_status] ?? "text-gray-500"}>
                                                             ● {b.booking_status}
@@ -1474,7 +1476,7 @@ const OverViewDetails = ({
                                                 </div>
                                             </Col>
 
-                                            <Col w="w-[230px]" className="whitespace-normal break-words">
+                                            <Col w="w-[190px]" className="whitespace-normal break-words">
                                                 {cleanDispatcherAction(b.dispatcher_action) || "-"}
                                             </Col>
                                         </div>
