@@ -37,6 +37,7 @@ export const isTodayDate = (dateValue) => isCompanyToday(dateValue);
 export const isFutureDate = (dateValue) => isCompanyFutureDate(dateValue);
 
 export const TERMINAL_BOOKING_STATUSES = ["completed", "no_show", "cancelled"];
+export const TODAY_HIDDEN_BOOKING_STATUSES = ["completed", "cancelled"];
 
 export const isTerminalOverviewStatus = (booking) =>
     TERMINAL_BOOKING_STATUSES.includes(String(booking?.booking_status || "").toLowerCase());
@@ -327,7 +328,8 @@ export const isScheduledBookingWithReminder = (booking) =>
     hasScheduledPickupTime(booking) && hasReminderMinutes(booking);
 
 export const isUserVisibleTodayBookingStatus = (booking) => {
-    return !isTerminalOverviewStatus(booking);
+    const status = String(booking?.booking_status || "").toLowerCase();
+    return !TODAY_HIDDEN_BOOKING_STATUSES.includes(status);
 };
 
 export const extractUpdatedBookingFromResponse = (responseData, fallbackBooking = {}) => {
