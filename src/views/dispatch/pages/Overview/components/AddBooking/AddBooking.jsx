@@ -1812,7 +1812,11 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
             if (response?.data?.success === 1) {
                 setFareData(response.data);
                 setFareCalculated(true);
-                if (response.data.distance) setFieldValue('distance', metersToDisplayDistance(response.data.distance));
+                if (response.data.distance_value != null) {
+                    setFieldValue('distance', Number(response.data.distance_value).toFixed(2));
+                } else if (response.data.distance) {
+                    setFieldValue('distance', metersToDisplayDistance(response.data.distance));
+                }
                 toast.success("Fare calculated successfully");
             } else {
                 const msg = response?.data?.message || "Failed to calculate fares";

@@ -1,4 +1,19 @@
 import { getTenantData } from "./tokenEncryption";
+import {
+    formatDistanceFromBooking,
+    formatDistanceFromMeters,
+    formatDistanceValueWithUnit,
+    metersToDisplayDistanceValue,
+    parseDistanceUnit,
+} from "./distanceFormatUtils.js";
+
+export {
+    formatDistanceFromBooking,
+    formatDistanceFromMeters,
+    formatDistanceValueWithUnit,
+    metersToDisplayDistanceValue,
+    parseDistanceUnit,
+};
 
 export const COUNTRY_CODE_MAP = {
     AF: "+93", AC: "+247", AL: "+355", DZ: "+213", AD: "+376",
@@ -85,12 +100,7 @@ export const getTenantDistanceUnit = () => {
 export const isMilesUnit = () => getTenantDistanceUnit() === "Miles";
 
 export const metersToDisplayDistance = (meters) => {
-    const value = Number(meters);
-    if (Number.isNaN(value)) return "";
-    if (isMilesUnit()) {
-        return (value / 1609.344).toFixed(2);
-    }
-    return (value / 1000).toFixed(2);
+    return metersToDisplayDistanceValue(meters, getTenantDistanceUnit());
 };
 
 export const kmValueToDisplayDistance = (kmValue) => {
@@ -103,9 +113,7 @@ export const kmValueToDisplayDistance = (kmValue) => {
 };
 
 export const formatDistanceWithUnit = (value) => {
-    if (value === "" || value == null) return "";
-    const unitLabel = isMilesUnit() ? "miles" : "km";
-    return `${value} ${unitLabel}`;
+    return formatDistanceValueWithUnit(value, getTenantDistanceUnit()).replace("Miles", "miles").replace("Km", "km");
 };
 
 export const displayDistanceToMeters = (displayValue) => {

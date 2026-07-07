@@ -3,6 +3,7 @@ import UserDropdown from "../../../../../../components/shared/UserDropdown/UserD
 import Button from "../../../../../../components/ui/Button/Button";
 import ThreeDotsIcon from "../../../../../../components/svg/ThreeDotsIcon";
 import { formatCurrency } from "../../../../../../utils/functions/formatters";
+import { formatDistanceFromBooking } from "../../../../../../utils/functions/tenantSettings";
 
 const RidesManagementCard = ({ ride, onDelete, distanceUnit }) => {
 
@@ -12,14 +13,6 @@ const RidesManagementCard = ({ ride, onDelete, distanceUnit }) => {
         completed: "bg-green-500 text-white",
         ongoing: "bg-[#10B981] text-white",
         default: "bg-[#EFEFEF] text-gray-600"
-    };
-
-    const formatDistance = (distanceInMeters) => {
-        if (!distanceInMeters) return "-";
-        if (distanceUnit === "Km") {
-            return `${(distanceInMeters / 1000).toFixed(2)} Km`;
-        }
-        return `${(distanceInMeters / 1609.34).toFixed(2)} Miles`;
     };
 
     const capitalizeFirst = (value) => {
@@ -92,7 +85,7 @@ const RidesManagementCard = ({ ride, onDelete, distanceUnit }) => {
                 <div className="inline-flex flex-col px-3 py-2 rounded-full bg-[#EFEFEF] min-w-0">
                     <p className="text-xs font-semibold text-[#6C6C6C] text-center">Distance</p>
                     <p className="text-[#333333] text-center font-semibold text-sm truncate">
-                        {formatDistance(ride.distance)}
+                        {formatDistanceFromBooking(ride, distanceUnit)}
                     </p>
                 </div>
 

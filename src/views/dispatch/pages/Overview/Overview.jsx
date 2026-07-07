@@ -2099,9 +2099,17 @@ const Overview = () => {
           syncWaitingDriversFromApi();
         }
       }
+
+      if (["no_show", "driver_no_show", "completed", "cancelled", "cancel_ride"].includes(String(status).toLowerCase())) {
+        fetchDashboardCards();
+        setRefreshTrigger((prev) => prev + 1);
+      }
     };
 
-    const handleBookingCancelled = () => fetchDashboardCards();
+    const handleBookingCancelled = () => {
+      fetchDashboardCards();
+      setRefreshTrigger((prev) => prev + 1);
+    };
 
     const handleDriverLocationUpdate = (rawData) => {
       const data = parseDriverData(rawData);
@@ -2265,6 +2273,7 @@ const Overview = () => {
     socket.on("booking-updated-event", handleBookingUpdated);
     socket.on("refresh-bookings-list", handleRefreshBookingsList);
     socket.on("booking-status-updated", handleBookingStatusUpdated);
+    socket.on("booking-no-show-event", handleBookingStatusUpdated);
     socket.on("driver-offline-event", handleDriverOffline);
     socket.on("driver-offline", handleDriverOffline);
 
@@ -2294,6 +2303,7 @@ const Overview = () => {
       socket.off("booking-updated-event", handleBookingUpdated);
       socket.off("refresh-bookings-list", handleRefreshBookingsList);
       socket.off("booking-status-updated", handleBookingStatusUpdated);
+      socket.off("booking-no-show-event", handleBookingStatusUpdated);
       socket.off("driver-offline-event", handleDriverOffline);
       socket.off("driver-offline", handleDriverOffline);
       socket.off("connect", handleSocketStateRefresh);
