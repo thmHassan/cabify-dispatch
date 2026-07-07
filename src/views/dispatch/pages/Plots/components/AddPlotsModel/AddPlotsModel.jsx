@@ -413,7 +413,6 @@ export default AddPlotsModel;
 //   }
 // };
 
-// const GOOGLE_KEY = "AIzaSyDTlV1tPVuaRbtvBQu4-kjDhTV54tR4cDU";
 // const BARIKOI_KEY = "bkoi_a468389d0211910bd6723de348e0de79559c435f07a17a5419cbe55ab55a890a";
 // const MAP_TYPE = getMapType();
 

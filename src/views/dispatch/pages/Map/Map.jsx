@@ -18,8 +18,6 @@ import { apiGetPlot } from "../../../../services/PlotService";
 import { useMapDriverSync } from "../../../../hooks/useMapDriverSync";
 import { getDriverKey, pruneDriverMarkers } from "../../../../utils/functions/driverMapSync";
 
-const GOOGLE_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "";
-
 const svgToDataUrl = (SvgComponent, width = 40, height = 40) => {
   const svgString = renderToString(<SvgComponent width={width} height={height} />);
   return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svgString)}`;
@@ -680,7 +678,6 @@ export default Map;
 // import { getTenantData } from "../../../../utils/functions/tokenEncryption";
 // import { apiGetCompanyApiKeys } from "../../../../services/SettingsConfigurationServices";
 
-// const GOOGLE_KEY = "AIzaSyDTlV1tPVuaRbtvBQu4-kjDhTV54tR4cDU";
 // const BARIKOI_KEY = "bkoi_a468389d0211910bd6723de348e0de79559c435f07a17a5419cbe55ab55a890a";
 
 // const svgToDataUrl = (SvgComponent, width = 40, height = 40) => {

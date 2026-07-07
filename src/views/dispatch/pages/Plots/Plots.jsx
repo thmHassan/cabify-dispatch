@@ -517,7 +517,6 @@ export default Plots;
 //   const [mapProvider] = useState(() => getMapType());
 //   const [mapError, setMapError] = useState(false);
 
-//   const googleApiKey = "AIzaSyDTlV1tPVuaRbtvBQu4-kjDhTV54tR4cDU";
 //   const barikoiApiKey = "bkoi_a468389d0211910bd6723de348e0de79559c435f07a17a5419cbe55ab55a890a";
 
 //   const parseCoordinates = useCallback((plot) => {

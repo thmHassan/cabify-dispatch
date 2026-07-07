@@ -91,7 +91,6 @@ const EMPTY_LOCATION_SIDEBAR = {
     error: "",
 };
 
-const DEFAULT_GOOGLE_KEY = "AIzaSyDTlV1tPVuaRbtvBQu4-kjDhTV54tR4cDU";
 const DEFAULT_BARIKOI_KEY = "bkoi_a468389d0211910bd6723de348e0de79559c435f07a17a5419cbe55ab55a890a";
 
 const SEARCH_COUNTRY_CENTERS = {
@@ -102,11 +101,15 @@ const SEARCH_COUNTRY_CENTERS = {
     DEFAULT: { lat: 23.8103, lon: 90.4125 },
 };
 
-const GOOGLE_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || DEFAULT_GOOGLE_KEY;
 const BARIKOI_KEY = import.meta.env.VITE_BARIKOI_API_KEY || DEFAULT_BARIKOI_KEY;
 
 const loadGoogleScript = (apiKey) =>
     new Promise((resolve, reject) => {
+        if (!apiKey) {
+            reject(new Error("Google Maps API key is not configured for this company."));
+            return;
+        }
+
         const isReady = () =>
             typeof window.google?.maps?.Map === "function"
             && window.google?.maps?.places?.AutocompleteService;
@@ -126,7 +129,7 @@ const loadGoogleScript = (apiKey) =>
         }
         const script = document.createElement("script");
         script.id = "google-maps-script";
-        script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey || GOOGLE_KEY}&libraries=places`;
+        script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`;
         script.async = true;
         script.defer = true;
         script.onload = () => {

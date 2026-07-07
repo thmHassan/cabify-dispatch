@@ -56,8 +56,6 @@ import {
   getTenantId,
 } from "../../../../utils/functions/tokenEncryption";
 
-const GOOGLE_KEY = "AIzaSyDTlV1tPVuaRbtvBQu4-kjDhTV54tR4cDU";
-
 const ON_JOB_STORAGE_BASE = "onJobDrivers_persistent";
 const DRIVER_DATA_STORAGE_BASE = "driverData_persistent";
 const WAITING_DRIVERS_STORAGE_BASE = "waitingDrivers_persistent";

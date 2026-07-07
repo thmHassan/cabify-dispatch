@@ -14,7 +14,7 @@ import appConfig from "../components/configs/app.config";
 import ApiService from "./ApiService";
 import { configureMapifyEndpoints, normalizeMapSearchPreferences } from "./MapSearchService";
 import { setCachedMapConfiguration } from "./mapConfigCache";
-import { getTenantId, getTenantData, getDecryptedToken, resolveTenantDatabaseId } from "../utils/functions/tokenEncryption";
+import { getTenantId, getTenantData, getDecryptedToken } from "../utils/functions/tokenEncryption";
 
 export const MAP_PROVIDER_GOOGLE = "google";
 export const MAP_PROVIDER_DEFAULT = "default";
@@ -22,7 +22,6 @@ export const MAP_PROVIDER_BARIKOI = "barikoi";
 export const MAP_STATUS_NO_PROVIDER = 503;
 export const MAP_STATUS_SAVE_NO_PROVIDER = 422;
 
-const ENV_GOOGLE_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "";
 const ENV_BARIKOI_KEY =
     import.meta.env.VITE_BARIKOI_API_KEY
     || import.meta.env.VITE_BARIKOI_KEY
@@ -190,13 +189,13 @@ const getConfiguredMapType = (info) =>
     String(info?.maps_api || info?.map_type || "").trim().toLowerCase();
 
 const getGoogleKey = (info) => {
-    const companyKey = info?.google_api_keys ? String(info.google_api_keys).trim() : "";
-    if (companyKey) return companyKey;
-
     const mapType = getConfiguredMapType(info);
     if (mapType === MAP_PROVIDER_DEFAULT || mapType === "mapify") {
         return null;
     }
+
+    const companyKey = info?.google_api_keys ? String(info.google_api_keys).trim() : "";
+    if (companyKey) return companyKey;
 
     const tenantKey = info?.google_api_key ? String(info.google_api_key).trim() : "";
     return tenantKey || null;
@@ -208,20 +207,18 @@ const getBarikoiKey = (info) => {
 };
 
 const shouldUseGoogleMaps = (info) => {
-    const googleKey = getGoogleKey(info) || ENV_GOOGLE_KEY || null;
+    const googleKey = getGoogleKey(info);
     if (!googleKey) return false;
     if (isTruthyFlag(info?.uses_google_map)) return true;
     if (isTruthyFlag(info?.uses_mapify)) return false;
 
     const mapType = getConfiguredMapType(info);
-    if (mapType === MAP_PROVIDER_GOOGLE) return true;
-
-    return !isTruthyFlag(info?.uses_mapify) && mapType !== MAP_PROVIDER_DEFAULT && mapType !== MAP_PROVIDER_BARIKOI;
+    return mapType === MAP_PROVIDER_GOOGLE;
 };
 
 const shouldUseMapify = (info) => {
     if (isTruthyFlag(info?.uses_mapify)) {
-        if (isTruthyFlag(info?.uses_google_map) && (getGoogleKey(info) || ENV_GOOGLE_KEY)) return false;
+        if (isTruthyFlag(info?.uses_google_map) && getGoogleKey(info)) return false;
         return true;
     }
 
@@ -492,7 +489,7 @@ const buildConfigFromInfo = (rawInfo) => {
 
     if (shouldUseGoogleMaps(info)) {
         configureMapifyEndpoints(null);
-        const googleKey = getGoogleKey(info) || ENV_GOOGLE_KEY || null;
+        const googleKey = getGoogleKey(info);
         return {
             ok: true,
             provider: MAP_PROVIDER_GOOGLE,
@@ -572,30 +569,6 @@ const buildConfigFromInfo = (rawInfo) => {
         };
     }
 
-    const configuredMapType = getConfiguredMapType(info);
-    const prefersMapify = configuredMapType === MAP_PROVIDER_DEFAULT
-        || configuredMapType === "mapify"
-        || isTruthyFlag(info?.uses_mapify);
-
-    if (ENV_GOOGLE_KEY && !prefersMapify) {
-        configureMapifyEndpoints(null);
-        return {
-            ok: true,
-            provider: MAP_PROVIDER_GOOGLE,
-            googleKey: ENV_GOOGLE_KEY,
-            barikoiKey: null,
-            mapifyStyle: null,
-            barikoiStyle: null,
-            mapifyTilesEndpoint: null,
-            mapifySearchEndpoint: null,
-            mapifyGeocodingEndpoint: null,
-            mapifyReverseGeocodingEndpoint: null,
-            usesMapify: false,
-            usesGoogleMap: true,
-            raw: info,
-        };
-    }
-
     const error = new Error("No map provider is configured. Add a Google Maps API key or configure Mapify on the server.");
     error.response = {
         status: MAP_STATUS_NO_PROVIDER,
@@ -637,7 +610,6 @@ export async function fetchMapConfiguration() {
             || isSuccess(mapRes?.data)
             || isSuccess(thirdPartyRes?.data)
             || isSuccess(keysRes?.data)
-            || ENV_GOOGLE_KEY
             || ENV_BARIKOI_KEY;
 
         if (!hasUsablePayload) {
