@@ -9,14 +9,14 @@ import { renderToString } from "react-dom/server";
 import RedCarIcon from "../../../../components/svg/RedCarIcon";
 import GreenCarIcon from "../../../../components/svg/GreenCarIcon";
 import AppLogoIcon from "../../../../components/svg/AppLogoIcon";
-import { getTenantData } from "../../../../utils/functions/tokenEncryption";
-import { apiGetCompanyApiKeys } from "../../../../services/SettingsConfigurationServices";
-import { fetchMapConfiguration, MAP_PROVIDER_DEFAULT, MAP_PROVIDER_GOOGLE } from "../../../../services/mapConfigurationService";
+import { MAP_PROVIDER_BARIKOI, MAP_PROVIDER_DEFAULT, MAP_PROVIDER_GOOGLE, createMapifyTransformRequest } from "../../../../services/mapConfigurationService";
+import { buildOsmFallbackStyle, loadMapLibreGl } from "../../../../utils/map/maplibreLoader";
+import useMapConfiguration from "../../../../hooks/useMapConfiguration";
+import { destroySharedMapInstance } from "../../../../utils/functions/mapInstanceCleanup";
+import AppLogoLoader from "../../../../components/shared/AppLogoLoader/AppLogoLoader";
 import { apiGetPlot } from "../../../../services/PlotService";
-import { apiMapifySearch, normalizeMapifyFeatures } from "../../../../services/MapSearchService";
-import MapSearchBox from "./components/MapSearchBox";
-
-const GOOGLE_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "";
+import { useMapDriverSync } from "../../../../hooks/useMapDriverSync";
+import { getDriverKey, pruneDriverMarkers } from "../../../../utils/functions/driverMapSync";
 
 const svgToDataUrl = (SvgComponent, width = 40, height = 40) => {
   const svgString = renderToString(<SvgComponent width={width} height={height} />);
@@ -48,7 +48,7 @@ const createSvgMarkerEl = (status) => {
 };
 
 const buildDriverPopupHTML = (data) => {
-  const name = data.name || data.driver_name || data.driverName || "Unknown Driver";
+  const name = data.name || data.driver_name || data.driverName || "Driver details loading";
   const phone = data.phone_no || data.phone || "N/A";
   const plate = data.plate_no || data.plate || "N/A";
   const status = (data.driving_status || data.status || "idle").toLowerCase();
@@ -117,63 +117,6 @@ const loadGoogleMaps = (apiKey) => {
     document.head.appendChild(script);
   });
 };
-
-const loadMapLibre = () => {
-  return new Promise((resolve, reject) => {
-    if (window.maplibregl?.Map) return resolve();
-
-    if (!document.getElementById("maplibre-css")) {
-      const link = document.createElement("link");
-      link.id = "maplibre-css";
-      link.rel = "stylesheet";
-      link.href = "https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css";
-      document.head.appendChild(link);
-    }
-
-    const existing = document.getElementById("maplibre-script");
-    if (existing) {
-      const check = setInterval(() => {
-        if (window.maplibregl?.Map) { clearInterval(check); resolve(); }
-      }, 100);
-      return;
-    }
-
-    const script = document.createElement("script");
-    script.id = "maplibre-script";
-    script.src = "https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js";
-    script.async = true;
-    script.onload = () => {
-      setTimeout(() => {
-        if (window.maplibregl?.Map) resolve();
-        else reject(new Error("MapLibre not available after load"));
-      }, 150);
-    };
-    script.onerror = () => reject(new Error("MapLibre script failed to load"));
-    document.head.appendChild(script);
-  });
-};
-
-const buildOsmFallbackStyle = () => ({
-  version: 8,
-  name: "OSM Fallback",
-  glyphs: "https://fonts.openmaptiles.org/{fontstack}/{range}.pbf",
-  sources: {
-    "osm-tiles": {
-      type: "raster",
-      tiles: [
-        "https://a.tile.openstreetmap.org/{z}/{x}/{y}.png",
-        "https://b.tile.openstreetmap.org/{z}/{x}/{y}.png",
-        "https://c.tile.openstreetmap.org/{z}/{x}/{y}.png",
-      ],
-      tileSize: 256,
-      attribution: "© OpenStreetMap contributors",
-      maxzoom: 19,
-    },
-  },
-  layers: [
-    { id: "osm-tiles", type: "raster", source: "osm-tiles", minzoom: 0, maxzoom: 22 },
-  ],
-});
 
 const animateMarker = (marker, newPosition, duration = 1000) => {
   if (!marker.getPosition) return;
@@ -248,8 +191,7 @@ const makeGoogleIcon = (status) => {
   };
 };
 
-const GoogleMapView = ({ mapRef, mapInstance, markers, driverData, setDriverData, selectedStatus, searchQuery, socket, apiKeys, plotsData }) => {
-  const socketRef = useRef(socket);
+const GoogleMapView = ({ mapRef, mapInstance, markers, driverData, activeDriverIds, selectedStatus, searchQuery, apiKeys, plotsData, mapType }) => {
   const plotPolygons = useRef([]);
 
   const renderPlots = () => {
@@ -271,7 +213,9 @@ const GoogleMapView = ({ mapRef, mapInstance, markers, driverData, setDriverData
     if (mapInstance.current && plotsData) renderPlots();
   }, [plotsData, mapInstance.current]);
 
-  useEffect(() => { socketRef.current = socket; }, [socket]);
+  useEffect(() => {
+    pruneDriverMarkers(markers, activeDriverIds, { isGoogle: true });
+  }, [activeDriverIds, markers]);
 
   useEffect(() => {
     let mounted = true;
@@ -286,12 +230,16 @@ const GoogleMapView = ({ mapRef, mapInstance, markers, driverData, setDriverData
         styles: [{ featureType: "poi", elementType: "labels", stylers: [{ visibility: "off" }] }],
       });
     });
-    return () => { mounted = false; };
-  }, [apiKeys.googleKey, apiKeys.countryOfUse]);
+    return () => {
+      mounted = false;
+      destroySharedMapInstance(mapInstance, markers, mapRef, { isGoogle: true });
+    };
+  }, [mapType]);
 
   const updateOrAddMarker = useCallback((data) => {
     if (!mapInstance.current) return;
-    const driverId = data.id || data.driver_id || data.dispatcher_id || data.client_id;
+    const driverId = getDriverKey(data);
+    if (!driverId) return;
     const latitude = data.latitude !== undefined ? data.latitude : data.lat;
     const longitude = data.longitude !== undefined ? data.longitude : data.lng;
     if (latitude == null || longitude == null || isNaN(latitude) || isNaN(longitude)) return;
@@ -320,32 +268,21 @@ const GoogleMapView = ({ mapRef, mapInstance, markers, driverData, setDriverData
   }, []);
 
   useEffect(() => {
-    if (mapInstance.current && driverData) {
-      Object.values(driverData).forEach(updateOrAddMarker);
-    }
-  }, [mapInstance.current, driverData, updateOrAddMarker]);
+    if (!mapInstance.current || !driverData) return;
 
-  useEffect(() => {
-    const handle = (rawData) => {
-      const data = parseDriverData(rawData);
-      if (data) {
-        const driverId = data.id || data.driver_id || data.dispatcher_id || data.client_id;
-        const latitude = data.latitude !== undefined ? data.latitude : data.lat;
-        const longitude = data.longitude !== undefined ? data.longitude : data.lng;
-        const position = { lat: Number(latitude), lng: Number(longitude) };
-        setDriverData(prev => ({
-          ...prev,
-          [driverId]: { ...prev[driverId], ...data, position }
-        }));
-        updateOrAddMarker(data);
-      }
-    };
-    if (socketRef.current) socketRef.current.on("driver-location-update", handle);
-    return () => { if (socketRef.current) socketRef.current.off("driver-location-update", handle); };
-  }, [mapInstance.current, updateOrAddMarker, setDriverData]);
+    Object.values(driverData).forEach((data) => {
+      const driverId = getDriverKey(data);
+      if (!driverId || !activeDriverIds.has(driverId)) return;
+      updateOrAddMarker(data);
+    });
+  }, [mapInstance.current, driverData, activeDriverIds, updateOrAddMarker]);
 
   useEffect(() => {
     Object.entries(markers.current).forEach(([id, marker]) => {
+      if (!activeDriverIds.has(String(id))) {
+        marker.setVisible(false);
+        return;
+      }
       const driver = driverData[id];
       if (!driver) return;
       let visible = selectedStatus.value === "all" || (driver.driving_status || driver.status) === selectedStatus.value;
@@ -356,15 +293,14 @@ const GoogleMapView = ({ mapRef, mapInstance, markers, driverData, setDriverData
       }
       marker.setVisible(visible);
     });
-  }, [selectedStatus, searchQuery, driverData]);
+  }, [selectedStatus, searchQuery, driverData, activeDriverIds]);
 
   return <div ref={mapRef} className="w-full h-[550px] rounded-xl border border-gray-300 shadow-sm" />;
 };
 
-const DefaultMapView = ({ mapRef, mapInstance, markers, driverData, setDriverData, selectedStatus, searchQuery, socket, apiKeys, plotsData }) => {
+const DefaultMapView = ({ mapRef, mapInstance, markers, driverData, activeDriverIds, selectedStatus, searchQuery, apiKeys, plotsData, mapType }) => {
   const [isLoaded, setIsLoaded] = useState(false);
-  const socketRef = useRef(socket);
-  useEffect(() => { socketRef.current = socket; }, [socket]);
+  const mapStyle = apiKeys.mapifyStyle || apiKeys.barikoiStyle;
 
   useEffect(() => {
     if (!mapRef.current) return;
@@ -412,12 +348,12 @@ const DefaultMapView = ({ mapRef, mapInstance, markers, driverData, setDriverDat
   }, [isLoaded, plotsData]);
 
   useEffect(() => {
-    if (!apiKeys.mapifyStyle) return;
+    if (!mapStyle) return;
     let mounted = true;
 
     const init = async () => {
       try {
-        await loadMapLibre();
+        await loadMapLibreGl();
       } catch (err) {
         console.error("MapLibre load failed:", err);
         return;
@@ -441,7 +377,8 @@ const DefaultMapView = ({ mapRef, mapInstance, markers, driverData, setDriverDat
             center: [center.lng, center.lat],
             zoom: 8,
             fadeDuration: 0,
-            attributionControl: true,
+            attributionControl: false,
+            transformRequest: createMapifyTransformRequest(),
           });
 
           map.addControl(new window.maplibregl.NavigationControl(), "bottom-right");
@@ -478,7 +415,7 @@ const DefaultMapView = ({ mapRef, mapInstance, markers, driverData, setDriverDat
         }
       };
 
-      tryInit(apiKeys.mapifyStyle);
+      tryInit(mapStyle);
     };
 
     init();
@@ -495,7 +432,7 @@ const DefaultMapView = ({ mapRef, mapInstance, markers, driverData, setDriverDat
         setIsLoaded(false);
       }
     };
-  }, [apiKeys.mapifyStyle]);
+  }, [mapType]);
 
   useEffect(() => {
     if (isLoaded && mapInstance.current) {
@@ -506,8 +443,8 @@ const DefaultMapView = ({ mapRef, mapInstance, markers, driverData, setDriverDat
 
   const updateOrAddMarker = useCallback((data) => {
     if (!mapInstance.current || !isLoaded) return;
-    const driverId = data.id || data.driver_id || data.dispatcher_id || data.client_id;
-    if (driverId == null) return;
+    const driverId = getDriverKey(data);
+    if (!driverId) return;
     const latitude = data.latitude !== undefined ? data.latitude : data.lat;
     const longitude = data.longitude !== undefined ? data.longitude : data.lng;
     if (latitude == null || longitude == null || isNaN(latitude) || isNaN(longitude)) return;
@@ -552,33 +489,26 @@ const DefaultMapView = ({ mapRef, mapInstance, markers, driverData, setDriverDat
   }, [isLoaded]);
 
   useEffect(() => {
-    if (isLoaded && mapInstance.current && driverData) {
-      Object.values(driverData).forEach(updateOrAddMarker);
-    }
-  }, [isLoaded, mapInstance.current, driverData, updateOrAddMarker]);
+    pruneDriverMarkers(markers, activeDriverIds, { isGoogle: false });
+  }, [activeDriverIds, isLoaded, markers]);
 
   useEffect(() => {
-    const handle = (rawData) => {
-      const data = parseDriverData(rawData);
-      if (data) {
-        const driverId = data.id || data.driver_id || data.dispatcher_id || data.client_id;
-        const latitude = data.latitude !== undefined ? data.latitude : data.lat;
-        const longitude = data.longitude !== undefined ? data.longitude : data.lng;
-        const position = { lat: Number(latitude), lng: Number(longitude) };
-        setDriverData(prev => ({
-          ...prev,
-          [driverId]: { ...prev[driverId], ...data, position }
-        }));
-        updateOrAddMarker(data);
-      }
-    };
-    if (socketRef.current) socketRef.current.on("driver-location-update", handle);
-    return () => { if (socketRef.current) socketRef.current.off("driver-location-update", handle); };
-  }, [isLoaded, mapInstance.current, updateOrAddMarker, setDriverData]);
+    if (!isLoaded || !mapInstance.current || !driverData) return;
+
+    Object.values(driverData).forEach((data) => {
+      const driverId = getDriverKey(data);
+      if (!driverId || !activeDriverIds.has(driverId)) return;
+      updateOrAddMarker(data);
+    });
+  }, [isLoaded, mapInstance.current, driverData, activeDriverIds, updateOrAddMarker]);
 
   useEffect(() => {
     if (!isLoaded) return;
     Object.entries(markers.current).forEach(([id, marker]) => {
+      if (!activeDriverIds.has(String(id))) {
+        try { marker.getElement().style.display = "none"; } catch { }
+        return;
+      }
       const driver = driverData[id];
       if (!driver) return;
       let visible = selectedStatus.value === "all" || (driver.driving_status || driver.status) === selectedStatus.value;
@@ -589,7 +519,7 @@ const DefaultMapView = ({ mapRef, mapInstance, markers, driverData, setDriverDat
       }
       try { marker.getElement().style.display = visible ? "flex" : "none"; } catch { }
     });
-  }, [selectedStatus, searchQuery, driverData, isLoaded]);
+  }, [selectedStatus, searchQuery, driverData, activeDriverIds, isLoaded]);
 
   return (
     <div
@@ -598,9 +528,38 @@ const DefaultMapView = ({ mapRef, mapInstance, markers, driverData, setDriverDat
       style={{ position: "relative" }}
     >
       {isLoaded && (
-        <div className="absolute left-2 top-2 z-10 flex items-center gap-1 rounded bg-white px-2 py-1 text-xs font-semibold text-[#1a73e8] shadow">
-          <AppLogoIcon width={12} height={12} />
-          <span>Mapifyit</span>
+        <div
+          style={{
+            position: "absolute",
+            top: "10px",
+            left: "10px",
+            zIndex: 10,
+            display: "flex",
+            background: "#fff",
+            borderRadius: "2px",
+            boxShadow: "0 1px 4px rgba(0,0,0,0.3)",
+            overflow: "hidden",
+          }}
+        >
+          <div
+            style={{
+              background: "#fff",
+              border: "none",
+              fontSize: "11px",
+              fontFamily: "Roboto,Arial,sans-serif",
+              fontWeight: "500",
+              color: "#1a73e8",
+              borderBottom: "2px solid #1a73e8",
+              padding: "6px 12px",
+              lineHeight: "1",
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+            }}
+          >
+            <AppLogoIcon width={14} height={14} />
+            Mapifyit
+          </div>
         </div>
       )}
     </div>
@@ -608,65 +567,16 @@ const DefaultMapView = ({ mapRef, mapInstance, markers, driverData, setDriverDat
 };
 
 const Map = () => {
-  const [searchQuery, setSearchQuery] = useState("");
-  const [debouncedQuery, setDebouncedQuery] = useState("");
-  const [searchResults, setSearchResults] = useState([]);
-  const [searchLoading, setSearchLoading] = useState(false);
-  const [searchError, setSearchError] = useState("");
-  const [showSearchResults, setShowSearchResults] = useState(false);
+  const {
+    mapType,
+    mapError,
+    mapConfigLoading,
+    apiKeys,
+    tenantScope,
+  } = useMapConfiguration();
+  const searchQuery = "";
   const [selectedStatus, setSelectedStatus] = useState(MAP_STATUS_OPTIONS[0]);
-  const [driverData, setDriverData] = useState(() => {
-    try { const saved = localStorage.getItem("driverDataCache"); return saved ? JSON.parse(saved) : {}; }
-    catch { return {}; }
-  });
-
-
-  const [mapType, setMapType] = useState(null);
-  const [mapError, setMapError] = useState(null);
-  const [apiKeys, setApiKeys] = useState({
-    googleKey: null,
-    mapifyStyle: null,
-    countryOfUse: getTenantData()?.data?.country_of_use || "IN",
-  });
   const [plotsData, setPlotsData] = useState([]);
-  const plotsDataRef = useRef(plotsData);
-  useEffect(() => { plotsDataRef.current = plotsData; }, [plotsData]);
-
-  useEffect(() => {
-    const loadMapConfig = async () => {
-      try {
-        const [keysRes, mapConfig] = await Promise.all([
-          apiGetCompanyApiKeys(),
-          fetchMapConfiguration(),
-        ]);
-
-        if (keysRes.data?.success) {
-          const data = keysRes.data.data;
-          setApiKeys((prev) => ({ ...prev, countryOfUse: data.country_of_use || "IN" }));
-        }
-
-        if (!mapConfig.ok) {
-          setMapError(mapConfig.message);
-          setMapType(null);
-          return;
-        }
-
-        setMapError(null);
-        setMapType(mapConfig.provider);
-        setApiKeys((prev) => ({
-          ...prev,
-          googleKey: mapConfig.provider === MAP_PROVIDER_GOOGLE ? mapConfig.googleKey : null,
-          mapifyStyle: mapConfig.provider === MAP_PROVIDER_DEFAULT ? mapConfig.mapifyStyle : null,
-        }));
-      } catch (err) {
-        console.error("Fetch map configuration error:", err);
-        setMapError("Unable to load map configuration");
-        setMapType(null);
-      }
-    };
-
-    loadMapConfig();
-  }, []);
 
   useEffect(() => {
     const fetchPlots = async () => {
@@ -678,179 +588,27 @@ const Map = () => {
     fetchPlots();
   }, []);
 
-  useEffect(() => {
-    const timer = setTimeout(() => localStorage.setItem("driverDataCache", JSON.stringify(driverData)), 2000);
-    return () => clearTimeout(timer);
-  }, [driverData]);
-
   const socket = useSocket();
+  const {
+    driverData,
+    activeDriverIds,
+  } = useMapDriverSync({ socket, plotsData });
   const mapRef = useRef(null);
   const mapInstance = useRef(null);
   const markers = useRef({});
-  const searchMarkerRef = useRef(null);
-  const searchPopupRef = useRef(null);
-  const searchAbortRef = useRef(null);
 
-  useEffect(() => {
-    if (!socket) return;
-    const handleStatusUpdate = (rawData, status) => {
-      let data;
-      try { data = typeof rawData === "string" ? JSON.parse(rawData) : rawData; } catch { data = rawData; }
-      const driverId = data?.id || data?.driver_id || data?.dispatcher_id;
-      if (driverId) {
-      setDriverData(prev => {
-          let lat = data.latitude || data.lat, lng = data.longitude || data.lng;
-          if ((lat == null || lng == null) && (data.plot_id || data.plot)) {
-            const pId = data.plot_id || data.plot;
-            const plot = plotsDataRef.current.find(p => p.id == pId || p.plot_id == pId);
-            if (plot) {
-              const coords = parseCoordinates(plot);
-              if (coords.length > 0) {
-                lat = coords.reduce((s, c) => s + c.lat, 0) / coords.length;
-                lng = coords.reduce((s, c) => s + c.lng, 0) / coords.length;
-              }
-            }
-          }
-          if (prev[driverId]) return { ...prev, [driverId]: { ...prev[driverId], ...data, status, driving_status: status, position: (lat && lng) ? { lat: Number(lat), lng: Number(lng) } : prev[driverId].position } };
-          else if (lat && lng) return { ...prev, [driverId]: { ...data, position: { lat: Number(lat), lng: Number(lng) }, status, driving_status: status } };
-          return prev;
-        });
-      }
-    };
-    socket.on("waiting-driver-event", (d) => handleStatusUpdate(d, "idle"));
-    socket.on("on-job-driver-event", (d) => handleStatusUpdate(d, "busy"));
-    socket.on("job-accepted-by-driver", (d) => handleStatusUpdate(d, "busy"));
-    socket.on("job-cancelled-by-driver", (d) => handleStatusUpdate(d, "idle"));
-    return () => {
-      socket.off("waiting-driver-event");
-      socket.off("on-job-driver-event");
-      socket.off("job-accepted-by-driver");
-      socket.off("job-cancelled-by-driver");
-    };
-  }, [socket]);
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebouncedQuery(searchQuery.trim());
-    }, 400);
-    return () => clearTimeout(timer);
-  }, [searchQuery]);
-
-  const clearSearchMarker = useCallback(() => {
-    if (searchPopupRef.current) {
-      try { searchPopupRef.current.remove(); } catch { }
-      searchPopupRef.current = null;
-    }
-    if (searchMarkerRef.current) {
-      try { searchMarkerRef.current.remove(); } catch { }
-      searchMarkerRef.current = null;
-    }
-  }, []);
-
-  const getMapSearchOrigin = useCallback(() => {
-    if (mapType !== MAP_PROVIDER_DEFAULT || !mapInstance.current) {
-      const fallback = getCountryCenter(apiKeys.countryOfUse);
-      return { lat: fallback.lat, lon: fallback.lng };
-    }
-    const center = mapInstance.current.getCenter?.();
-    if (center && Number.isFinite(center.lat) && Number.isFinite(center.lng)) {
-      return { lat: center.lat, lon: center.lng };
-    }
-    const fallback = getCountryCenter(apiKeys.countryOfUse);
-    return { lat: fallback.lat, lon: fallback.lng };
-  }, [mapType, apiKeys.countryOfUse]);
-
-  useEffect(() => {
-    if (mapType !== MAP_PROVIDER_DEFAULT) return;
-    if (!debouncedQuery) {
-      if (searchAbortRef.current) searchAbortRef.current.abort();
-      setSearchLoading(false);
-      setSearchError("");
-      setSearchResults([]);
-      return;
-    }
-
-    if (searchAbortRef.current) searchAbortRef.current.abort();
-    const controller = new AbortController();
-    searchAbortRef.current = controller;
-
-    const run = async () => {
-      setSearchLoading(true);
-      setSearchError("");
-      try {
-        const origin = getMapSearchOrigin();
-        const res = await apiMapifySearch({
-          query: debouncedQuery,
-          lat: origin.lat,
-          lon: origin.lon,
-          size: 8,
-          signal: controller.signal,
-        });
-        const results = normalizeMapifyFeatures(res?.data);
-        setSearchResults(results);
-        setShowSearchResults(true);
-      } catch (error) {
-        if (error?.name === "AbortError" || error?.code === "ERR_CANCELED") return;
-        setSearchResults([]);
-        setSearchError(error?.response?.data?.message || "Failed to search locations");
-        setShowSearchResults(true);
-      } finally {
-        if (!controller.signal.aborted) setSearchLoading(false);
-      }
-    };
-    run();
-
-    return () => controller.abort();
-  }, [debouncedQuery, mapType, getMapSearchOrigin]);
-
-  const handleSelectSearchResult = useCallback((item) => {
-    setSearchQuery(item.name || "");
-    setShowSearchResults(false);
-    clearSearchMarker();
-
-    if (mapType !== MAP_PROVIDER_DEFAULT || !mapInstance.current || !window.maplibregl) return;
-
-    const lngLat = [item.lon, item.lat];
-    mapInstance.current.flyTo({
-      center: lngLat,
-      zoom: Math.max(mapInstance.current.getZoom?.() || 8, 14),
-      speed: 1.2,
-      curve: 1.25,
-      essential: true,
-    });
-
-    const marker = new window.maplibregl.Marker({ color: "#2563eb" })
-      .setLngLat(lngLat)
-      .addTo(mapInstance.current);
-
-    const popup = new window.maplibregl.Popup({ offset: 20, closeOnClick: false })
-      .setLngLat(lngLat)
-      .setHTML(`<div style="font-size:12px;"><strong>${item.name}</strong><br/>${item.label || ""}</div>`)
-      .addTo(mapInstance.current);
-
-    searchMarkerRef.current = marker;
-    searchPopupRef.current = popup;
-  }, [mapType, clearSearchMarker]);
-
-  const handleClearSearch = useCallback(() => {
-    setSearchQuery("");
-    setDebouncedQuery("");
-    setSearchResults([]);
-    setSearchError("");
-    setSearchLoading(false);
-    setShowSearchResults(false);
-    if (searchAbortRef.current) searchAbortRef.current.abort();
-    clearSearchMarker();
-  }, [clearSearchMarker]);
-
-  useEffect(() => {
-    return () => {
-      if (searchAbortRef.current) searchAbortRef.current.abort();
-      clearSearchMarker();
-    };
-  }, [clearSearchMarker]);
-
-  const sharedProps = { mapRef, mapInstance, markers, driverData, setDriverData, selectedStatus, searchQuery, socket, apiKeys, plotsData };
+  const sharedProps = {
+    mapRef,
+    mapInstance,
+    markers,
+    driverData,
+    activeDriverIds,
+    selectedStatus,
+    searchQuery,
+    apiKeys,
+    plotsData,
+    mapType,
+  };
 
   return (
     <div className="px-4 py-5 sm:p-6 lg:p-10 min-h-[calc(100vh-85px)]">
@@ -860,43 +618,36 @@ const Map = () => {
       </div>
       <CardContainer className="p-4 bg-[#F5F5F5]">
         <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-5 justify-between mb-4 pb-4">
-          {mapType === MAP_PROVIDER_DEFAULT && (
-            <MapSearchBox
-              value={searchQuery}
-              onChange={(value) => {
-                setSearchQuery(value);
-                setShowSearchResults(Boolean(value.trim()));
-              }}
-              results={searchResults}
-              loading={searchLoading}
-              error={searchError}
-              showResults={showSearchResults && Boolean(searchQuery.trim())}
-              onSelect={handleSelectSearchResult}
-              onClear={handleClearSearch}
-            />
-          )}
+          {/* Place search and nearby controls removed — search is only in Create Booking */}
           <CustomSelect
             variant={2}
             options={MAP_STATUS_OPTIONS}
             value={selectedStatus}
             onChange={setSelectedStatus}
             placeholder="Driver Status"
+            className="ml-auto"
           />
         </div>
 
-        {mapError ? (
+        {mapConfigLoading && !mapType ? (
+          <div className="w-full h-[550px] rounded-xl border border-gray-300 shadow-sm flex items-center justify-center bg-gray-50">
+            <AppLogoLoader />
+          </div>
+        ) : mapError && !mapType ? (
           <div className="w-full h-[550px] rounded-xl border border-gray-300 shadow-sm flex items-center justify-center bg-gray-50 px-4 text-center">
             <p className="text-sm text-red-600">{mapError}</p>
           </div>
-        ) : mapType === MAP_PROVIDER_DEFAULT ? (
-          <DefaultMapView {...sharedProps} />
+        ) : (mapType === MAP_PROVIDER_DEFAULT || mapType === MAP_PROVIDER_BARIKOI) ? (
+          <DefaultMapView
+            key={mapType}
+            {...sharedProps}
+          />
         ) : mapType === MAP_PROVIDER_GOOGLE ? (
-          <GoogleMapView {...sharedProps} />
-        ) : (
-          <div className="w-full h-[550px] rounded-xl border border-gray-300 shadow-sm flex items-center justify-center bg-gray-50">
-            <p className="text-sm text-gray-500">Loading map...</p>
-          </div>
-        )}
+          <GoogleMapView
+            key={mapType}
+            {...sharedProps}
+          />
+        ) : null}
 
         <div className="flex justify-center gap-10 flex-wrap py-4 mt-3 border-t">
           <div className="flex items-center gap-2">
@@ -927,7 +678,6 @@ export default Map;
 // import { getTenantData } from "../../../../utils/functions/tokenEncryption";
 // import { apiGetCompanyApiKeys } from "../../../../services/SettingsConfigurationServices";
 
-// const GOOGLE_KEY = "AIzaSyDTlV1tPVuaRbtvBQu4-kjDhTV54tR4cDU";
 // const BARIKOI_KEY = "bkoi_a468389d0211910bd6723de348e0de79559c435f07a17a5419cbe55ab55a890a";
 
 // const svgToDataUrl = (SvgComponent, width = 40, height = 40) => {
@@ -960,7 +710,7 @@ export default Map;
 // };
 
 // const buildDriverPopupHTML = (data) => {
-//   const name = data.name || data.driver_name || data.driverName || "Unknown Driver";
+//   const name = data.name || data.driver_name || data.driverName || "Driver details loading";
 //   const phone = data.phone_no || data.phone || "N/A";
 //   const plate = data.plate_no || data.plate || "N/A";
 //   const status = (data.driving_status || data.status || "idle").toLowerCase();

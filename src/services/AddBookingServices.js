@@ -4,6 +4,7 @@ import { CALCULATE_FARES, CANCELLED_BOOKING, CREATE_BOOKING, EDIT_BOOKING, GET_A
 import socketApi from "./SocketApiService";
 import { getDispatcherId } from "../utils/auth";
 import { getTenantId } from "../utils/functions/tokenEncryption";
+import { resolveSocketApiBaseUrl } from "../utils/functions/backendUrls";
 
 const buildBookingParams = ({
     page = 1,
@@ -44,7 +45,6 @@ const fetchBookingsFromLaravel = async ({
     const params = {
         page,
         perPage: limit,
-        dispatcher_id: getDispatcherId(),
     };
 
     if (search) params.search = search;
@@ -100,13 +100,28 @@ export async function apiGetAllPlot(data) {
     });
 }
 
+const appendSocketApiUrl = (data) => {
+    if (!(data instanceof FormData)) return data;
+
+    const socketApiUrl = resolveSocketApiBaseUrl();
+    if (!data.has("socket_api_url")) {
+        data.append("socket_api_url", socketApiUrl);
+    }
+    if (!data.has("socket_api_base_url")) {
+        data.append("socket_api_base_url", socketApiUrl);
+    }
+
+    return data;
+};
+
 export async function apiCreateBooking(data) {
     const isFormData = data instanceof FormData;
+    const payload = appendSocketApiUrl(data);
 
     return ApiService.fetchData({
         url: CREATE_BOOKING,
         method: METHOD_POST,
-        data,
+        data: payload,
         ...(isFormData && {
             headers: {
                 'Content-Type': 'multipart/form-data',
@@ -149,11 +164,9 @@ export const getBookings = async (bookingParams) => {
     try {
         const res = await socketApi.get("/bookings", { params });
         if (isApiSuccess(res?.data)) {
-            const rows = res?.data?.data || [];
-            if (rows.length > 0 || !bookingParams?.filter) {
-                return res;
-            }
+            return res;
         }
+        console.warn("Socket bookings API returned unsuccessful response, falling back to Laravel");
     } catch (err) {
         console.warn("Socket bookings API failed, falling back to Laravel:", err.message);
     }
@@ -177,6 +190,8 @@ export const getDashboardCards = async () => {
         return fetchDashboardCardsFromLaravel();
     }
 };
+
+export const getDriverStateSnapshot = () => socketApi.get("/drivers/state");
 
 const updateDriverRankViaSocket = (socket, payload) =>
     new Promise((resolve, reject) => {
@@ -243,7 +258,7 @@ export async function apiUpdateBooking(formData) {
     return ApiService.fetchData({
         url: EDIT_BOOKING,
         method: METHOD_POST,
-        data: formData,
+        data: appendSocketApiUrl(formData),
         headers: { "Content-Type": "multipart/form-data" },
     });
 }
@@ -274,6 +289,11 @@ export const startAutoDispatch = (bookingId, dispatcherName) => {
     return socketApi.post(`/bookings/${bookingId}/start-auto-dispatch`, {
         dispatcher_name: dispatcherName
     });
+};
+
+export const getPlotDispatchStatus = async (bookingId) => {
+    const numericBookingId = Number(bookingId);
+    return socketApi.get(`/bookings/${numericBookingId}/plot-dispatch-status`);
 };
 
 export const recordDispatcherAction = (bookingId, action, dispatcherName) => {

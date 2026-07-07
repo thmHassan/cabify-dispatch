@@ -1,4 +1,5 @@
 import { toBookingDateInputValue } from "./formatters";
+import { metersToDisplayDistance } from "./tenantSettings";
 
 const parseViaLocations = (booking) => {
     let viaPoints = [];
@@ -53,6 +54,15 @@ const formatPickupTimeInput = (pickupTime) => {
     return `${parts[0]}:${parts[1]}`;
 };
 
+const formatDateTimeLocalInput = (value) => {
+    if (!value) return "";
+    const normalized = String(value).replace(" ", "T");
+    const [date, time = ""] = normalized.split("T");
+    if (!date || !time) return "";
+    const [hour = "", minute = ""] = time.split(":");
+    return hour && minute ? `${date}T${hour}:${minute}` : "";
+};
+
 export const mapBookingToFormValues = (booking, { mode = "copy" } = {}) => {
     if (!booking) return null;
 
@@ -63,6 +73,7 @@ export const mapBookingToFormValues = (booking, { mode = "copy" } = {}) => {
 
     const bookingSystem = booking.booking_system || "auto_dispatch";
     const autoDispatch = bookingSystem !== "bidding" && bookingSystem !== "manual_dispatch";
+    const biddingFallback = booking.bidding_fallback === true || booking.bidding_fallback === 1 || booking.bidding_fallback === "1";
     const requestForVehicle = Boolean(
         booking.request_for_vehicle === "yes" ||
         booking.request_for_vehicle === true ||
@@ -71,8 +82,8 @@ export const mapBookingToFormValues = (booking, { mode = "copy" } = {}) => {
     );
 
     return {
-        pickup_point: booking.pickup_location || "",
-        destination: booking.destination_location || "",
+        pickup_location: booking.pickup_location || "",
+        destination_location: booking.destination_location || "",
         via_points: viaPoints,
         via_latitude: viaLatitudes,
         via_longitude: viaLongitudes,
@@ -90,7 +101,12 @@ export const mapBookingToFormValues = (booking, { mode = "copy" } = {}) => {
         journey_type: booking.journey_type || "one_way",
         booking_system: bookingSystem,
         auto_dispatch: autoDispatch,
-        bidding: bookingSystem === "bidding",
+        bidding: bookingSystem === "bidding" || biddingFallback,
+        bidding_fallback: biddingFallback,
+        auto_release: booking.dispatch_release_mode !== "manual_review",
+        dispatch_release_at: formatDateTimeLocalInput(booking.dispatch_release_at),
+        dispatch_release_mode: booking.dispatch_release_mode || "auto_then_bidding",
+        dispatch_release_override: Boolean(booking.dispatch_release_override),
         request_for_vehicle: requestForVehicle,
         pickup_time_type:
             booking.pickup_time_type ||
@@ -122,7 +138,7 @@ export const mapBookingToFormValues = (booking, { mode = "copy" } = {}) => {
         congestion_toll: parseFloat(booking.toll ?? booking.congestion_toll) || 0,
         booking_fee_charges: parseFloat(booking.booking_fee_charges) || 0,
         total_charges: parseFloat(booking.booking_amount ?? booking.offered_amount) || 0,
-        distance: booking.distance ? String(booking.distance) : "",
+        distance: booking.distance ? metersToDisplayDistance(booking.distance) : "",
         user_id: (booking.user_id ?? "").toString(),
         multi_days: [],
         multi_start_at: "",

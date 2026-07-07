@@ -2,13 +2,15 @@ import axios from "axios";
 import appConfig from "../components/configs/app.config";
 import { REQUEST_HEADER_AUTH_KEY, TOKEN_TYPE, REQUEST_HEADER_DATABASE_KEY } from "../constants/api.constant";
 import store, { setUser, signOutSuccess } from "../store";
+import { resetMapConfigurationCache } from "./mapConfigCache";
 import {
   clearAllAuthData,
   getDecryptedToken,
   getTenantId,
+  resolveTenantDatabaseId,
 } from "../utils/functions/tokenEncryption";
 
-const unauthorizedCode = [401, 403, 419];
+const sessionExpiredCodes = [401, 419];
 
 const BaseService = axios.create({
   timeout: 60000,
@@ -29,6 +31,11 @@ BaseService.interceptors.request.use(
       const tenantId = getTenantId();
       if (tenantId) {
         config.headers[REQUEST_HEADER_DATABASE_KEY] = tenantId;
+      } else {
+        const resolvedTenantId = resolveTenantDatabaseId();
+        if (resolvedTenantId) {
+          config.headers[REQUEST_HEADER_DATABASE_KEY] = resolvedTenantId;
+        }
       }
     } catch (e) {
       // ignore database header errors
@@ -48,7 +55,8 @@ BaseService.interceptors.response.use(
 
     console.log(response, "response========");
 
-    if (response && unauthorizedCode.includes(response.status)) {
+    if (response && sessionExpiredCodes.includes(response.status)) {
+      resetMapConfigurationCache();
       store.dispatch(signOutSuccess());
       store.dispatch(
         setUser({

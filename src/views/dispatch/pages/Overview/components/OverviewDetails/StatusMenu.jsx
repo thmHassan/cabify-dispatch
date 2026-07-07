@@ -163,7 +163,12 @@ const StatusMenu = ({
             const res = await updateBookingStatus(bookingId, payload, dispatcherName);
             if (res?.data?.success) {
                 toast.success(res.data.message || "Status updated");
-                onStatusUpdate({ ...bookingData, ...payload, ...(res.data.data || {}) });
+                const responseBooking = res.data?.data?.booking || res.data?.booking || res.data?.data || {};
+                try {
+                    onStatusUpdate({ ...bookingData, ...payload, ...responseBooking });
+                } catch (uiError) {
+                    console.error("Local booking status update error:", uiError);
+                }
                 onClose();
             } else {
                 toast.error("Failed to update booking");

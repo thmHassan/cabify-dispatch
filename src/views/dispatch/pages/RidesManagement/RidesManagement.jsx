@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react'
 import PageTitle from '../../../../components/ui/PageTitle/PageTitle';
 import PageSubTitle from '../../../../components/ui/PageSubTitle/PageSubTitle';
 import { useAppSelector } from '../../../../store';
-import { PAGE_SIZE_OPTIONS, STATUS_OPTIONS } from '../../../../constants/selectOptions';
+import { PAGE_SIZE_OPTIONS } from '../../../../constants/selectOptions';
 import Button from '../../../../components/ui/Button/Button';
 import CardContainer from '../../../../components/shared/CardContainer';
 import SearchBar from '../../../../components/shared/SearchBar/SearchBar';
@@ -14,19 +14,25 @@ import AppLogoLoader from '../../../../components/shared/AppLogoLoader/AppLogoLo
 import toast from 'react-hot-toast';
 import { lockBodyScroll, unlockBodyScroll } from '../../../../utils/functions/common.function';
 import Modal from '../../../../components/shared/Modal/Modal';
-import { apiGetCompanyApiKeys } from '../../../../services/SettingsConfigurationServices';
-import { getTenantDistanceUnit, resolveDistanceUnitFromApi, setCachedDistanceUnit } from '../../../../utils/functions/tenantSettings';
+import { useCompanyDateTime } from '../../../../contexts/CompanyDateTimeContext';
+import { getTenantDistanceUnit } from '../../../../utils/functions/tenantSettings';
+
+const RIDES_MANAGEMENT_PAGE_KEY = "rides-management";
+
+const RIDE_TABS = [
+  { value: "all", label: "All", status: "" },
+  { value: "pending", label: "Pending", status: "pending" },
+  { value: "ongoing", label: "Ongoing", status: "ongoing" },
+  { value: "cancelled", label: "Cancelled", status: "cancelled" },
+];
 
 const RidesManagement = () => {
   const [activeTab, setActiveTab] = useState("all");
   const [_searchQuery, setSearchQuery] = useState("");
   const [tableLoading, setTableLoading] = useState(false);
   const [_selectedDate, setSelectedDate] = useState("");
-  const [_selectedStatus, setSelectedStatus] = useState(
-    STATUS_OPTIONS.find((o) => o.value === "all") ?? STATUS_OPTIONS[0]
-  );
   const savedPagination = useAppSelector(
-    (state) => state?.app?.app?.pagination?.companies
+    (state) => state?.app?.app?.pagination?.[RIDES_MANAGEMENT_PAGE_KEY]
   );
 
   const dispatcherId = getDispatcherId();
@@ -41,24 +47,12 @@ const RidesManagement = () => {
   const [totalPages, setTotalPages] = useState(1);
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
   const [rideManagementData, setRideManagementData] = useState([]);
-  const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [rideToDelete, setRideToDelete] = useState(null);
-  const [distanceUnit, setDistanceUnit] = useState(getTenantDistanceUnit);
-
-  useEffect(() => {
-    const fetchApiKeys = async () => {
-      const res = await apiGetCompanyApiKeys();
-
-      if (res.data?.success) {
-        setCachedDistanceUnit(res.data.data.units);
-        setDistanceUnit(resolveDistanceUnitFromApi(res.data.data.units));
-      }
-    };
-
-    fetchApiKeys();
-  }, []);
+  const { units: distanceUnit } = useCompanyDateTime();
+  const resolvedDistanceUnit = distanceUnit || getTenantDistanceUnit();
+  const activeStatus = RIDE_TABS.find((tab) => tab.value === activeTab)?.status ?? "";
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -74,7 +68,7 @@ const RidesManagement = () => {
         page: currentPage,
         perPage: itemsPerPage,
         dispatcher_id: dispatcherId,
-        status: _selectedStatus?.value === "all" ? "" : _selectedStatus?.value,
+        status: activeStatus,
       };
 
       if (debouncedSearchQuery?.trim()) {
@@ -96,14 +90,16 @@ const RidesManagement = () => {
     } catch (error) {
       console.error("Error fetching rides:", error);
       setRideManagementData([]);
+      setTotalItems(0);
+      setTotalPages(1);
     } finally {
       setTableLoading(false);
     }
-  }, [currentPage, itemsPerPage, debouncedSearchQuery, _selectedDate, _selectedStatus]);
+  }, [currentPage, itemsPerPage, debouncedSearchQuery, _selectedDate, activeStatus, dispatcherId]);
 
   useEffect(() => {
     fetchRidesManagement();
-  }, [currentPage, itemsPerPage, debouncedSearchQuery, _selectedDate, _selectedStatus, fetchRidesManagement, refreshTrigger]);
+  }, [fetchRidesManagement]);
 
   const handlePageChange = (pageNumber) => {
     setCurrentPage(pageNumber);
@@ -114,12 +110,20 @@ const RidesManagement = () => {
     setCurrentPage(1);
   };
 
-  const filteredRides = activeTab === "all"
-    ? rideManagementData
-    : rideManagementData.filter(
-      (item) =>
-        item.booking_status?.toLowerCase() === activeTab.toLowerCase()
-    );
+  const handleTabChange = (tabValue) => {
+    setActiveTab(tabValue);
+    setCurrentPage(1);
+  };
+
+  const handleSearchChange = (value) => {
+    setSearchQuery(value);
+    setCurrentPage(1);
+  };
+
+  const handleDateChange = (value) => {
+    setSelectedDate(value);
+    setCurrentPage(1);
+  };
 
   const openDeleteModal = (ride) => {
     setRideToDelete(ride);
@@ -168,38 +172,17 @@ const RidesManagement = () => {
         </div>
       </div>
       <div className="bg-[#006FFF1A] p-1 rounded-lg mb-6 inline-flex gap-1">
-        <Button
-          type="filled"
-          btnSize="2xl"
-          className={`${activeTab === "all" ? "!bg-[#1F41BB] !text-white" : "!bg-transparent !text-black"}`}
-          onClick={() => setActiveTab("all")}
-        >
-          All
-        </Button>
-        <Button
-          type="filled"
-          btnSize="2xl"
-          className={`${activeTab === "pending" ? "!bg-[#1F41BB] !text-white" : "!bg-transparent !text-black"}`}
-          onClick={() => setActiveTab("pending")}
-        >
-          Pending
-        </Button>
-        <Button
-          type="filled"
-          btnSize="2xl"
-          className={`${activeTab === "ongoing" ? "!bg-[#1F41BB] !text-white" : "!bg-transparent !text-black"}`}
-          onClick={() => setActiveTab("ongoing")}
-        >
-          Ongoing
-        </Button>
-        <Button
-          type="filled"
-          btnSize="2xl"
-          className={`${activeTab === "cancelled" ? "!bg-[#1F41BB] !text-white" : "!bg-transparent !text-black"}`}
-          onClick={() => setActiveTab("cancelled")}
-        >
-          Cancelled
-        </Button>
+        {RIDE_TABS.map((tab) => (
+          <Button
+            key={tab.value}
+            type="filled"
+            btnSize="2xl"
+            className={`${activeTab === tab.value ? "!bg-[#1F41BB] !text-white" : "!bg-transparent !text-black"}`}
+            onClick={() => handleTabChange(tab.value)}
+          >
+            {tab.label}
+          </Button>
+        ))}
       </div>
       <div>
         <CardContainer className="p-3 sm:p-4 lg:p-5 bg-[#F5F5F5]">
@@ -207,7 +190,7 @@ const RidesManagement = () => {
             <div className="md:w-full w-[calc(100%-54px)] sm:flex-1">
               <SearchBar
                 value={_searchQuery}
-                onSearchChange={setSearchQuery}
+                onSearchChange={handleSearchChange}
                 className="w-full md:max-w-[400px] max-w-full"
               />
             </div>
@@ -216,7 +199,7 @@ const RidesManagement = () => {
                 type="date"
                 className="border rounded px-3 py-2"
                 value={_selectedDate}
-                onChange={(e) => setSelectedDate(e.target.value)}
+                onChange={(e) => handleDateChange(e.target.value)}
                 placeholder="Select Date"
               />
             </div>
@@ -226,22 +209,22 @@ const RidesManagement = () => {
               <div className="flex items-center justify-center py-10">
                 <AppLogoLoader />
               </div>
-            ) : filteredRides.length === 0 ? (
+            ) : rideManagementData.length === 0 ? (
               <div className="text-center py-10 text-gray-500">No rides found</div>
             ) : (
               <div className="flex flex-col gap-4 pt-4">
-                {filteredRides.map((ride) => (
+                {rideManagementData.map((ride) => (
                   <RidesManagementCard
                     key={ride.id}
                     ride={ride}
-                    distanceUnit={distanceUnit}
+                    distanceUnit={resolvedDistanceUnit}
                     onDelete={openDeleteModal}
                   />
                 ))}
               </div>
             )}
           </div>
-          {Array.isArray(rideManagementData) && rideManagementData.length > 0 ? (
+          {totalItems > 0 ? (
             <div className="mt-4 sm:mt-4 border-t border-[#E9E9E9] pt-3 sm:pt-4">
               <Pagination
                 currentPage={currentPage}
@@ -250,7 +233,7 @@ const RidesManagement = () => {
                 onPageChange={handlePageChange}
                 onItemsPerPageChange={handleItemsPerPageChange}
                 itemsPerPageOptions={PAGE_SIZE_OPTIONS}
-                pageKey="companies"
+                pageKey={RIDES_MANAGEMENT_PAGE_KEY}
               />
             </div>
           ) : null}

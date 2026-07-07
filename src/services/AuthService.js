@@ -1,4 +1,5 @@
 import ApiService from "./ApiService";
+import { REQUEST_HEADER_DATABASE_KEY } from "../constants/api.constant";
 
 export async function apiSignIn(data) {
   return ApiService.fetchData({
@@ -15,14 +16,15 @@ export async function apiAdminSignIn(data) {
   formData.append('password', data.password);
   // formData.append('role', data.role || 'superadmin');
 
+  const database = String(data?.company_id ?? "").trim();
+
   return ApiService.fetchData({
     url: "/dispatcher/login",
     method: "post",
     data: formData,
     headers: {
       "Content-Type": "multipart/form-data",
-      // Send company id as `database` header (e.g. "mira")
-      ...(data?.company_id ? { database: data.company_id } : {}),
+      [REQUEST_HEADER_DATABASE_KEY]: database,
     },
   });
 }

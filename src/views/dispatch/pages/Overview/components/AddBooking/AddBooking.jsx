@@ -1,5 +1,5 @@
 import { Form, Formik } from "formik";
-import { useEffect, useState, useMemo, useCallback } from "react";
+import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import Maps from "./components/maps";
 import { getTenantData } from "../../../../../../utils/functions/tokenEncryption";
 import {
@@ -8,7 +8,7 @@ import {
     getTenantDialCode,
     kmValueToDisplayDistance,
     metersToDisplayDistance,
-    setCachedDistanceUnit,
+    resolveBookingDistanceMeters,
 } from "../../../../../../utils/functions/tenantSettings";
 import { apiGetSubCompany } from "../../../../../../services/SubCompanyServices";
 import { apiGetAccount } from "../../../../../../services/AccountServices";
@@ -26,19 +26,31 @@ import {
 } from "../../../../../../services/AddBookingServices";
 import {
     apiGetDispatchSystem,
-    apiGetCompanyApiKeys,
 } from "../../../../../../services/SettingsConfigurationServices";
+import { ensureMapConfigurationLoaded, getCachedMapConfiguration } from "../../../../../../services/mapConfigCache";
 import {
     fetchMapConfiguration,
+    MAP_PROVIDER_BARIKOI,
     MAP_PROVIDER_DEFAULT,
-    MAP_PROVIDER_GOOGLE,
 } from "../../../../../../services/mapConfigurationService";
+import useMapConfiguration from "../../../../../../hooks/useMapConfiguration";
+import { apiGetBackupPlot } from "../../../../../../services/PlotService";
 import { unlockBodyScroll } from "../../../../../../utils/functions/common.function";
 import toast from 'react-hot-toast';
 import { getDispatcherId, getDispatcherName } from "../../../../../../utils/auth";
 import { apiGetRideHistory, apiGetUser } from "../../../../../../services/UserService";
-import { apiMapifySearch, normalizeMapifyFeatures } from "../../../../../../services/MapSearchService";
+import {
+    fetchMapifyAddressFromCoords,
+    fetchMapifyBoundaryCountryFromCoords,
+    fetchMapifyLocationSuggestions,
+    isReverseGeocodingAvailable,
+    MAPIFY_AUTOCOMPLETE_SIZE,
+    MAPIFY_FULL_SEARCH_SIZE,
+    toMapifyBoundaryCountryCode,
+} from "../../../../../../services/MapSearchService";
+import MapNearbySearchControls, { toGoogleCountryCode } from "../../../../../../components/map/MapNearbySearchControls";
 import { debounce } from "lodash";
+import { isCoordinateString } from "../../../../../../utils/functions/locationDisplay";
 import {
     extractCreatedBookings,
     extractUpdatedBookingFromResponse,
@@ -50,19 +62,54 @@ import {
     resolveMultiBookingSubmitDate,
     syncMultiBookingReferenceDate,
 } from "../../../../../../utils/functions/bookingDateFilter";
+import {
+    formatCompanyTimeForApi,
+    getCompanyNowParts,
+    getCompanyTodayForInput,
+    isCompanyFutureDateTime,
+} from "../../../../../../utils/functions/appDateTime";
+import { useCompanyDateTime } from "../../../../../../contexts/CompanyDateTimeContext";
 import { mapBookingToFormValues } from "../../../../../../utils/functions/bookingFormMapper";
+import {
+    dispatchSystemListHasPlotBased,
+    isManualDispatchOnlySystem,
+} from "../../../../../../utils/functions/dispatchSystem";
+import { validatePlotBasedPickup, resolvePickupPlot } from "../../../../../../utils/functions/plotMapGeometry";
+import { requestBrowserGeolocation } from "../../../../../../utils/functions/geolocation";
 import History from "./components/History";
+import LocationSearchSidebar from "./components/LocationSearchSidebar";
 import successSound from "../../../../../../assets/audio/meldix-success-340660.mp3";
 
-const DEFAULT_GOOGLE_KEY = "AIzaSyDTlV1tPVuaRbtvBQu4-kjDhTV54tR4cDU";
-const DEFAULT_BARIKOI_KEY = "bkoi_a468389d0211910bd6723de348e0de79559c435f07a17a5419cbe55ab55a890a";
-const FALLBACK_SEARCH_ORIGIN = { lat: 23.8103, lon: 90.4125 };
+const LOCATION_SEARCH_DEBOUNCE_MS = 400;
 
-const GOOGLE_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || DEFAULT_GOOGLE_KEY;
+const EMPTY_LOCATION_SIDEBAR = {
+    open: false,
+    field: null,
+    query: "",
+    results: [],
+    loading: false,
+    error: "",
+};
+
+const DEFAULT_BARIKOI_KEY = "bkoi_a468389d0211910bd6723de348e0de79559c435f07a17a5419cbe55ab55a890a";
+
+const SEARCH_COUNTRY_CENTERS = {
+    PK: { lat: 30.3753, lon: 69.3451 },
+    BD: { lat: 23.8103, lon: 90.4125 },
+    IN: { lat: 20.5937, lon: 78.9629 },
+    GB: { lat: 51.5074, lon: -0.1278 },
+    DEFAULT: { lat: 23.8103, lon: 90.4125 },
+};
+
 const BARIKOI_KEY = import.meta.env.VITE_BARIKOI_API_KEY || DEFAULT_BARIKOI_KEY;
 
 const loadGoogleScript = (apiKey) =>
     new Promise((resolve, reject) => {
+        if (!apiKey) {
+            reject(new Error("Google Maps API key is not configured for this company."));
+            return;
+        }
+
         const isReady = () =>
             typeof window.google?.maps?.Map === "function"
             && window.google?.maps?.places?.AutocompleteService;
@@ -82,7 +129,7 @@ const loadGoogleScript = (apiKey) =>
         }
         const script = document.createElement("script");
         script.id = "google-maps-script";
-        script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey || GOOGLE_KEY}&libraries=places`;
+        script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`;
         script.async = true;
         script.defer = true;
         script.onload = () => {
@@ -110,10 +157,10 @@ const FieldError = ({ message }) => {
 };
 
 const formInputClass =
-    "w-full rounded-lg border border-[#D1D5DB] bg-white px-2.5 py-2 lg:py-1.5 text-sm lg:text-xs text-[#111827] shadow-sm outline-none transition focus:border-[#1F41BB] focus:ring-2 focus:ring-[#1F41BB]/20 disabled:bg-[#F9FAFB] disabled:text-[#9CA3AF]";
+    "h-[42px] w-full rounded-[8px] border border-[#9CA3AF] bg-white px-3.5 py-2 text-sm text-[#111827] shadow-[0_8px_18px_rgba(15,23,42,0.08)] outline-none transition placeholder:text-[#9CA3AF] focus:border-[#1F41BB] focus:ring-1 focus:ring-[#1F41BB]/15 disabled:bg-[#F9FAFB] disabled:text-[#9CA3AF]";
 const formSelectClass = formInputClass;
 const formInputErrorClass = "border-red-500 focus:border-red-500 focus:ring-red-500/20";
-const formLabelClass = "mb-1 lg:mb-0.5 block text-xs lg:text-[10px] font-semibold uppercase tracking-wide text-[#6B7280]";
+const formLabelClass = "text-sm font-semibold leading-tight text-[#111827]";
 
 const REMINDER_TIME_OPTIONS = [
     { value: "5", label: "5 minutes" },
@@ -122,22 +169,22 @@ const REMINDER_TIME_OPTIONS = [
     { value: "50", label: "50 minutes" },
 ];
 
-const FormSection = ({ title, description, children, className = "" }) => (
-    <section className={`rounded-xl border border-[#E5E7EB] bg-white p-2.5 lg:p-2 shadow-sm overflow-hidden ${className}`}>
+const FormSection = ({ title, description, children, className = "", overflowVisible = false }) => (
+    <section className={`${overflowVisible ? "overflow-visible" : "overflow-hidden"} ${className}`}>
         {title && (
-            <div className="mb-2 lg:mb-1.5 border-b border-[#F3F4F6] pb-1.5">
-                <h3 className="text-sm lg:text-xs font-semibold text-[#111827]">{title}</h3>
-                {description && <p className="mt-0.5 text-xs text-[#6B7280] hidden sm:block lg:hidden">{description}</p>}
+            <div className="mb-2">
+                <h3 className="text-xs font-semibold text-[#111827]">{title}</h3>
+                {description && <p className="mt-0.5 text-[10px] text-[#6B7280]">{description}</p>}
             </div>
         )}
-        <div className="space-y-2 lg:space-y-1.5">{children}</div>
+        <div className="space-y-2">{children}</div>
     </section>
 );
 
 const FormField = ({ label, children, className = "" }) => (
-    <div className={className}>
+    <div className={`grid grid-cols-1 gap-1 md:grid-cols-[76px_minmax(0,1fr)] md:items-center ${className}`}>
         {label && <label className={formLabelClass}>{label}</label>}
-        {children}
+        <div className="min-w-0">{children}</div>
     </div>
 );
 
@@ -168,6 +215,44 @@ const AlertModal = ({ isOpen, message, onClose }) => {
                 <div className="flex justify-end">
                     <Button btnSize="md" type="filled" className="px-4 py-3 text-xs text-white rounded" onClick={onClose}>
                         Ok
+                    </Button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const VehicleSelectionModal = ({ isOpen, vehicles, selectedVehicle, onSelect, onClose, onConfirm }) => {
+    if (!isOpen) return null;
+
+    return (
+        <div className="fixed inset-0 z-[9999] bg-black bg-opacity-50 flex items-center justify-center">
+            <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4 shadow-xl">
+                <div className="mb-4">
+                    <h3 className="text-lg font-semibold text-black mb-2">Select Vehicle</h3>
+                    <p className="text-sm text-gray-600">Please select any vehicle type for fare calculation.</p>
+                </div>
+                <div className="mb-5">
+                    <select
+                        value={selectedVehicle || ""}
+                        onChange={(e) => onSelect(e.target.value)}
+                        className={formSelectClass}
+                    >
+                        <option value="">Vehicle</option>
+                        {vehicles?.map((item) => (
+                            <option key={item.value} value={item.value}>{item.label}</option>
+                        ))}
+                    </select>
+                    {!vehicles?.length && (
+                        <p className="mt-2 text-xs text-red-600">No vehicle types are available.</p>
+                    )}
+                </div>
+                <div className="flex justify-end gap-2">
+                    <Button btnSize="md" type="filledGray" className="px-4 py-3 text-xs" onClick={onClose}>
+                        Cancel
+                    </Button>
+                    <Button btnSize="md" type="filled" className="px-4 py-3 text-xs text-white rounded" onClick={onConfirm} disabled={!selectedVehicle}>
+                        Calc Fares
                     </Button>
                 </div>
             </div>
@@ -251,7 +336,7 @@ const fetchRouteDistance = async (pickup, destination, viaCoords, mapsApi, apiKe
 
     if (mapsApi === "google") {
         distance = await fetchGoogleRouteDistance(pickup, destination, viaCoords);
-    } else if ((mapsApi === "barikoi" || mapsApi === "default") && !hasVia) {
+    } else if ((mapsApi === MAP_PROVIDER_BARIKOI || mapsApi === "barikoi") && !hasVia) {
         distance = await fetchBarikoiRouteDistance(pickup, destination, apiKeys?.barikoiKey);
     }
 
@@ -263,14 +348,15 @@ const fetchRouteDistance = async (pickup, destination, viaCoords, mapsApi, apiKe
 };
 
 const DEFAULT_FORM_VALUES = {
-    pickup_point: "", destination: "", via_points: [],
+    pickup_location: "", destination_location: "", via_points: [],
     via_latitude: [], via_longitude: [],
     pickup_latitude: "", pickup_longitude: "",
     destination_latitude: "", destination_longitude: "",
     pickup_plot_id: null, destination_plot_id: null, via_plot_id: [],
     sub_company: "", account: "", vehicle: "", driver: "",
     journey_type: "one_way", booking_system: "auto_dispatch",
-    auto_dispatch: true, bidding: false, request_for_vehicle: false,
+    auto_dispatch: true, bidding: false, bidding_fallback: false, request_for_vehicle: false,
+    auto_release: true, dispatch_release_at: "", dispatch_release_mode: "auto_then_bidding", dispatch_release_override: false,
     pickup_time_type: "asap", pickup_time: "", reminder_minutes: "",
     booking_date: "", booking_type: "outstation",
     name: "", email: "", phone_no: "", tel_no: "",
@@ -284,24 +370,76 @@ const DEFAULT_FORM_VALUES = {
     multi_days: [], multi_start_at: "", multi_end_at: "", week_pattern: "",
 };
 
-const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
+const isEnabledDispatchStep = (item) => ["enable", "enabled", "1", 1, true].includes(item?.status);
+
+const hasEnabledDispatchStep = (items, systemKey, stepKey = null) =>
+    items.some((item) =>
+        item?.dispatch_system === systemKey &&
+        (!stepKey || item?.steps === stepKey) &&
+        isEnabledDispatchStep(item)
+    );
+
+const DEFAULT_RELEASE_SETTINGS = {
+    enabled: true,
+    lead_minutes: 60,
+    mode: "auto_then_bidding",
+    modes: ["auto_dispatch", "bidding", "auto_then_bidding", "manual_review"],
+};
+
+const normalizeReleaseSettings = (raw) => {
+    const value = raw && typeof raw === "object" ? raw : {};
+    const leadMinutes = Number(value.lead_minutes);
+    const mode = value.mode || DEFAULT_RELEASE_SETTINGS.mode;
+
+    return {
+        enabled: value.enabled !== false && value.enabled !== 0 && value.enabled !== "0",
+        lead_minutes: Number.isFinite(leadMinutes) ? Math.max(0, Math.min(leadMinutes, 1440)) : DEFAULT_RELEASE_SETTINGS.lead_minutes,
+        mode: DEFAULT_RELEASE_SETTINGS.modes.includes(mode) ? mode : DEFAULT_RELEASE_SETTINGS.mode,
+        modes: Array.isArray(value.modes) && value.modes.length ? value.modes : DEFAULT_RELEASE_SETTINGS.modes,
+    };
+};
+
+const padDatePart = (value) => String(value).padStart(2, "0");
+
+const formatDateTimeLocal = (date) => (
+    `${date.getFullYear()}-${padDatePart(date.getMonth() + 1)}-${padDatePart(date.getDate())}T${padDatePart(date.getHours())}:${padDatePart(date.getMinutes())}`
+);
+
+const computeReleaseDateTimeLocal = (bookingDate, pickupTime, leadMinutes = DEFAULT_RELEASE_SETTINGS.lead_minutes) => {
+    if (!bookingDate || !pickupTime) return "";
+    const [hour = 0, minute = 0] = String(pickupTime).split(":").map((part) => Number(part) || 0);
+    const pickup = new Date(`${bookingDate}T${padDatePart(hour)}:${padDatePart(minute)}:00`);
+    if (Number.isNaN(pickup.getTime())) return "";
+    pickup.setMinutes(pickup.getMinutes() - Number(leadMinutes || 0));
+    return formatDateTimeLocal(pickup);
+};
+
+const toApiDateTime = (value) => (value ? String(value).replace("T", " ") : "");
+
+const releaseModeLabels = {
+    auto_dispatch: "Auto Dispatch",
+    bidding: "Bidding",
+    auto_then_bidding: "Auto then Bidding",
+    manual_review: "Manual Review",
+};
+
+const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOpen = false }) => {
     const isEditMode = Boolean(editBooking?.id);
     const todayWeekday = getTodayWeekdayLabel();
     const rawTenant = getTenantData();
     const tenant = rawTenant?.data || rawTenant || {};
     const SEARCH_API = tenant?.search_api || rawTenant?.search_api;
     const tenantCountryIso = getTenantCountryIso();
+    const {
+        mapType: mapsApi,
+        mapError,
+        apiKeys,
+        mapSearchPreferences,
+        mapSearchPreferencesLoading,
+        saveMapSearchPreferences,
+        applyMapSearchPreferences,
+    } = useMapConfiguration();
 
-    const getInitialMapType = () => {
-        const mapsApi = (tenant?.maps_api || rawTenant?.maps_api)?.trim().toLowerCase();
-        if (mapsApi === "default") return "default";
-        if (mapsApi === "barikoi") return "barikoi";
-        if (mapsApi === "google") return "google";
-        if (tenantCountryIso === "BD") return "barikoi";
-        return "google";
-    };
-
-    const MAPS_API = getInitialMapType();
     const [countryCode, setCountryCode] = useState(tenantCountryIso?.toLowerCase() || "");
     const defaultDialCode = getTenantDialCode();
 
@@ -310,8 +448,6 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
     const [driverList, setDriverList] = useState([]);
     const [accountList, setAccountList] = useState([]);
     const [loadingSubCompanies, setLoadingSubCompanies] = useState(false);
-    const [mapsApi, setMapsApi] = useState(null);
-    const [mapError, setMapError] = useState(null);
     const [searchApi, setSearchApi] = useState(SEARCH_API);
     const [googleService, setGoogleService] = useState(null);
     const [pickupSuggestions, setPickupSuggestions] = useState([]);
@@ -320,14 +456,21 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
     const [showPickup, setShowPickup] = useState(false);
     const [showDestination, setShowDestination] = useState(false);
     const [showVia, setShowVia] = useState({});
+    const [pickupSearchLoading, setPickupSearchLoading] = useState(false);
+    const [destinationSearchLoading, setDestinationSearchLoading] = useState(false);
+    const [viaSearchLoading, setViaSearchLoading] = useState({});
+    const [pickupSearchError, setPickupSearchError] = useState("");
+    const [destinationSearchError, setDestinationSearchError] = useState("");
+    const [viaSearchError, setViaSearchError] = useState({});
+    const [locationSidebar, setLocationSidebar] = useState(EMPTY_LOCATION_SIDEBAR);
+    const [nearbyBoundaryCountry, setNearbyBoundaryCountry] = useState(null);
     const [pickupPlotData, setPickupPlotData] = useState(null);
     const [destinationPlotData, setDestinationPlotData] = useState(null);
     const [viaPlotData, setViaPlotData] = useState({});
     const [stablePickupCoords, setStablePickupCoords] = useState(null);
     const [stableDestinationCoords, setStableDestinationCoords] = useState(null);
     const [stableViaCoords, setStableViaCoords] = useState([]);
-    const formikRef = useState(null);
-    const [formikSetFieldValue, setFormikSetFieldValue] = useState(null);
+    const setFieldValueRef = useRef(null);
     const [fareData, setFareData] = useState(null);
     const [fareLoading, setFareLoading] = useState(false);
     const [fareError, setFareError] = useState(null);
@@ -336,10 +479,16 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
     const [editBookingLoading, setEditBookingLoading] = useState(false);
     const [isMultiBooking, setIsMultiBooking] = useState(false);
     const [isManualDispatchOnly, setIsManualDispatchOnly] = useState(false);
+    const [isPlotBasedDispatchEnabled, setIsPlotBasedDispatchEnabled] = useState(false);
     const [loadingDispatchSystem, setLoadingDispatchSystem] = useState(true);
+    const [companyBiddingFallbackEnabled, setCompanyBiddingFallbackEnabled] = useState(false);
+    const [companyReleaseSettings, setCompanyReleaseSettings] = useState(DEFAULT_RELEASE_SETTINGS);
     const dispatcherId = getDispatcherId();
-    const [alertModal, setAlertModal] = useState({ isOpen: false, message: '' });
-    const [apiKeys, setApiKeys] = useState({ googleKey: null, mapifyStyle: null });
+    const [alertModal, setAlertModal] = useState({ isOpen: false, message: '', closeBookingOnClose: false });
+    const [vehicleSelectionModalOpen, setVehicleSelectionModalOpen] = useState(false);
+    const [companyCountryOfUse, setCompanyCountryOfUse] = useState(
+        tenantCountryIso || "IN"
+    );
     const [userSuggestions, setUserSuggestions] = useState([]);
     const [showUserSuggestions, setShowUserSuggestions] = useState(false);
     const [loadingUsers, setLoadingUsers] = useState(false);
@@ -353,6 +502,15 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
     const [plotsData, setPlotsData] = useState([]);
     const searchAbortRef = useState({ pickup: null, destination: null, via: {} })[0];
     const searchDebounceRef = useState({ pickup: null, destination: null, via: {} })[0];
+    const activeLocationQueriesRef = useRef({ pickup: "", destination: "", via: {} });
+    const locationSidebarAbortRef = useRef(null);
+    const userGeoCoordsRef = useRef(null);
+    const userGeoRequestRef = useRef(null);
+    const mapSearchPreferencesRef = useRef(mapSearchPreferences);
+
+    useEffect(() => {
+        mapSearchPreferencesRef.current = mapSearchPreferences;
+    }, [mapSearchPreferences]);
 
     const clearCalcError = (key) => setCalculateErrors(prev => ({ ...prev, [key]: undefined }));
     const clearBookingError = (key) => setBookingErrors(prev => ({ ...prev, [key]: undefined }));
@@ -364,6 +522,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
         }
         return DEFAULT_FORM_VALUES;
     });
+    const [newBookingFormKey, setNewBookingFormKey] = useState(0);
 
     const chargeFields = [
         "fares", "return_fares", "waiting_time", "parking_charges", "ac_fares",
@@ -378,6 +537,15 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
     const handleDestinationConfirmed = useCallback((coords) => {
         setStableDestinationCoords(coords);
     }, []);
+
+    const applyMapFieldValue = useCallback((field, value) => {
+        setFieldValueRef.current?.(field, value);
+    }, []);
+
+    const mapViaCoords = useMemo(
+        () => stableViaCoords.filter(Boolean),
+        [stableViaCoords]
+    );
 
     const searchUsers = debounce(async (query) => {
         if (!query || query.length < 3) { setUserSuggestions([]); setShowUserSuggestions(false); return; }
@@ -403,61 +571,72 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
         setUserSuggestions([]);
     };
 
+    const persistMapSearchPreferences = useCallback(async (nextPreferences) => {
+        await saveMapSearchPreferences(
+            nextPreferences.nearbySearch,
+            nextPreferences.boundaryCountry
+        );
+        return true;
+    }, [saveMapSearchPreferences]);
+
+    const syncMapSearchPreferencesFromApi = useCallback((prefs) => {
+        if (!prefs) return;
+
+        mapSearchPreferencesRef.current = prefs;
+        applyMapSearchPreferences(prefs.nearbySearch, prefs.boundaryCountry);
+
+        if (prefs.nearbySearch && userGeoCoordsRef.current?.boundaryCountry) {
+            setNearbyBoundaryCountry(userGeoCoordsRef.current.boundaryCountry);
+        } else if (!prefs.nearbySearch) {
+            setNearbyBoundaryCountry(null);
+        }
+    }, [applyMapSearchPreferences]);
+
     useEffect(() => {
-        const loadMapAndSettings = async () => {
+        if (apiKeys.searchApi) {
+            setSearchApi(apiKeys.searchApi.toLowerCase());
+        }
+        if (apiKeys.countryOfUse) {
+            setCountryCode(apiKeys.countryOfUse.toLowerCase());
+            setCompanyCountryOfUse(apiKeys.countryOfUse.toUpperCase());
+        }
+    }, [apiKeys.searchApi, apiKeys.countryOfUse, mapsApi]);
+
+    useEffect(() => {
+        const normalizePlotList = (response) => {
+            const payload = response?.data;
+            if (!payload) return [];
+            if (Array.isArray(payload)) return payload;
+            if (Array.isArray(payload.data)) return payload.data;
+            if (Array.isArray(payload.data?.data)) return payload.data.data;
+            if (Array.isArray(payload.list)) return payload.list;
+            if (Array.isArray(payload.list?.data)) return payload.list.data;
+            return [];
+        };
+
+        const fetchPlotsForDispatch = async (plotBasedDispatchEnabled) => {
             try {
-                const [keysRes, mapConfig] = await Promise.all([
-                    apiGetCompanyApiKeys(),
-                    fetchMapConfiguration(),
-                ]);
-
-                if (keysRes.data?.success) {
-                    const data = keysRes.data.data;
-                    if (data.search_api) {
-                        setSearchApi(data.search_api.toLowerCase());
+                if (plotBasedDispatchEnabled) {
+                    const res = await apiGetBackupPlot({ page: 1, perPage: 1000 });
+                    if (res?.data?.success === 1 || res?.data?.success === true) {
+                        setPlotsData(normalizePlotList(res));
                     }
-                    if (data.country_of_use) {
-                        setCountryCode(data.country_of_use.toLowerCase());
-                    }
-                    if (data.units) {
-                        setCachedDistanceUnit(data.units);
-                    }
-                }
-
-                if (!mapConfig.ok) {
-                    setMapError(mapConfig.message);
-                    setMapsApi(null);
                     return;
                 }
 
-                setMapError(null);
-                setMapsApi(mapConfig.provider);
-                setApiKeys({
-                    googleKey: mapConfig.provider === MAP_PROVIDER_GOOGLE ? mapConfig.googleKey : null,
-                    mapifyStyle: mapConfig.provider === MAP_PROVIDER_DEFAULT ? mapConfig.mapifyStyle : null,
-                });
-            } catch (err) {
-                console.error("Fetch map configuration error:", err);
-                setMapError("Unable to load map configuration");
-                setMapsApi(null);
-            }
-        };
-        loadMapAndSettings();
-
-        const fetchPlots = async () => {
-            try {
                 const res = await apiGetAllPlot({ page: 1, limit: 100 });
                 if (res.data?.success) setPlotsData(res.data.data?.data || res.data.data || []);
-            } catch (err) { console.error("Fetch plots error:", err); }
+            } catch (err) {
+                console.error("Fetch plots error:", err);
+            }
         };
-        fetchPlots();
-    }, []);
 
-    useEffect(() => {
         const checkDispatchSystem = async () => {
             try {
                 setLoadingDispatchSystem(true);
                 const response = await apiGetDispatchSystem();
+                const releaseSettings = normalizeReleaseSettings(response?.data?.release_settings);
+                setCompanyReleaseSettings(releaseSettings);
                 let data = response?.data?.data || response?.data || response;
                 if (!Array.isArray(data)) {
                     if (data && typeof data === 'object') {
@@ -468,12 +647,45 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
                         data = (data && typeof data === 'object' && Object.keys(data).length > 0) ? [data] : [];
                     }
                 }
-                setIsManualDispatchOnly(data.some((item) => {
-                    const isManual = item.dispatch_system === "manual_dispatch_only";
-                    const isEnabled = item.status === "enable" || item.status === "enabled" || item.status === 1 || item.status === true;
-                    return isManual && isEnabled;
-                }));
-            } catch { setIsManualDispatchOnly(false); }
+                const plotBasedDispatchEnabled = dispatchSystemListHasPlotBased(data);
+                const manualDispatchOnlyEnabled = data.some(isManualDispatchOnlySystem);
+                const autoDispatchEnabled =
+                    hasEnabledDispatchStep(data, "auto_dispatch_plot_base") ||
+                    hasEnabledDispatchStep(data, "auto_dispatch_nearest_driver");
+                const biddingOnlyEnabled = hasEnabledDispatchStep(data, "bidding") || hasEnabledDispatchStep(data, "bidding_fixed_fare_plot_base");
+                const biddingFallbackEnabled =
+                    hasEnabledDispatchStep(data, "auto_dispatch_plot_base", "put_in_bidding_panel") ||
+                    hasEnabledDispatchStep(data, "auto_dispatch_nearest_driver", "put_in_bidding_panel");
+
+                setIsPlotBasedDispatchEnabled(plotBasedDispatchEnabled);
+                setIsManualDispatchOnly(manualDispatchOnlyEnabled);
+                setCompanyBiddingFallbackEnabled(biddingFallbackEnabled);
+                if (!isEditMode) {
+                    const nextAutoDispatch = !manualDispatchOnlyEnabled && (autoDispatchEnabled || !biddingOnlyEnabled);
+                    const nextBidding = !manualDispatchOnlyEnabled && (biddingOnlyEnabled || biddingFallbackEnabled);
+                    setInitialFormValues((prev) => ({
+                        ...prev,
+                        auto_dispatch: nextAutoDispatch,
+                        bidding: nextBidding,
+                        bidding_fallback: !manualDispatchOnlyEnabled && biddingFallbackEnabled,
+                        booking_system: manualDispatchOnlyEnabled ? "manual_dispatch" : (nextAutoDispatch ? "auto_dispatch" : "bidding"),
+                        auto_release: releaseSettings.enabled,
+                        dispatch_release_mode: releaseSettings.mode,
+                        dispatch_release_at: "",
+                        dispatch_release_override: false,
+                        driver: (biddingOnlyEnabled && !autoDispatchEnabled) || manualDispatchOnlyEnabled ? "" : prev.driver,
+                    }));
+                    setNewBookingFormKey((key) => key + 1);
+                }
+
+                await fetchPlotsForDispatch(plotBasedDispatchEnabled);
+            } catch {
+                setIsManualDispatchOnly(false);
+                setIsPlotBasedDispatchEnabled(false);
+                setCompanyBiddingFallbackEnabled(false);
+                setCompanyReleaseSettings(DEFAULT_RELEASE_SETTINGS);
+                await fetchPlotsForDispatch(false);
+            }
             finally { setLoadingDispatchSystem(false); }
         };
         checkDispatchSystem();
@@ -543,90 +755,44 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
         }
     }, [searchApi, apiKeys]);
 
-    useEffect(() => {
-        const storedData = localStorage.getItem('copiedBookingData');
-        if (storedData) {
-            try {
-                const parsedData = JSON.parse(storedData);
-                setInitialFormValues({
-                    ...parsedData,
-                    request_for_vehicle: Boolean(
-                        parsedData.request_for_vehicle ?? parsedData.vehicle
-                    ),
-                });
-                if (parsedData.pickup_latitude && parsedData.pickup_longitude) {
-                    const c = { lat: parseFloat(parsedData.pickup_latitude), lng: parseFloat(parsedData.pickup_longitude) };
-                    setStablePickupCoords(c);
-                    fetchPlotName(parsedData.pickup_latitude, parsedData.pickup_longitude).then(setPickupPlotData);
-                }
-                if (parsedData.destination_latitude && parsedData.destination_longitude) {
-                    const c = { lat: parseFloat(parsedData.destination_latitude), lng: parseFloat(parsedData.destination_longitude) };
-                    setStableDestinationCoords(c);
-                    fetchPlotName(parsedData.destination_latitude, parsedData.destination_longitude).then(setDestinationPlotData);
-                }
-                if (parsedData.via_latitude?.length > 0) {
-                    const viaC = [];
-                    // Limit to 2 via stops when loading copied data
-                    const limitedViaLat = parsedData.via_latitude.slice(0, 2);
-                    limitedViaLat.forEach((lat, i) => {
-                        const lng = parsedData.via_longitude[i];
-                        if (lat && lng) {
-                            viaC[i] = { lat: parseFloat(lat), lng: parseFloat(lng) };
-                            fetchPlotName(lat, lng).then(pd => setViaPlotData(prev => ({ ...prev, [i]: pd })));
-                        }
-                    });
-                    setStableViaCoords(viaC);
-                }
-
-                // Also limit via_points if they exist
-                if (parsedData.via_points) parsedData.via_points = parsedData.via_points.slice(0, 2);
-                if (parsedData.via_plot_id) parsedData.via_plot_id = parsedData.via_plot_id.slice(0, 2);
-
-                localStorage.removeItem('copiedBookingData');
-            } catch {
-                localStorage.removeItem('copiedBookingData');
-                toast.error("Failed to load booking data");
-            }
-        }
-    }, []);
-
-    const populateFormFromBooking = useCallback((booking) => {
+    const populateFormFromBooking = useCallback(async (booking) => {
         if (!booking?.id) return;
 
         const formValues = mapBookingToFormValues(booking, { mode: "edit" });
         if (!formValues) return;
 
-        setInitialFormValues(formValues);
+        const resolvedFormValues = await resolveFormLocationLabels(formValues);
+        setInitialFormValues(resolvedFormValues);
         setIsMultiBooking(false);
 
-        if (formValues.pickup_latitude && formValues.pickup_longitude) {
+        if (resolvedFormValues.pickup_latitude && resolvedFormValues.pickup_longitude) {
             const c = {
-                lat: parseFloat(formValues.pickup_latitude),
-                lng: parseFloat(formValues.pickup_longitude),
+                lat: parseFloat(resolvedFormValues.pickup_latitude),
+                lng: parseFloat(resolvedFormValues.pickup_longitude),
             };
             setStablePickupCoords(c);
-            fetchPlotName(formValues.pickup_latitude, formValues.pickup_longitude).then(setPickupPlotData);
+            fetchPlotName(resolvedFormValues.pickup_latitude, resolvedFormValues.pickup_longitude).then(setPickupPlotData);
         } else {
             setStablePickupCoords(null);
             setPickupPlotData(null);
         }
 
-        if (formValues.destination_latitude && formValues.destination_longitude) {
+        if (resolvedFormValues.destination_latitude && resolvedFormValues.destination_longitude) {
             const c = {
-                lat: parseFloat(formValues.destination_latitude),
-                lng: parseFloat(formValues.destination_longitude),
+                lat: parseFloat(resolvedFormValues.destination_latitude),
+                lng: parseFloat(resolvedFormValues.destination_longitude),
             };
             setStableDestinationCoords(c);
-            fetchPlotName(formValues.destination_latitude, formValues.destination_longitude).then(setDestinationPlotData);
+            fetchPlotName(resolvedFormValues.destination_latitude, resolvedFormValues.destination_longitude).then(setDestinationPlotData);
         } else {
             setStableDestinationCoords(null);
             setDestinationPlotData(null);
         }
 
-        if (formValues.via_latitude?.length > 0) {
+        if (resolvedFormValues.via_latitude?.length > 0) {
             const viaC = [];
-            formValues.via_latitude.slice(0, 2).forEach((lat, i) => {
-                const lng = formValues.via_longitude[i];
+            resolvedFormValues.via_latitude.slice(0, 2).forEach((lat, i) => {
+                const lng = resolvedFormValues.via_longitude[i];
                 if (lat && lng) {
                     viaC[i] = { lat: parseFloat(lat), lng: parseFloat(lng) };
                     fetchPlotName(lat, lng).then((pd) => setViaPlotData((prev) => ({ ...prev, [i]: pd })));
@@ -638,13 +804,13 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
             setViaPlotData({});
         }
 
-        const totalAmount = parseFloat(formValues.total_charges) || 0;
-        const baseFare = parseFloat(formValues.fares) || totalAmount;
+        const totalAmount = parseFloat(resolvedFormValues.total_charges) || 0;
+        const baseFare = parseFloat(resolvedFormValues.fares) || totalAmount;
         if (totalAmount || baseFare) {
             setFareCalculated(true);
             setFareData({
                 calculate_fare: baseFare,
-                distance: parseFloat(formValues.distance) || null,
+                distance: parseFloat(booking.distance) || null,
             });
         } else {
             setFareCalculated(false);
@@ -685,7 +851,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
         };
     }, [editBooking?.id, populateFormFromBooking]);
 
-    const getSearchOrigin = () => {
+    const getLocationBiasOrigin = () => {
         const coords =
             stablePickupCoords ||
             stableDestinationCoords ||
@@ -694,8 +860,119 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
         if (coords?.lat != null && coords?.lng != null) {
             return { lat: Number(coords.lat), lon: Number(coords.lng) };
         }
-        return FALLBACK_SEARCH_ORIGIN;
+        const code = countryCode?.trim().toUpperCase() || tenantCountryIso?.toUpperCase();
+        return SEARCH_COUNTRY_CENTERS[code] || SEARCH_COUNTRY_CENTERS.DEFAULT;
     };
+
+    const resolveNearbyBoundaryCountry = useCallback(async (coords, signal) => {
+        if (coords?.lat == null || coords?.lon == null) {
+            return null;
+        }
+
+        if (mapsApi === MAP_PROVIDER_DEFAULT && isReverseGeocodingAvailable()) {
+            const countryCode = await fetchMapifyBoundaryCountryFromCoords({
+                lat: coords.lat,
+                lon: coords.lon,
+                signal,
+                allowFallback: false,
+            });
+            if (countryCode) return countryCode;
+        }
+
+        return null;
+    }, [mapsApi]);
+
+    const fetchUserGeolocation = useCallback(async ({ force = false } = {}) => {
+        if (!force && userGeoCoordsRef.current) {
+            return userGeoCoordsRef.current;
+        }
+
+        if (!force && userGeoRequestRef.current) {
+            return userGeoRequestRef.current;
+        }
+
+        const request = requestBrowserGeolocation({ enableHighAccuracy: true }).then(async (coords) => {
+            userGeoRequestRef.current = null;
+            if (coords?.lat == null || coords?.lon == null) {
+                userGeoCoordsRef.current = null;
+                return null;
+            }
+
+            const boundaryCountry = await resolveNearbyBoundaryCountry(coords);
+            const resolved = {
+                lat: coords.lat,
+                lon: coords.lon,
+                boundaryCountry,
+            };
+            userGeoCoordsRef.current = resolved;
+            setNearbyBoundaryCountry(boundaryCountry || null);
+            return resolved;
+        });
+
+        userGeoRequestRef.current = request;
+        return request;
+    }, [resolveNearbyBoundaryCountry]);
+
+    const resolveMapifySearchContext = useCallback(async () => {
+        const prefs = mapSearchPreferencesRef.current;
+        const bias = getLocationBiasOrigin();
+        return {
+            nearbySearch: false,
+            boundaryCountry: prefs.boundaryCountry || null,
+            lat: bias.lat,
+            lon: bias.lon,
+        };
+    }, [stablePickupCoords, stableDestinationCoords, stableViaCoords, countryCode, tenantCountryIso]);
+
+    const disableNearbySearch = useCallback(async () => {
+        userGeoCoordsRef.current = null;
+        userGeoRequestRef.current = null;
+        setNearbyBoundaryCountry(null);
+        mapSearchPreferencesRef.current = {
+            ...mapSearchPreferencesRef.current,
+            nearbySearch: false,
+        };
+        await persistMapSearchPreferences({
+            nearbySearch: false,
+            boundaryCountry: mapSearchPreferences.boundaryCountry || null,
+        });
+    }, [mapSearchPreferences.boundaryCountry, persistMapSearchPreferences]);
+
+    const handleNearbySearchChange = useCallback(async (enabled) => {
+        if (!enabled) {
+            await disableNearbySearch();
+            return true;
+        }
+
+        const coords = await fetchUserGeolocation({ force: true });
+        if (!coords) {
+            toast.error("Unable to access your location. Nearby search requires location permission.");
+            return false;
+        }
+
+        mapSearchPreferencesRef.current = {
+            nearbySearch: true,
+            boundaryCountry: null,
+        };
+
+        await persistMapSearchPreferences({
+            nearbySearch: true,
+            boundaryCountry: null,
+        });
+        return true;
+    }, [
+        disableNearbySearch,
+        fetchUserGeolocation,
+        persistMapSearchPreferences,
+    ]);
+
+    const getGoogleSearchCountry = useCallback(() => {
+        if (!mapSearchPreferences.nearbySearch) {
+            const boundary = mapSearchPreferences.boundaryCountry;
+            return toGoogleCountryCode(boundary) || countryCode;
+        }
+        return countryCode;
+    }, [countryCode, mapSearchPreferences.nearbySearch, mapSearchPreferences.boundaryCountry]);
 
     const cancelPendingSearch = (type, index = null) => {
         if (type === "via") {
@@ -712,93 +989,353 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
         searchAbortRef[type] = null;
     };
 
-    const searchLocation = async (query, type, index = null) => {
-        if (!query || query.trim().length < 2) return;
-        const cleanedQuery = query.trim();
-        let list = [];
+    const setLocationSearchLoading = (type, index, loading) => {
+        if (type === "pickup") setPickupSearchLoading(loading);
+        else if (type === "destination") setDestinationSearchLoading(loading);
+        else setViaSearchLoading((prev) => ({ ...prev, [index]: loading }));
+    };
 
-        cancelPendingSearch(type, index);
+    const setLocationSearchError = (type, index, message) => {
+        if (type === "pickup") setPickupSearchError(message);
+        else if (type === "destination") setDestinationSearchError(message);
+        else setViaSearchError((prev) => ({ ...prev, [index]: message }));
+    };
 
-        if (mapsApi === "default") {
-            const runSearch = async () => {
-                const controller = new AbortController();
-                if (type === "via") searchAbortRef.via[String(index)] = controller;
-                else searchAbortRef[type] = controller;
+    const updateSuggestions = (list, type, index, shouldShow = true) => {
+        if (type === "pickup") {
+            setPickupSuggestions(list);
+            setShowPickup(shouldShow && list.length > 0);
+        } else if (type === "destination") {
+            setDestinationSuggestions(list);
+            setShowDestination(shouldShow && list.length > 0);
+        } else {
+            setViaSuggestions((v) => ({ ...v, [index]: list }));
+            setShowVia((v) => ({ ...v, [index]: shouldShow && list.length > 0 }));
+        }
+    };
 
-                try {
-                    const origin = getSearchOrigin();
-                    const response = await apiMapifySearch({
-                        query: cleanedQuery,
-                        lat: origin.lat,
-                        lon: origin.lon,
-                        size: 8,
-                        signal: controller.signal,
-                    });
-                    const normalized = normalizeMapifyFeatures(response?.data).map((item) => ({
-                        label: item.name,
-                        subtitle: item.label,
-                        lat: item.lat,
-                        lng: item.lon,
-                        source: "mapify",
-                    }));
-                    updateSuggestions(normalized, type, index);
-                } catch (err) {
-                    if (err?.name === "AbortError" || err?.code === "ERR_CANCELED") return;
-                    console.error("Mapify search error:", err);
-                    updateSuggestions([], type, index);
-                }
-            };
+    const isMapifyLocationSearch = () => mapsApi === MAP_PROVIDER_DEFAULT;
 
-            const timer = setTimeout(runSearch, 400);
-            if (type === "via") searchDebounceRef.via[String(index)] = timer;
-            else searchDebounceRef[type] = timer;
-            return;
+    const showNearbySearchControls = isMapifyLocationSearch();
+
+    const closeLocationSidebar = useCallback(() => {
+        locationSidebarAbortRef.current?.abort?.();
+        locationSidebarAbortRef.current = null;
+        setLocationSidebar(EMPTY_LOCATION_SIDEBAR);
+    }, []);
+
+    const resetNewBookingState = useCallback(() => {
+        cancelPendingSearch("pickup");
+        cancelPendingSearch("destination");
+        Object.keys(searchAbortRef.via || {}).forEach((key) => cancelPendingSearch("via", key));
+        closeLocationSidebar();
+
+        setInitialFormValues(DEFAULT_FORM_VALUES);
+        setNewBookingFormKey((key) => key + 1);
+        setPickupSuggestions([]);
+        setDestinationSuggestions([]);
+        setViaSuggestions({});
+        setShowPickup(false);
+        setShowDestination(false);
+        setShowVia({});
+        setPickupSearchLoading(false);
+        setDestinationSearchLoading(false);
+        setViaSearchLoading({});
+        setPickupSearchError("");
+        setDestinationSearchError("");
+        setViaSearchError({});
+        setPickupPlotData(null);
+        setDestinationPlotData(null);
+        setViaPlotData({});
+        setStablePickupCoords(null);
+        setStableDestinationCoords(null);
+        setStableViaCoords([]);
+        setFareData(null);
+        setFareLoading(false);
+        setFareError(null);
+        setFareCalculated(false);
+        setVehicleSelectionModalOpen(false);
+        setIsMultiBooking(false);
+        setCalculateErrors({});
+        setBookingErrors({});
+        setUserSuggestions([]);
+        setShowUserSuggestions(false);
+        setSelectedUser(null);
+        setUserHistory([]);
+        setShowHistoryModal(false);
+        setIsBookingLoading(false);
+        activeLocationQueriesRef.current = { pickup: "", destination: "", via: {} };
+    }, [closeLocationSidebar]);
+
+    const wasModalOpenRef = useRef(false);
+    useEffect(() => {
+        if (wasModalOpenRef.current && !isModalOpen && !editBooking?.id) {
+            resetNewBookingState();
+        }
+        wasModalOpenRef.current = isModalOpen;
+    }, [isModalOpen, editBooking?.id, resetNewBookingState]);
+
+    const fetchLocationSearchResults = useCallback(async (cleanedQuery, signal, { size = MAPIFY_AUTOCOMPLETE_SIZE } = {}) => {
+        let results = [];
+
+        if (isMapifyLocationSearch()) {
+            const searchContext = await resolveMapifySearchContext(signal);
+            if (searchContext.error) {
+                throw new Error(searchContext.error);
+            }
+            results = await fetchMapifyLocationSuggestions({
+                query: cleanedQuery,
+                lat: searchContext.lat,
+                lon: searchContext.lon,
+                nearbySearch: searchContext.nearbySearch,
+                boundaryCountry: searchContext.boundaryCountry,
+                signal,
+                size,
+                onPreferencesSynced: syncMapSearchPreferencesFromApi,
+            });
+            return results;
         }
 
         if ((searchApi === "google" || searchApi === "both") && googleService) {
-            googleService.getPlacePredictions(
-                {
-                    input: cleanedQuery,
-                    componentRestrictions: { country: countryCode },
-                },
-                (predictions, status) => {
-                    if (status === "OK") {
-                        list = predictions.map(p => ({
-                            label: p.description,
-                            place_id: p.place_id,
-                            source: "google",
-                        }));
-                        updateSuggestions(list, type, index);
+            const googleCountry = getGoogleSearchCountry();
+            results = await new Promise((resolve) => {
+                googleService.getPlacePredictions(
+                    {
+                        input: cleanedQuery,
+                        componentRestrictions: googleCountry ? { country: googleCountry } : undefined,
+                    },
+                    (predictions, status) => {
+                        if (status === "OK") {
+                            resolve(predictions.map((p) => ({
+                                id: p.place_id,
+                                label: p.description,
+                                inputValue: p.description,
+                                place_id: p.place_id,
+                                source: "google",
+                            })));
+                        } else {
+                            resolve([]);
+                        }
                     }
-                }
-            );
+                );
+            });
         }
 
         if (searchApi === "barikoi" || searchApi === "both") {
-            try {
-                const res = await fetch(
-                    `https://barikoi.xyz/v1/api/search/autocomplete/${apiKeys.barikoiKey || BARIKOI_KEY}/place?q=${encodeURIComponent(cleanedQuery)}`
-                );
-                const json = await res.json();
-                const barikoiList = (json.places || []).map(p => ({
-                    label: p.address || p.place_name,
-                    lat: p.latitude,
-                    lng: p.longitude,
-                    source: "barikoi",
-                }));
-                list = searchApi === "both" ? [...list, ...barikoiList] : barikoiList;
-                updateSuggestions(list, type, index);
-            } catch (err) {
-                console.error("Barikoi search error:", err);
-            }
+            const res = await fetch(
+                `https://barikoi.xyz/v1/api/search/autocomplete/${apiKeys.barikoiKey || BARIKOI_KEY}/place?q=${encodeURIComponent(cleanedQuery)}`,
+                { signal }
+            );
+            const json = await res.json();
+            const barikoiList = (json.places || []).map((p) => ({
+                id: `${p.latitude}-${p.longitude}`,
+                label: p.address || p.place_name,
+                inputValue: p.address || p.place_name,
+                subtitle: p.place_name && p.address ? p.place_name : "",
+                lat: p.latitude,
+                lng: p.longitude,
+                source: "barikoi",
+            }));
+            results = searchApi === "both" ? [...results, ...barikoiList] : barikoiList;
         }
+
+        return results;
+    }, [
+        apiKeys.barikoiKey,
+        googleService,
+        searchApi,
+        mapsApi,
+        getGoogleSearchCountry,
+        resolveMapifySearchContext,
+        syncMapSearchPreferencesFromApi,
+    ]);
+
+    const runSidebarLocationSearch = useCallback(async (field, query) => {
+        const cleanedQuery = query?.trim() || "";
+        if (cleanedQuery.length < 2) {
+            toast.error("Enter at least 2 characters to search");
+            return;
+        }
+
+        cancelPendingSearch(field);
+        activeLocationQueriesRef.current[field] = cleanedQuery;
+
+        if (field === "pickup") {
+            setShowPickup(false);
+            setPickupSearchLoading(false);
+        } else if (field === "destination") {
+            setShowDestination(false);
+            setDestinationSearchLoading(false);
+        }
+
+        locationSidebarAbortRef.current?.abort?.();
+        const controller = new AbortController();
+        locationSidebarAbortRef.current = controller;
+
+        setLocationSidebar({
+            open: true,
+            field,
+            query: cleanedQuery,
+            results: [],
+            loading: true,
+            error: "",
+        });
+
+        try {
+            const results = await fetchLocationSearchResults(
+                cleanedQuery,
+                controller.signal,
+                { size: MAPIFY_FULL_SEARCH_SIZE }
+            );
+            if (controller.signal.aborted) return;
+
+            setLocationSidebar({
+                open: true,
+                field,
+                query: cleanedQuery,
+                results,
+                loading: false,
+                error: results.length ? "" : "No locations found",
+            });
+        } catch (err) {
+            if (err?.name === "AbortError" || err?.code === "ERR_CANCELED") return;
+            console.error("Location sidebar search error:", err);
+            setLocationSidebar({
+                open: true,
+                field,
+                query: cleanedQuery,
+                results: [],
+                loading: false,
+                error: err?.response?.data?.message || "Failed to search locations",
+            });
+        }
+    }, [fetchLocationSearchResults]);
+
+    const searchLocation = async (query, type, index = null) => {
+        const cleanedQuery = query?.trim() || "";
+        cancelPendingSearch(type, index);
+
+        if (cleanedQuery.length < 2) {
+            if (type === "via") {
+                activeLocationQueriesRef.current.via[index] = "";
+            } else {
+                activeLocationQueriesRef.current[type] = "";
+            }
+            updateSuggestions([], type, index, false);
+            setLocationSearchLoading(type, index, false);
+            setLocationSearchError(type, index, "");
+            return;
+        }
+
+        if (type === "via") {
+            activeLocationQueriesRef.current.via[index] = cleanedQuery;
+        } else {
+            activeLocationQueriesRef.current[type] = cleanedQuery;
+        }
+
+        setLocationSearchLoading(type, index, true);
+        setLocationSearchError(type, index, "");
+
+        const runSearch = async () => {
+            const controller = new AbortController();
+            if (type === "via") searchAbortRef.via[String(index)] = controller;
+            else searchAbortRef[type] = controller;
+
+            try {
+                const list = await fetchLocationSearchResults(cleanedQuery, controller.signal);
+                if (controller.signal.aborted) return;
+                updateSuggestions(list, type, index, true);
+                if (!list.length) {
+                    setLocationSearchError(type, index, "No locations found");
+                }
+            } catch (err) {
+                if (err?.name === "AbortError" || err?.code === "ERR_CANCELED") return;
+                console.error("Location search error:", err);
+                updateSuggestions([], type, index, false);
+                setLocationSearchError(
+                    type,
+                    index,
+                    err?.response?.data?.message || "Failed to search locations"
+                );
+            } finally {
+                if (!controller.signal.aborted) {
+                    setLocationSearchLoading(type, index, false);
+                }
+            }
+        };
+
+        const timer = setTimeout(runSearch, LOCATION_SEARCH_DEBOUNCE_MS);
+        if (type === "via") searchDebounceRef.via[String(index)] = timer;
+        else searchDebounceRef[type] = timer;
     };
 
-    const updateSuggestions = (list, type, index) => {
-        if (type === "pickup") { setPickupSuggestions(list); setShowPickup(true); }
-        else if (type === "destination") { setDestinationSuggestions(list); setShowDestination(true); }
-        else { setViaSuggestions(v => ({ ...v, [index]: list })); setShowVia(v => ({ ...v, [index]: true })); }
-    };
+    const searchLocationRef = useRef(searchLocation);
+    searchLocationRef.current = searchLocation;
+
+    const refreshActiveLocationSearches = useCallback(() => {
+        if (locationSidebar.open && locationSidebar.field && locationSidebar.query?.trim().length >= 2) {
+            runSidebarLocationSearch(locationSidebar.field, locationSidebar.query);
+        }
+        const queries = activeLocationQueriesRef.current;
+        if (queries.pickup?.trim().length >= 2) {
+            searchLocationRef.current(queries.pickup, "pickup");
+        }
+        if (queries.destination?.trim().length >= 2) {
+            searchLocationRef.current(queries.destination, "destination");
+        }
+        Object.entries(queries.via || {}).forEach(([index, query]) => {
+            if (query?.trim().length >= 2) {
+                searchLocationRef.current(query, "via", Number(index));
+            }
+        });
+    }, [locationSidebar.field, locationSidebar.open, locationSidebar.query, runSidebarLocationSearch]);
+
+    const handleNearbySearchCheckboxChange = useCallback(async (event) => {
+        const enabled = await handleNearbySearchChange(event.target.checked);
+        if (enabled) {
+            refreshActiveLocationSearches();
+        }
+    }, [handleNearbySearchChange, refreshActiveLocationSearches]);
+
+    useEffect(() => {
+        if (!showNearbySearchControls || !mapSearchPreferences.nearbySearch) return undefined;
+
+        let cancelled = false;
+        fetchUserGeolocation({ force: true }).then(async (coords) => {
+            if (cancelled) return;
+            if (!coords) {
+                await disableNearbySearch();
+                toast.error("Unable to access your location. Nearby search requires location permission.");
+                return;
+            }
+            refreshActiveLocationSearches();
+        });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [
+        mapSearchPreferences.nearbySearch,
+        disableNearbySearch,
+        fetchUserGeolocation,
+        showNearbySearchControls,
+        refreshActiveLocationSearches,
+    ]);
+
+    const handleBoundaryCountrySelectChange = useCallback(async (event) => {
+        const normalizedCountry = String(event.target.value ?? "").trim().toUpperCase();
+
+        mapSearchPreferencesRef.current = {
+            nearbySearch: false,
+            boundaryCountry: normalizedCountry || null,
+        };
+
+        await persistMapSearchPreferences({
+            nearbySearch: false,
+            boundaryCountry: normalizedCountry || null,
+        });
+        refreshActiveLocationSearches();
+    }, [persistMapSearchPreferences, refreshActiveLocationSearches]);
 
     const getLatLngFromPlaceId = (placeId) =>
         new Promise((resolve) => {
@@ -823,14 +1360,32 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
     };
 
     const selectLocation = async (item, type, setFieldValue, index = null) => {
-        if (type === "pickup") { setFieldValue("pickup_point", item.label); setShowPickup(false); }
-        else if (type === "destination") { setFieldValue("destination", item.label); setShowDestination(false); }
-        else { setFieldValue(`via_points[${index}]`, item.label); setShowVia(v => ({ ...v, [index]: false })); }
+        let displayValue = item.inputValue || item.label;
+        if (type === "pickup") {
+            setShowPickup(false);
+            closeLocationSidebar();
+        } else if (type === "destination") {
+            setShowDestination(false);
+            closeLocationSidebar();
+        } else {
+            setShowVia(v => ({ ...v, [index]: false }));
+        }
+
+        setLocationSearchError(type, index, "");
 
         let latLng = null;
         if (item.source === "google") latLng = await getLatLngFromPlaceId(item.place_id);
         else if (item.source === "barikoi") latLng = { lat: item.lat, lng: item.lng };
         else if (item.source === "mapify") latLng = { lat: item.lat, lng: item.lng };
+
+        if (latLng && mapsApi === MAP_PROVIDER_DEFAULT) {
+            const resolved = await fetchMapifyAddressFromCoords({ lat: latLng.lat, lon: latLng.lng });
+            if (resolved) displayValue = resolved;
+        }
+
+        if (type === "pickup") setFieldValue("pickup_location", displayValue);
+        else if (type === "destination") setFieldValue("destination_location", displayValue);
+        else setFieldValue(`via_points[${index}]`, displayValue);
 
         let plotData = { found: false, id: null, name: "Plot Not Found" };
         if (latLng) {
@@ -877,17 +1432,23 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
                     });
                 });
             }
-            if (mapsApi === "default") {
-                const origin = getSearchOrigin();
-                const response = await apiMapifySearch({
+            if (mapsApi === MAP_PROVIDER_DEFAULT) {
+                const searchContext = await resolveMapifySearchContext();
+                if (searchContext.error) {
+                    return null;
+                }
+                const suggestions = await fetchMapifyLocationSuggestions({
                     query: address,
-                    lat: origin.lat,
-                    lon: origin.lon,
-                    size: 1,
+                    lat: searchContext.lat,
+                    lon: searchContext.lon,
+                    nearbySearch: searchContext.nearbySearch,
+                    boundaryCountry: searchContext.boundaryCountry,
+                    size: MAPIFY_AUTOCOMPLETE_SIZE,
+                    onPreferencesSynced: syncMapSearchPreferencesFromApi,
                 });
-                const [first] = normalizeMapifyFeatures(response?.data);
+                const first = suggestions[0];
                 if (first) {
-                    return { latitude: first.lat, longitude: first.lon };
+                    return { latitude: first.lat, longitude: first.lng };
                 }
             }
             if (searchApi === "barikoi" || searchApi === "both") {
@@ -906,25 +1467,61 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
 
     const validateCalculateFares = (values) => {
         const errors = {};
-        if (!values.pickup_point?.trim()) errors.pickup_point = "Pickup point is required";
-        if (!values.destination?.trim()) errors.destination = "Destination is required";
-        if (values.request_for_vehicle && !values.vehicle) errors.vehicle = "Vehicle type is required";
+        if (!values.pickup_location?.trim()) errors.pickup_location = "Pickup point is required";
+        if (!values.destination_location?.trim()) errors.destination_location = "Destination is required";
+        if (!values.vehicle) errors.vehicle = "Please select any vehicle type for fare calculation";
         if (!values.journey_type) errors.journey_type = "Journey type is required";
         return errors;
     };
 
+    const syncDefaultReleaseAt = (nextValues, setFieldValue) => {
+        if (!companyReleaseSettings.enabled || nextValues.pickup_time_type !== "time") {
+            setFieldValue("dispatch_release_at", "");
+            setFieldValue("dispatch_release_override", false);
+            return;
+        }
+
+        if (nextValues.dispatch_release_override) {
+            return;
+        }
+
+        const nextReleaseAt = computeReleaseDateTimeLocal(
+            nextValues.booking_date,
+            nextValues.pickup_time,
+            companyReleaseSettings.lead_minutes
+        );
+
+        setFieldValue("dispatch_release_at", nextReleaseAt);
+        setFieldValue("dispatch_release_mode", nextValues.dispatch_release_mode || companyReleaseSettings.mode);
+    };
+
     const validateCreateBooking = (values) => {
         const errors = {};
-        if (!values.pickup_point?.trim()) errors.pickup_point = "Pickup point is required";
-        if (!values.destination?.trim()) errors.destination = "Destination is required";
+        if (!values.pickup_location?.trim()) errors.pickup_location = "Pickup point is required";
+        if (!values.destination_location?.trim()) errors.destination_location = "Destination is required";
         if (values.request_for_vehicle && !values.vehicle) errors.vehicle = "Vehicle type is required";
         if (!values.journey_type) errors.journey_type = "Journey type is required";
-        if (!values.auto_dispatch && !values.bidding) {
+        if (!isManualDispatchOnly && !values.auto_dispatch && !values.bidding) {
             errors.booking_system = "Select Auto Dispatch or Bidding";
         }
         if (!values.booking_type || values.booking_type === "outstation") errors.booking_type = "Please select a booking type";
         if (!isMultiBooking && !values.booking_date) errors.booking_date = "Booking date is required";
+        if (!isMultiBooking && isPastCompanyDate(values.booking_date)) errors.booking_date = "Booking date cannot be in the past";
         if (values.pickup_time_type === "time" && !values.pickup_time) errors.pickup_time = "Pickup time is required";
+        if (values.pickup_time_type === "time" && isPastCompanyPickupTime(values.booking_date, values.pickup_time)) {
+            errors.pickup_time = "Pickup time cannot be in the past";
+        }
+        if (values.pickup_time_type === "time" && companyReleaseSettings.enabled && values.auto_release) {
+            if (!values.dispatch_release_at) {
+                errors.dispatch_release_at = "Release time is required";
+            } else {
+                const releaseAt = new Date(values.dispatch_release_at);
+                const pickupAt = new Date(`${values.booking_date}T${values.pickup_time || "00:00"}:00`);
+                if (!Number.isNaN(releaseAt.getTime()) && !Number.isNaN(pickupAt.getTime()) && releaseAt.getTime() > pickupAt.getTime()) {
+                    errors.dispatch_release_at = "Release time cannot be after pickup time";
+                }
+            }
+        }
         if (
             values.pickup_time_type === "time" &&
             values.reminder_minutes &&
@@ -939,6 +1536,8 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
             if (!values.multi_days || values.multi_days.length === 0) errors.multi_days = "Please select at least one day";
             if (!values.multi_start_at) errors.multi_start_at = "Start date is required";
             if (!values.multi_end_at) errors.multi_end_at = "End date is required";
+            if (isPastCompanyDate(values.multi_start_at)) errors.multi_start_at = "Start date cannot be in the past";
+            if (isPastCompanyDate(values.multi_end_at)) errors.multi_end_at = "End date cannot be in the past";
             if (values.multi_start_at && values.multi_end_at && new Date(values.multi_start_at) > new Date(values.multi_end_at))
                 errors.multi_end_at = "End date cannot be before start date";
             if (
@@ -961,28 +1560,216 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
         return getCoordinatesFromAddress(address);
     };
 
+    const ensureHumanReadableLocation = async (locationValue, latitude, longitude) => {
+        if (locationValue?.trim() && !isCoordinateString(locationValue)) return locationValue;
+
+        if (latitude && longitude && mapsApi === MAP_PROVIDER_DEFAULT) {
+            const address = await fetchMapifyAddressFromCoords({
+                lat: parseFloat(latitude),
+                lon: parseFloat(longitude),
+            });
+            if (address) return address;
+        }
+
+        return locationValue || "";
+    };
+
+    const resolveFormLocationLabels = async (formValues) => {
+        const next = { ...formValues };
+
+        if (
+            (!formValues.pickup_location?.trim() || isCoordinateString(formValues.pickup_location)) &&
+            formValues.pickup_latitude &&
+            formValues.pickup_longitude
+        ) {
+            const pickupLabel = await ensureHumanReadableLocation(
+                formValues.pickup_location,
+                formValues.pickup_latitude,
+                formValues.pickup_longitude
+            );
+            if (pickupLabel) next.pickup_location = pickupLabel;
+        }
+
+        if (
+            (!formValues.destination_location?.trim() || isCoordinateString(formValues.destination_location)) &&
+            formValues.destination_latitude &&
+            formValues.destination_longitude
+        ) {
+            const destinationLabel = await ensureHumanReadableLocation(
+                formValues.destination_location,
+                formValues.destination_latitude,
+                formValues.destination_longitude
+            );
+            if (destinationLabel) next.destination_location = destinationLabel;
+        }
+
+        if (formValues.via_points?.length > 0) {
+            const viaPoints = [...formValues.via_points];
+            await Promise.all(
+                viaPoints.map(async (viaPoint, index) => {
+                    const lat = formValues.via_latitude?.[index];
+                    const lng = formValues.via_longitude?.[index];
+                    if (!isCoordinateString(viaPoint) || !lat || !lng) return;
+
+                    const viaLabel = await ensureHumanReadableLocation(viaPoint, lat, lng);
+                    if (viaLabel) viaPoints[index] = viaLabel;
+                })
+            );
+            next.via_points = viaPoints;
+        }
+
+        return next;
+    };
+
+    useEffect(() => {
+        if (!isModalOpen || editBooking?.id) return undefined;
+
+        const storedData = localStorage.getItem("copiedBookingData");
+        if (!storedData) return undefined;
+
+        let cancelled = false;
+
+        const loadCopiedBooking = async () => {
+            try {
+                await ensureMapConfigurationLoaded(fetchMapConfiguration);
+                const parsedData = JSON.parse(storedData);
+                const resolvedFormValues = await resolveFormLocationLabels({
+                    ...parsedData,
+                    request_for_vehicle: Boolean(
+                        parsedData.request_for_vehicle ?? parsedData.vehicle
+                    ),
+                });
+
+                if (cancelled) return;
+
+                setInitialFormValues(resolvedFormValues);
+                setNewBookingFormKey((key) => key + 1);
+
+                if (resolvedFormValues.pickup_latitude && resolvedFormValues.pickup_longitude) {
+                    const c = {
+                        lat: parseFloat(resolvedFormValues.pickup_latitude),
+                        lng: parseFloat(resolvedFormValues.pickup_longitude),
+                    };
+                    setStablePickupCoords(c);
+                    fetchPlotName(resolvedFormValues.pickup_latitude, resolvedFormValues.pickup_longitude).then(setPickupPlotData);
+                }
+                if (resolvedFormValues.destination_latitude && resolvedFormValues.destination_longitude) {
+                    const c = {
+                        lat: parseFloat(resolvedFormValues.destination_latitude),
+                        lng: parseFloat(resolvedFormValues.destination_longitude),
+                    };
+                    setStableDestinationCoords(c);
+                    fetchPlotName(resolvedFormValues.destination_latitude, resolvedFormValues.destination_longitude).then(setDestinationPlotData);
+                }
+                if (resolvedFormValues.via_latitude?.length > 0) {
+                    const viaC = [];
+                    const limitedViaLat = resolvedFormValues.via_latitude.slice(0, 2);
+                    limitedViaLat.forEach((lat, i) => {
+                        const lng = resolvedFormValues.via_longitude[i];
+                        if (lat && lng) {
+                            viaC[i] = { lat: parseFloat(lat), lng: parseFloat(lng) };
+                            fetchPlotName(lat, lng).then((pd) => setViaPlotData((prev) => ({ ...prev, [i]: pd })));
+                        }
+                    });
+                    setStableViaCoords(viaC);
+                }
+
+                localStorage.removeItem("copiedBookingData");
+            } catch {
+                localStorage.removeItem("copiedBookingData");
+                toast.error("Failed to load booking data");
+            }
+        };
+
+        loadCopiedBooking();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [isModalOpen, editBooking?.id]);
+
     const appendAccountFields = (formData, accountId) => {
         const value = accountId ? String(accountId) : "";
         formData.append("account", value);
         formData.append("account_id", value);
     };
 
+    const resolveBookingSystemValue = (values) => {
+        if (isManualDispatchOnly) return "manual_dispatch";
+        return values.auto_dispatch ? "auto_dispatch" : "bidding";
+    };
+
+    const resolveBiddingFallbackValue = (values) =>
+        !isManualDispatchOnly && values.auto_dispatch && values.bidding ? "yes" : "no";
+
+    const appendDispatchReleaseFields = (formData, values) => {
+        const scheduled = values.pickup_time_type === "time";
+        const autoReleaseEnabled = scheduled && companyReleaseSettings.enabled && Boolean(values.auto_release);
+        formData.append("dispatch_release_enabled", autoReleaseEnabled ? "yes" : "no");
+        formData.append("auto_release", autoReleaseEnabled ? "yes" : "no");
+        formData.append(
+            "dispatch_release_mode",
+            autoReleaseEnabled ? (values.dispatch_release_mode || companyReleaseSettings.mode) : "manual_review"
+        );
+        if (autoReleaseEnabled && values.dispatch_release_at) {
+            formData.append("dispatch_release_at", toApiDateTime(values.dispatch_release_at));
+        }
+    };
+
+    const isPastCompanyDate = (dateValue) => {
+        if (!dateValue) return false;
+        const today = getCompanyTodayForInput();
+        return Boolean(today) && dateValue < today;
+    };
+
+    const isPastCompanyPickupTime = (dateValue, pickupTime) => {
+        if (!dateValue || !pickupTime || dateValue !== getCompanyTodayForInput()) return false;
+        const now = getCompanyNowParts();
+        if (!now) return false;
+        const [hour = 0, minute = 0] = String(pickupTime).split(":").map((part) => Number(part) || 0);
+        if (hour !== now.hour) return hour < now.hour;
+        return minute < now.minute;
+    };
+
+    const shouldSendDriverOnSubmit = (values, { isEdit = false } = {}) => {
+        return Boolean(values.driver) && (values.auto_dispatch || isManualDispatchOnly || isEdit);
+    };
+
+    const shouldShowDriverField = (values, isEdit = false) =>
+        (values.auto_dispatch || isManualDispatchOnly || isEdit) && !(values.bidding && !values.auto_dispatch);
+
+    const driverMatchesVehicle = (driver, vehicleId) => {
+        if (!vehicleId) return true;
+        const selectedVehicleId = vehicleId.toString();
+        return [driver.assigned_vehicle, driver.vehicle_type_id, driver.vehicle_type]
+            .filter((value) => value !== undefined && value !== null && value !== "")
+            .some((value) => value.toString() === selectedVehicleId);
+    };
+
+    const requiresPlotBasedPickupValidation = (values) =>
+        isPlotBasedDispatchEnabled &&
+        !isManualDispatchOnly &&
+        Boolean(values.auto_dispatch);
+
     const handleCalculateFares = async (values, setFieldValue) => {
         const errors = validateCalculateFares(values);
+        if (errors.vehicle) {
+            setVehicleSelectionModalOpen(true);
+        }
         if (Object.keys(errors).length > 0) { setCalculateErrors(errors); setFareLoading(false); return; }
         setCalculateErrors({});
         setFareLoading(true);
         setFareError(null);
         try {
             const pickupCoords = await resolveLocationCoords(
-                values.pickup_point,
+                values.pickup_location,
                 values.pickup_latitude,
                 values.pickup_longitude
             );
             if (!pickupCoords) { toast.error("Could not get coordinates for pickup point"); setFareLoading(false); return; }
 
             const destinationCoords = await resolveLocationCoords(
-                values.destination,
+                values.destination_location,
                 values.destination_latitude,
                 values.destination_longitude
             );
@@ -1025,7 +1812,11 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
             if (response?.data?.success === 1) {
                 setFareData(response.data);
                 setFareCalculated(true);
-                if (response.data.distance) setFieldValue('distance', metersToDisplayDistance(response.data.distance));
+                if (response.data.distance_value != null) {
+                    setFieldValue('distance', Number(response.data.distance_value).toFixed(2));
+                } else if (response.data.distance) {
+                    setFieldValue('distance', metersToDisplayDistance(response.data.distance));
+                }
                 toast.success("Fare calculated successfully");
             } else {
                 const msg = response?.data?.message || "Failed to calculate fares";
@@ -1042,10 +1833,10 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
     };
 
     useEffect(() => {
-        if (!formikSetFieldValue) return;
+        if (!setFieldValueRef.current) return;
 
         if (!stablePickupCoords?.lat || !stableDestinationCoords?.lat) {
-            formikSetFieldValue("distance", "");
+            setFieldValueRef.current("distance", "");
             return;
         }
 
@@ -1054,12 +1845,12 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
             const distanceKm = await fetchRouteDistance(
                 stablePickupCoords,
                 stableDestinationCoords,
-                stableViaCoords.filter(Boolean),
+                mapViaCoords,
                 mapsApi,
                 apiKeys
             );
             if (!cancelled && distanceKm) {
-                formikSetFieldValue("distance", kmValueToDisplayDistance(distanceKm));
+                setFieldValueRef.current("distance", kmValueToDisplayDistance(distanceKm));
             }
         }, 400);
 
@@ -1070,10 +1861,9 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
     }, [
         stablePickupCoords,
         stableDestinationCoords,
-        stableViaCoords,
+        mapViaCoords,
         mapsApi,
         apiKeys,
-        formikSetFieldValue,
     ]);
 
     const swapLocations = (index, setFieldValue, values) => {
@@ -1084,13 +1874,13 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
         const viaPlotDataValue = viaPlotData[index];
         const viaStable = stableViaCoords[index];
 
-        setFieldValue(`via_points[${index}]`, values.destination);
+        setFieldValue(`via_points[${index}]`, values.destination_location);
         setFieldValue(`via_latitude[${index}]`, values.destination_latitude);
         setFieldValue(`via_longitude[${index}]`, values.destination_longitude);
         setFieldValue(`via_plot_id[${index}]`, values.destination_plot_id);
         setViaPlotData(p => ({ ...p, [index]: destinationPlotData }));
 
-        setFieldValue('destination', viaPoint);
+        setFieldValue("destination_location", viaPoint);
         setFieldValue('destination_latitude', viaLat);
         setFieldValue('destination_longitude', viaLng);
         setFieldValue('destination_plot_id', viaPlotId);
@@ -1107,8 +1897,8 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
     };
 
     const swapPickupAndDestination = (setFieldValue, values) => {
-        setFieldValue("pickup_point", values.destination);
-        setFieldValue("destination", values.pickup_point);
+        setFieldValue("pickup_location", values.destination_location);
+        setFieldValue("destination_location", values.pickup_location);
         setFieldValue("pickup_latitude", values.destination_latitude);
         setFieldValue("pickup_longitude", values.destination_longitude);
         setFieldValue("destination_latitude", values.pickup_latitude);
@@ -1164,13 +1954,12 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
             }
             formData.append('pickup_time_type', values.pickup_time_type === "time" ? "time" : "asap");
             if (values.pickup_time_type === "asap") {
-                const now = new Date();
-                formData.append('pickup_time', `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:00`);
+                formData.append("pickup_time", formatCompanyTimeForApi());
             } else {
-                const tv = values.pickup_time || '';
-                formData.append('pickup_time', tv ? `${tv}:00` : '');
+                const tv = values.pickup_time || "";
+                formData.append("pickup_time", tv ? `${tv}:00` : "");
                 if (values.reminder_minutes) {
-                    formData.append('reminder_minutes', String(values.reminder_minutes));
+                    formData.append("reminder_minutes", String(values.reminder_minutes));
                 }
             }
             const bookingDate = isMultiBooking
@@ -1183,13 +1972,62 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
             formData.append('booking_date', bookingDate);
             formData.append('booking_type', values.booking_type || '');
             formData.append("dispatcher_id", dispatcherId);
-            const pickupCoords = await getCoordinatesFromAddress(values.pickup_point);
-            const destinationCoords = await getCoordinatesFromAddress(values.destination);
+            const dispatcherName = getDispatcherName();
+            if (dispatcherName) formData.append("dispatcher_name", dispatcherName);
+            const pickupCoords = await resolveLocationCoords(
+                values.pickup_location,
+                values.pickup_latitude,
+                values.pickup_longitude
+            );
+            const destinationCoords = await resolveLocationCoords(
+                values.destination_location,
+                values.destination_latitude,
+                values.destination_longitude
+            );
+            const pickupLocationLabel = values.pickup_location?.trim()
+                || await ensureHumanReadableLocation(
+                    values.pickup_location,
+                    values.pickup_latitude,
+                    values.pickup_longitude
+                );
+            const destinationLocationLabel = values.destination_location?.trim()
+                || await ensureHumanReadableLocation(
+                    values.destination_location,
+                    values.destination_latitude,
+                    values.destination_longitude
+                );
+
+            if (isPlotBasedDispatchEnabled && !isEditMode && pickupCoords) {
+                const pickupPlot = await resolvePickupPlot({
+                    latitude: pickupCoords.latitude,
+                    longitude: pickupCoords.longitude,
+                    fetchPlotName,
+                    plotsData,
+                });
+
+                if (!pickupPlot?.id) {
+                    toast("Pickup is outside a service plot. Booking will be created for manual dispatch.");
+                }
+            }
+
+            if (requiresPlotBasedPickupValidation(values) && pickupCoords) {
+                const plotValidation = await validatePlotBasedPickup({
+                    latitude: pickupCoords.latitude,
+                    longitude: pickupCoords.longitude,
+                    fetchPlotName,
+                    plotsData,
+                    drivers: driverRawList,
+                });
+
+                if (!plotValidation.ok) {
+                    toast(`${plotValidation.message} Booking will be created for manual dispatch.`);
+                }
+            }
 
             if (pickupCoords) {
                 formData.append('pickup_point', `${pickupCoords.latitude}, ${pickupCoords.longitude}`);
-                formData.append('pickup_location', values.pickup_point);
-                
+                formData.append('pickup_location', pickupLocationLabel);
+
                 let pickupPlotId = values.pickup_plot_id;
                 const plotRes = await fetchPlotName(pickupCoords.latitude, pickupCoords.longitude);
                 if (plotRes && plotRes.found && plotRes.id) {
@@ -1203,7 +2041,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
 
             if (destinationCoords) {
                 formData.append('destination_point', `${destinationCoords.latitude}, ${destinationCoords.longitude}`);
-                formData.append('destination_location', values.destination);
+                formData.append('destination_location', destinationLocationLabel);
                 
                 let destinationPlotId = values.destination_plot_id;
                 const plotRes = await fetchPlotName(destinationCoords.latitude, destinationCoords.longitude);
@@ -1223,9 +2061,14 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
                     if (viaPoint?.trim()) {
                         const viaCoords = await getCoordinatesFromAddress(viaPoint);
                         if (viaCoords) {
+                            const viaLocationLabel = await ensureHumanReadableLocation(
+                                viaPoint,
+                                values.via_latitude?.[i],
+                                values.via_longitude?.[i]
+                            );
                             formData.append(`via_point[${vi}][latitude]`, viaCoords.latitude.toString());
                             formData.append(`via_point[${vi}][longitude]`, viaCoords.longitude.toString());
-                            formData.append(`via_location[${vi}]`, viaPoint);
+                            formData.append(`via_location[${vi}]`, viaLocationLabel);
                             
                             let viaPlotId = values.via_plot_id?.[i];
                             const plotRes = await fetchPlotName(viaCoords.latitude, viaCoords.longitude);
@@ -1249,14 +2092,16 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
             formData.append('journey_type', values.journey_type || '');
             appendAccountFields(formData, values.account);
             formData.append('vehicle', values.request_for_vehicle ? (values.vehicle || '') : '');
-            formData.append('driver', values.auto_dispatch ? (values.driver || '') : '');
+            formData.append('driver', shouldSendDriverOnSubmit(values, { isEdit: false }) ? (values.driver || '') : '');
             formData.append('request_for_vehicle', values.request_for_vehicle ? 'yes' : 'no');
             formData.append('passenger', values.passenger || '0');
             formData.append('luggage', values.luggage || '0');
             formData.append('hand_luggage', values.hand_luggage || '0');
             formData.append('special_request', values.special_request || '');
             formData.append('payment_reference', values.payment_reference || '');
-            formData.append('booking_system', values.booking_system || 'auto_dispatch');
+            formData.append('booking_system', resolveBookingSystemValue(values));
+            formData.append('bidding_fallback', resolveBiddingFallbackValue(values));
+            appendDispatchReleaseFields(formData, values);
             formData.append('payment_method', values.payment_method || '');
             formData.append('parking_charge', values.parking_charges || '');
             formData.append('waiting_charge', values.waiting_charges || '');
@@ -1267,7 +2112,8 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
             formData.append('extra_charge', values.extra_charges || '');
             formData.append('toll', values.congestion_toll || '');
             formData.append('booking_amount', values.total_charges?.toString() || '0');
-            formData.append('distance', fareData?.distance?.toString() || '');
+            const distanceMeters = resolveBookingDistanceMeters(fareData?.distance, values.distance);
+            formData.append("distance", distanceMeters != null ? String(distanceMeters) : "");
             const response = await apiCreateBooking(formData);
             if (response?.data?.success === 1) {
                 const createdCount = getMultiBookingCreatedCount(response.data);
@@ -1297,14 +2143,20 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
                         pickupTime: values.pickup_time_type === "time" && values.pickup_time
                             ? `${values.pickup_time}:00`
                             : null,
-                        pickupLocation: values.pickup_point || null,
-                        destinationLocation: values.destination || null,
+                        pickupLocation: pickupLocationLabel || null,
+                        destinationLocation: destinationLocationLabel || null,
+                        dispatchReleaseAt: values.dispatch_release_at || null,
+                        dispatchReleaseMode: values.dispatch_release_mode || companyReleaseSettings.mode,
                         phoneNo: values.phone_no || null,
                         passenger: values.passenger || 1,
                     }),
                 };
                 if (response?.data?.alertMessage) {
-                    setAlertModal({ isOpen: true, message: response.data.alertMessage });
+                    setAlertModal({
+                        isOpen: true,
+                        message: response.data.alertMessage,
+                        closeBookingOnClose: true,
+                    });
                     onBookingCreated?.(bookingCreatedMeta);
                     return;
                 }
@@ -1315,7 +2167,14 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
                 toast.error(response?.data?.message || "Failed to create booking");
             }
         } catch (error) {
-            toast.error(error?.response?.data?.message || "An error occurred while creating booking");
+            const message = error?.response?.data?.message || error?.message || "";
+            if (message.includes("bookings/broadcast") || message.includes("Could not resolve host: bookings")) {
+                toast.error(
+                    "Booking could not be broadcast. Ask your backend admin to set SOCKET_API_URL to the full socket API URL (e.g. https://backend.cabifyit.com/socket-api)."
+                );
+            } else {
+                toast.error(message || "An error occurred while creating booking");
+            }
         } finally {
             setIsBookingLoading(false);
         }
@@ -1333,8 +2192,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
             formData.append("pickup_time_type", values.pickup_time_type === "time" ? "time" : "asap");
 
             if (values.pickup_time_type === "asap") {
-                const now = new Date();
-                formData.append("pickup_time", `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}:00`);
+                formData.append("pickup_time", formatCompanyTimeForApi());
             } else {
                 const tv = values.pickup_time || "";
                 formData.append("pickup_time", tv ? `${tv}:00` : "");
@@ -1348,19 +2206,31 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
             formData.append("dispatcher_id", dispatcherId);
 
             const pickupCoords = await resolveLocationCoords(
-                values.pickup_point,
+                values.pickup_location,
                 values.pickup_latitude,
                 values.pickup_longitude
             );
             const destinationCoords = await resolveLocationCoords(
-                values.destination,
+                values.destination_location,
                 values.destination_latitude,
                 values.destination_longitude
             );
+            const pickupLocationLabel = values.pickup_location?.trim()
+                || await ensureHumanReadableLocation(
+                    values.pickup_location,
+                    values.pickup_latitude,
+                    values.pickup_longitude
+                );
+            const destinationLocationLabel = values.destination_location?.trim()
+                || await ensureHumanReadableLocation(
+                    values.destination_location,
+                    values.destination_latitude,
+                    values.destination_longitude
+                );
 
             if (pickupCoords) {
                 formData.append("pickup_point", `${pickupCoords.latitude}, ${pickupCoords.longitude}`);
-                formData.append("pickup_location", values.pickup_point || "");
+                formData.append("pickup_location", pickupLocationLabel || "");
 
                 let pickupPlotId = values.pickup_plot_id;
                 const plotRes = await fetchPlotName(pickupCoords.latitude, pickupCoords.longitude);
@@ -1373,7 +2243,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
 
             if (destinationCoords) {
                 formData.append("destination_point", `${destinationCoords.latitude}, ${destinationCoords.longitude}`);
-                formData.append("destination_location", values.destination || "");
+                formData.append("destination_location", destinationLocationLabel || "");
 
                 let destinationPlotId = values.destination_plot_id;
                 const plotRes = await fetchPlotName(destinationCoords.latitude, destinationCoords.longitude);
@@ -1397,9 +2267,15 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
                     );
                     if (!viaCoords) continue;
 
+                    const viaLocationLabel = await ensureHumanReadableLocation(
+                        viaPoint,
+                        values.via_latitude?.[i],
+                        values.via_longitude?.[i]
+                    );
+
                     formData.append(`via_point[${vi}][latitude]`, viaCoords.latitude.toString());
                     formData.append(`via_point[${vi}][longitude]`, viaCoords.longitude.toString());
-                    formData.append(`via_location[${vi}]`, viaPoint);
+                    formData.append(`via_location[${vi}]`, viaLocationLabel);
 
                     let viaPlotId = values.via_plot_id?.[i];
                     const plotRes = await fetchPlotName(viaCoords.latitude, viaCoords.longitude);
@@ -1420,14 +2296,16 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
             formData.append("journey_type", values.journey_type || "");
             appendAccountFields(formData, values.account);
             formData.append("vehicle", values.request_for_vehicle ? (values.vehicle || "") : "");
-            formData.append("driver", values.auto_dispatch ? (values.driver || "") : "");
+            formData.append("driver", shouldSendDriverOnSubmit(values, { isEdit: true }) ? (values.driver || "") : "");
             formData.append("request_for_vehicle", values.request_for_vehicle ? "yes" : "no");
             formData.append("passenger", values.passenger || "0");
             formData.append("luggage", values.luggage || "0");
             formData.append("hand_luggage", values.hand_luggage || "0");
             formData.append("special_request", values.special_request || "");
             formData.append("payment_reference", values.payment_reference || "");
-            formData.append("booking_system", values.booking_system || "auto_dispatch");
+            formData.append("booking_system", resolveBookingSystemValue(values));
+            formData.append("bidding_fallback", resolveBiddingFallbackValue(values));
+            appendDispatchReleaseFields(formData, values);
             formData.append("payment_method", values.payment_method || "");
             formData.append("parking_charge", values.parking_charges || "");
             formData.append("waiting_charge", values.waiting_charges || "");
@@ -1438,7 +2316,8 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
             formData.append("extra_charge", values.extra_charges || "");
             formData.append("toll", values.congestion_toll || "");
             formData.append("booking_amount", values.total_charges?.toString() || "0");
-            formData.append("distance", fareData?.distance?.toString() || values.distance?.toString() || "");
+            const distanceMeters = resolveBookingDistanceMeters(fareData?.distance, values.distance);
+            formData.append("distance", distanceMeters != null ? String(distanceMeters) : "");
 
             const dispatcherName = getDispatcherName();
             if (dispatcherName) formData.append("dispatcher_name", dispatcherName);
@@ -1457,7 +2336,14 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
             }
         } catch (error) {
             console.error("Update booking error:", error);
-            toast.error(getApiErrorMessage(error, "An error occurred while updating booking"));
+            const message = getApiErrorMessage(error, "An error occurred while updating booking");
+            if (message.includes("bookings/broadcast") || message.includes("Could not resolve host: bookings")) {
+                toast.error(
+                    "Booking could not be broadcast. Ask your backend admin to set SOCKET_API_URL to the full socket API URL (e.g. https://backend.cabifyit.com/socket-api)."
+                );
+            } else {
+                toast.error(message);
+            }
         } finally {
             setIsBookingLoading(false);
         }
@@ -1465,22 +2351,8 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
 
     const shouldDisableDispatchOptions = (values) => {
         if (isMultiBooking) return true;
-        const now = new Date();
-        let year, month, day;
-        if (values.booking_date?.includes("-")) {
-            const p = values.booking_date.split("-");
-            if (p[0].length === 4) { year = p[0]; month = p[1]; day = p[2]; }
-            else { day = p[0]; month = p[1]; year = p[2]; }
-        } else if (values.booking_date?.includes("/")) {
-            const p = values.booking_date.split("/");
-            if (p[2].length === 4) { month = p[0]; day = p[1]; year = p[2]; }
-            else { day = p[0]; month = p[1]; year = p[2]; }
-        } else {
-            const d = new Date();
-            year = d.getFullYear(); month = d.getMonth() + 1; day = d.getDate();
-        }
-        const [hour, minute] = (values.pickup_time || "00:00").split(":");
-        return new Date(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), 0) > now;
+        if (!values.booking_date) return false;
+        return isCompanyFutureDateTime(values.booking_date, values.pickup_time || "00:00");
     };
 
     const handleViewHistory = async (user) => {
@@ -1495,7 +2367,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
                     from: ride.pickup_location || ride.pickup_point,
                     to: ride.destination_location || ride.destination_point,
                     status: ride.booking_status,
-                    driver: ride.driver_detail?.name || "N/A",
+                    driver: ride.driverDetail?.name || ride.driver_detail?.name || "N/A",
                     bookingId: ride.booking_id,
                 })));
             } else { setUserHistory([]); }
@@ -1509,16 +2381,21 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
         Object.keys(searchAbortRef.via || {}).forEach((key) => cancelPendingSearch("via", key));
     }, []);
 
-    const memoizedMap = useMemo(() => (
+    useEffect(() => () => {
+        closeLocationSidebar();
+    }, [closeLocationSidebar]);
+
+    const memoizedMap = (
         <Maps
+            key={mapsApi || "map-loading"}
             mapsApi={mapsApi}
             mapError={mapError}
             apiKeys={apiKeys}
             plotsData={plotsData}
             pickupCoords={stablePickupCoords}
             destinationCoords={stableDestinationCoords}
-            viaCoords={stableViaCoords.filter(Boolean)}
-            setFieldValue={formikSetFieldValue}
+            viaCoords={mapViaCoords}
+            setFieldValue={applyMapFieldValue}
             fetchPlotName={fetchPlotName}
             setPickupPlotData={setPickupPlotData}
             setDestinationPlotData={setDestinationPlotData}
@@ -1526,7 +2403,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
             onDestinationConfirmed={handleDestinationConfirmed}
             SEARCH_API={searchApi}
         />
-    ), [mapsApi, mapError, apiKeys, stablePickupCoords, stableDestinationCoords, stableViaCoords, searchApi, plotsData, formikSetFieldValue]);
+    );
 
     return (
         <>
@@ -1534,20 +2411,23 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
                 isOpen={alertModal.isOpen}
                 message={alertModal.message}
                 onClose={() => {
-                    setAlertModal({ isOpen: false, message: '' });
-                    unlockBodyScroll();
-                    setIsOpen({ type: "new", isOpen: false, booking: null });
+                    const shouldCloseBooking = alertModal.closeBookingOnClose;
+                    setAlertModal({ isOpen: false, message: '', closeBookingOnClose: false });
+                    if (shouldCloseBooking) {
+                        unlockBodyScroll();
+                        setIsOpen({ type: "new", isOpen: false, booking: null });
+                    }
                 }}
             />
 
             <Formik
                 initialValues={initialFormValues}
-                key={editBooking?.id ? `edit-${editBooking.id}` : initialFormValues.pickup_point || "new"}
+                key={editBooking?.id ? `edit-${editBooking.id}` : `new-${newBookingFormKey}`}
                 onSubmit={isEditMode ? handleUpdateBooking : handleCreateBooking}
                 enableReinitialize
             >
                 {({ values, setFieldValue }) => {
-                    useEffect(() => { setFormikSetFieldValue(() => setFieldValue); }, [setFieldValue]);
+                    setFieldValueRef.current = setFieldValue;
 
                     useEffect(() => {
                         if (fareData?.calculate_fare) {
@@ -1566,20 +2446,41 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
                             setFieldValue("total_charges", parseFloat((baseFare + additionalCharges).toFixed(2)));
                         }, 0);
                     };
+                    const visibleDriverList = driverList.filter((driver) => driverMatchesVehicle(driver, values.vehicle));
 
                     return (
-                        <Form>
+                        <Form className="w-full">
+                            <VehicleSelectionModal
+                                isOpen={vehicleSelectionModalOpen}
+                                vehicles={filteredVehicleList}
+                                selectedVehicle={values.vehicle}
+                                onSelect={(vehicleId) => {
+                                    setFieldValue("vehicle", vehicleId);
+                                    clearFieldErrors("vehicle");
+                                    invalidateFare();
+                                }}
+                                onClose={() => setVehicleSelectionModalOpen(false)}
+                                onConfirm={() => {
+                                    if (!values.vehicle) return;
+                                    setVehicleSelectionModalOpen(false);
+                                    handleCalculateFares(
+                                        { ...values, vehicle: values.vehicle },
+                                        setFieldValue
+                                    );
+                                }}
+                            />
                             {isEditMode && editBookingLoading && (
                                 <div className="mb-2 rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] px-3 py-2 text-xs text-[#6B7280]">
                                     Loading booking details...
                                 </div>
                             )}
-                            <div className="w-full flex flex-col gap-2 lg:gap-2">
+                            <div className="w-full rounded-[12px] bg-white p-1">
+                            <div className="w-full flex-1 min-w-0 flex flex-col gap-3">
                                 {/* Header */}
-                                <div className="rounded-xl border border-[#E5E7EB] bg-white px-3 py-2 lg:px-3 shadow-sm">
-                                    <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-                                        <div>
-                                            <h2 className="text-base lg:text-lg font-semibold text-[#111827]">
+                                <div className="px-2 py-2">
+                                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-start">
+                                        <div className="shrink-0">
+                                            <h2 className="text-lg font-semibold text-[#111827]">
                                                 {isEditMode ? "Edit Booking" : "Create New Booking"}
                                             </h2>
                                             {isEditMode && (
@@ -1593,9 +2494,9 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
                                                     : "Fill in trip, passenger, and dispatch details."}
                                             </p>
                                         </div>
-                                        <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-3">
-                                            <div className="sm:min-w-[220px]">
-                                                <label className={formLabelClass}>Sub Company</label>
+                                        <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-4">
+                                            <div className="sm:w-[360px]">
+                                                <label className="sr-only">Sub Company</label>
                                                 <select
                                                     name="sub_company"
                                                     value={values.sub_company || ""}
@@ -1608,14 +2509,14 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
                                                 </select>
                                             </div>
                                             {!isEditMode && (
-                                            <div className="flex items-center justify-between sm:justify-start gap-3 rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] px-4 py-3">
-                                                <span className={`text-sm font-medium ${!isMultiBooking ? "text-[#1F41BB]" : "text-[#6B7280]"}`}>Single</span>
+                                            <div className="flex h-[42px] items-center justify-between gap-2 rounded-[8px] border border-[#9CA3AF] bg-white px-3 shadow-[0_8px_18px_rgba(15,23,42,0.08)] sm:min-w-[325px]">
+                                                <span className={`text-sm font-medium ${!isMultiBooking ? "text-[#111827]" : "text-[#6B7280]"}`}>Single Booking</span>
                                                 <label className="relative inline-flex items-center cursor-pointer">
                                                     <input type="checkbox" className="sr-only peer" checked={isMultiBooking} onChange={(e) => {
                                                         const checked = e.target.checked;
                                                         setIsMultiBooking(checked);
                                                         if (checked) {
-                                                            const today = formatDateForInput(new Date());
+                                                            const today = getCompanyTodayForInput();
                                                             if (!values.multi_start_at) setFieldValue("multi_start_at", today);
                                                             if (!values.booking_date) setFieldValue("booking_date", today);
                                                             applyMultiBookingDateSync(
@@ -1628,12 +2529,14 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
                                                     <div className="w-11 h-6 bg-[#D1D5DB] peer-focus:outline-none rounded-full peer peer-checked:bg-[#1F41BB] transition-all" />
                                                     <div className="absolute left-0.5 top-0.5 w-5 h-5 bg-white rounded-full shadow peer-checked:translate-x-5 transition-all" />
                                                 </label>
-                                                <span className={`text-sm font-medium ${isMultiBooking ? "text-[#1F41BB]" : "text-[#6B7280]"}`}>Multi</span>
+                                                <span className={`text-sm font-medium ${isMultiBooking ? "text-[#111827]" : "text-[#6B7280]"}`}>Multi Booking</span>
                                             </div>
                                             )}
                                         </div>
                                     </div>
                                 </div>
+
+                                <div className="bg-white p-1">
 
                                 {isMultiBooking && (
                                     <FormSection title="Recurring Schedule" description="Select weekdays and the date range for multi-bookings.">
@@ -1666,6 +2569,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
                                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
                                             <FormField label="Start Date">
                                                 <input type="date"
+                                                    min={getCompanyTodayForInput()}
                                                     className={`${formInputClass} ${bookingErrors.multi_start_at ? formInputErrorClass : ""}`}
                                                     value={values.multi_start_at || ""}
                                                     onChange={(e) => {
@@ -1678,6 +2582,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
                                             </FormField>
                                             <FormField label="End Date">
                                                 <input type="date"
+                                                    min={values.multi_start_at || getCompanyTodayForInput()}
                                                     className={`${formInputClass} ${bookingErrors.multi_end_at ? formInputErrorClass : ""}`}
                                                     value={values.multi_end_at || ""}
                                                     onChange={(e) => {
@@ -1692,15 +2597,15 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
                                     </FormSection>
                                 )}
 
-                                <div className="grid grid-cols-1 lg:grid-cols-6 lg:grid-rows-[auto_auto_auto] gap-2">
+                                <div className="grid grid-cols-1 lg:grid-cols-12 gap-x-4 gap-y-3">
                                     {/* Row 1: Schedule */}
-                                    <div className="lg:col-span-2 lg:row-start-1 min-w-0">
-                                        <FormSection title="Schedule">
-                                                    <div className={`grid gap-2 w-full ${values.pickup_time_type === "time" ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-4" : "grid-cols-1 sm:grid-cols-3"}`}>
+                                    <div className="lg:col-span-7 lg:col-start-1 lg:row-start-1 min-w-0">
+                                        <FormSection title="">
+                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-x-3 gap-y-2 w-full">
                                                         <FormField label="Pickup Time">
-                                                            <div className="flex gap-2">
+                                                            <div className="flex flex-col sm:flex-row gap-2 min-w-0">
                                                                 <select
-                                                                    className={formSelectClass}
+                                                                    className={`${formSelectClass} min-w-0`}
                                                                     value={values.pickup_time_type || ""}
                                                                     onChange={(e) => {
                                                                         const val = e.target.value;
@@ -1708,8 +2613,13 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
                                                                         if (val === "asap") {
                                                                             setFieldValue("pickup_time", "");
                                                                             setFieldValue("reminder_minutes", "");
+                                                                            setFieldValue("dispatch_release_at", "");
+                                                                            setFieldValue("dispatch_release_override", false);
                                                                         } else if (!values.pickup_time) {
                                                                             setFieldValue("pickup_time", "00:00");
+                                                                            syncDefaultReleaseAt({ ...values, pickup_time_type: val, pickup_time: "00:00" }, setFieldValue);
+                                                                        } else {
+                                                                            syncDefaultReleaseAt({ ...values, pickup_time_type: val }, setFieldValue);
                                                                         }
                                                                         clearBookingError("pickup_time");
                                                                         clearBookingError("reminder_minutes");
@@ -1719,19 +2629,32 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
                                                                 </select>
                                                                 {values.pickup_time_type === "time" && (
                                                                     <input type="time"
-                                                                        className={`${formInputClass} ${bookingErrors.pickup_time ? formInputErrorClass : ""}`}
+                                                                        className={`${formInputClass} min-w-0 ${bookingErrors.pickup_time ? formInputErrorClass : ""}`}
                                                                         value={values.pickup_time || ""}
-                                                                        onChange={(e) => { setFieldValue("pickup_time", e.target.value); clearBookingError("pickup_time"); }} />
+                                                                        onChange={(e) => {
+                                                                            const nextPickupTime = e.target.value;
+                                                                            setFieldValue("pickup_time", nextPickupTime);
+                                                                            syncDefaultReleaseAt({ ...values, pickup_time: nextPickupTime }, setFieldValue);
+                                                                            clearBookingError("pickup_time");
+                                                                            clearBookingError("dispatch_release_at");
+                                                                        }} />
                                                                 )}
                                                             </div>
                                                             <FieldError message={bookingErrors.pickup_time} />
                                                         </FormField>
                                                         <FormField label={isMultiBooking ? "Reference Date" : "Booking Date"}>
                                                                 <input type="date"
-                                                                    className={`${formInputClass} ${bookingErrors.booking_date ? formInputErrorClass : ""}`}
+                                                                    min={getCompanyTodayForInput()}
+                                                                    className={`${formInputClass} min-w-0 ${bookingErrors.booking_date ? formInputErrorClass : ""}`}
                                                                     value={values.booking_date || ""}
                                                                     disabled={isMultiBooking}
-                                                                    onChange={(e) => { setFieldValue("booking_date", e.target.value); clearBookingError("booking_date"); }} />
+                                                                    onChange={(e) => {
+                                                                        const nextBookingDate = e.target.value;
+                                                                        setFieldValue("booking_date", nextBookingDate);
+                                                                        syncDefaultReleaseAt({ ...values, booking_date: nextBookingDate }, setFieldValue);
+                                                                        clearBookingError("booking_date");
+                                                                        clearBookingError("dispatch_release_at");
+                                                                    }} />
                                                                 {isMultiBooking && (
                                                                     <p className="text-[10px] text-[#6B7280] mt-0.5 hidden lg:block">
                                                                         Auto from start date
@@ -1741,7 +2664,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
                                                         </FormField>
                                                         <FormField label="Booking Type">
                                                                 <select
-                                                                    className={`${formSelectClass} ${bookingErrors.booking_type ? formInputErrorClass : ""}`}
+                                                                    className={`${formSelectClass} min-w-0 ${bookingErrors.booking_type ? formInputErrorClass : ""}`}
                                                                     value={values.booking_type || ""}
                                                                     onChange={(e) => { setFieldValue("booking_type", e.target.value); clearBookingError("booking_type"); }}>
                                                                     <option value="outstation">Select type</option>
@@ -1752,7 +2675,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
                                                         {values.pickup_time_type === "time" && (
                                                             <FormField label="Reminder Time">
                                                                 <select
-                                                                    className={`${formSelectClass} ${bookingErrors.reminder_minutes ? formInputErrorClass : ""}`}
+                                                                    className={`${formSelectClass} min-w-0 ${bookingErrors.reminder_minutes ? formInputErrorClass : ""}`}
                                                                     value={values.reminder_minutes || ""}
                                                                     onChange={(e) => {
                                                                         setFieldValue("reminder_minutes", e.target.value);
@@ -1772,9 +2695,9 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
                                     </div>
 
                                     {/* Row 1: Passenger */}
-                                    <div className="lg:col-span-2 lg:row-start-1 min-w-0">
-                                        <FormSection title="Passenger">
-                                            <div className="grid grid-cols-2 gap-2">
+                                    <div className="lg:col-span-7 lg:col-start-1 lg:row-start-3 min-w-0">
+                                        <FormSection title="">
+                                            <div className="grid grid-cols-1 gap-x-3 gap-y-2 md:grid-cols-2">
                                                 <FormField label="Name">
                                                     <input type="text" placeholder="Passenger name"
                                                         className={`${formInputClass} ${bookingErrors.name ? formInputErrorClass : ""}`}
@@ -1825,9 +2748,9 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
                                     </div>
 
                                     {/* Row 1: Dispatch & Vehicle */}
-                                    <div className="lg:col-span-2 lg:row-start-1 min-w-0">
-                                        <FormSection title="Dispatch & Vehicle">
-                                            <div className="grid grid-cols-2 gap-2">
+                                    <div className="lg:col-span-7 lg:col-start-1 lg:row-start-4 min-w-0">
+                                        <FormSection title="">
+                                            <div className="grid grid-cols-1 gap-x-3 gap-y-2 md:grid-cols-2">
                                                 <FormField label="Journey">
                                                     <div className="flex flex-wrap gap-1">
                                                         {[{ val: "one_way", label: "One Way" }, { val: "return", label: "Return" }, { val: "wr", label: "W/R" }].map(({ val, label }) => (
@@ -1852,21 +2775,120 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
                                                     </select>
                                                 </FormField>
                                             </div>
-                                            <div className={`inline-flex rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] p-0.5 w-full ${isManualDispatchOnly ? "opacity-50" : ""}`}>
-                                                <button type="button" disabled={isManualDispatchOnly}
-                                                    onClick={() => { setFieldValue("auto_dispatch", true); setFieldValue("bidding", false); setFieldValue("booking_system", "auto_dispatch"); }}
-                                                    className={`flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition ${values.auto_dispatch && !values.bidding ? "bg-white text-[#1F41BB] shadow-sm" : "text-[#6B7280]"}`}>
-                                                    Auto
-                                                </button>
-                                                <button type="button" disabled={isManualDispatchOnly}
-                                                    onClick={() => { setFieldValue("auto_dispatch", false); setFieldValue("bidding", true); setFieldValue("booking_system", "bidding"); setFieldValue("driver", ""); clearBookingError("driver"); }}
-                                                    className={`flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition ${values.bidding && !values.auto_dispatch ? "bg-white text-[#1F41BB] shadow-sm" : "text-[#6B7280]"}`}>
+                                            <div className={`grid grid-cols-1 gap-2 rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] p-2 w-full mt-1 sm:grid-cols-2 ${isManualDispatchOnly ? "opacity-50" : ""}`}>
+                                                <label className="flex cursor-pointer items-center gap-2 rounded-md bg-white px-3 py-2 text-xs font-medium text-[#111827] shadow-sm">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={Boolean(values.auto_dispatch)}
+                                                        disabled={isManualDispatchOnly}
+                                                        onChange={(e) => {
+                                                            const checked = e.target.checked;
+                                                            setFieldValue("auto_dispatch", checked);
+                                                            setFieldValue("booking_system", checked ? "auto_dispatch" : "bidding");
+                                                            if (!checked && values.bidding) {
+                                                                setFieldValue("driver", "");
+                                                                clearBookingError("driver");
+                                                            }
+                                                            clearBookingError("booking_system");
+                                                        }}
+                                                        className="h-4 w-4 rounded border-[#D1D5DB] text-[#1F41BB] focus:ring-[#1F41BB]"
+                                                    />
+                                                    Auto Dispatch
+                                                </label>
+                                                <label className="flex cursor-pointer items-center gap-2 rounded-md bg-white px-3 py-2 text-xs font-medium text-[#111827] shadow-sm">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={Boolean(values.bidding)}
+                                                        disabled={isManualDispatchOnly}
+                                                        onChange={(e) => {
+                                                            const checked = e.target.checked;
+                                                            setFieldValue("bidding", checked);
+                                                            setFieldValue("bidding_fallback", checked && values.auto_dispatch);
+                                                            setFieldValue("booking_system", values.auto_dispatch ? "auto_dispatch" : "bidding");
+                                                            if (checked && !values.auto_dispatch) {
+                                                                setFieldValue("driver", "");
+                                                                clearBookingError("driver");
+                                                            }
+                                                            clearBookingError("booking_system");
+                                                        }}
+                                                        className="h-4 w-4 rounded border-[#D1D5DB] text-[#1F41BB] focus:ring-[#1F41BB]"
+                                                    />
                                                     Bidding
-                                                </button>
+                                                </label>
+                                                {values.auto_dispatch && values.bidding && (
+                                                    <p className="text-[11px] text-[#6B7280] sm:col-span-2">
+                                                        Bidding opens only if auto dispatch is exhausted.
+                                                    </p>
+                                                )}
+                                                {!values.auto_dispatch && values.bidding && (
+                                                    <p className="text-[11px] text-[#6B7280] sm:col-span-2">
+                                                        Job goes straight to eligible drivers in the bidding screen.
+                                                    </p>
+                                                )}
                                             </div>
+                                            {values.pickup_time_type === "time" && companyReleaseSettings.enabled && (
+                                                <div className="mt-2 rounded-lg border border-[#DBEAFE] bg-[#EFF6FF] p-2">
+                                                    <div className="grid grid-cols-1 gap-2 md:grid-cols-[minmax(120px,.8fr)_minmax(150px,1fr)_minmax(130px,.8fr)]">
+                                                        <label className="flex cursor-pointer items-center gap-2 rounded-md bg-white px-3 py-2 text-xs font-medium text-[#111827] shadow-sm">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={Boolean(values.auto_release)}
+                                                                onChange={(e) => {
+                                                                    const checked = e.target.checked;
+                                                                    setFieldValue("auto_release", checked);
+                                                                    if (checked) {
+                                                                        syncDefaultReleaseAt({ ...values, auto_release: checked }, setFieldValue);
+                                                                    } else {
+                                                                        setFieldValue("dispatch_release_at", "");
+                                                                        setFieldValue("dispatch_release_mode", "manual_review");
+                                                                        setFieldValue("dispatch_release_override", true);
+                                                                    }
+                                                                    clearBookingError("dispatch_release_at");
+                                                                }}
+                                                                className="h-4 w-4 rounded border-[#D1D5DB] text-[#1F41BB] focus:ring-[#1F41BB]"
+                                                            />
+                                                            Auto Release
+                                                        </label>
+                                                        <input
+                                                            type="datetime-local"
+                                                            className={`${formInputClass} ${bookingErrors.dispatch_release_at ? formInputErrorClass : ""}`}
+                                                            value={values.dispatch_release_at || ""}
+                                                            disabled={!values.auto_release}
+                                                            onChange={(e) => {
+                                                                setFieldValue("dispatch_release_at", e.target.value);
+                                                                setFieldValue("dispatch_release_override", true);
+                                                                clearBookingError("dispatch_release_at");
+                                                            }}
+                                                        />
+                                                        <select
+                                                            className={formSelectClass}
+                                                            value={values.dispatch_release_mode || companyReleaseSettings.mode}
+                                                            disabled={!values.auto_release}
+                                                            onChange={(e) => {
+                                                                setFieldValue("dispatch_release_mode", e.target.value);
+                                                                clearBookingError("dispatch_release_at");
+                                                            }}
+                                                        >
+                                                            {companyReleaseSettings.modes
+                                                                .filter((mode) => mode !== "manual_review")
+                                                                .map((mode) => (
+                                                                    <option key={mode} value={mode}>
+                                                                        {releaseModeLabels[mode] || mode}
+                                                                    </option>
+                                                                ))}
+                                                        </select>
+                                                    </div>
+                                                    <p className="mt-1 text-[11px] text-[#475569]">
+                                                        {values.auto_release && values.dispatch_release_at
+                                                            ? `No driver selected: releases at ${values.dispatch_release_at.replace("T", " ")} via ${releaseModeLabels[values.dispatch_release_mode] || releaseModeLabels[companyReleaseSettings.mode]}.`
+                                                            : "No driver selected: held for manual dispatch until released."}
+                                                    </p>
+                                                    <FieldError message={bookingErrors.dispatch_release_at} />
+                                                </div>
+                                            )}
                                             <FieldError message={bookingErrors.booking_system} />
-                                            <div className="grid grid-cols-2 gap-2">
-                                                {(values.auto_dispatch || isManualDispatchOnly) && !values.bidding && (
+                                            <div className="grid grid-cols-1 gap-x-3 gap-y-2 md:grid-cols-2">
+                                                {shouldShowDriverField(values, isEditMode) && (
                                                     <FormField label="Driver">
                                                         <select name="driver" value={values.driver || ""}
                                                             onChange={(e) => {
@@ -1898,7 +2920,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
                                                             disabled={loadingSubCompanies}
                                                             className={`${formSelectClass} ${bookingErrors.driver ? formInputErrorClass : ""}`}>
                                                             <option value="">Driver</option>
-                                                            {driverList?.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}
+                                                            {visibleDriverList?.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}
                                                         </select>
                                                         <FieldError message={bookingErrors.driver} />
                                                     </FormField>
@@ -1910,7 +2932,8 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
                                                             onClick={() => {
                                                                 const next = !values.request_for_vehicle;
                                                                 setFieldValue("request_for_vehicle", next);
-                                                                if (!next) { setFieldValue("vehicle", ""); setFilteredVehicleList(vehicleList); invalidateFare(); clearFieldErrors("vehicle"); }
+                                                                invalidateFare();
+                                                                if (!next) { setFieldValue("vehicle", ""); setFilteredVehicleList(vehicleList); clearFieldErrors("vehicle"); }
                                                             }}
                                                             className={`relative inline-flex h-6 w-10 items-center rounded-full transition-colors flex-shrink-0 ${values.request_for_vehicle ? "bg-[#1F41BB]" : "bg-[#D1D5DB]"}`}>
                                                             <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${values.request_for_vehicle ? "translate-x-[18px]" : "translate-x-[3px]"}`} />
@@ -1920,7 +2943,18 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
                                                 {values.request_for_vehicle && (
                                                     <FormField label="Vehicle" className="col-span-2">
                                                         <select name="vehicle" value={values.vehicle || ""}
-                                                            onChange={(e) => { setFieldValue("vehicle", e.target.value); invalidateFare(); clearFieldErrors("vehicle"); }}
+                                                            onChange={(e) => {
+                                                                const vehicleId = e.target.value;
+                                                                setFieldValue("vehicle", vehicleId);
+                                                                if (values.driver) {
+                                                                    const selectedDriver = driverList.find((driver) => driver.value === values.driver);
+                                                                    if (selectedDriver && !driverMatchesVehicle(selectedDriver, vehicleId)) {
+                                                                        setFieldValue("driver", "");
+                                                                    }
+                                                                }
+                                                                invalidateFare();
+                                                                clearFieldErrors("vehicle");
+                                                            }}
                                                             disabled={loadingSubCompanies}
                                                             className={`${formSelectClass} ${(calculateErrors.vehicle || bookingErrors.vehicle) ? formInputErrorClass : ""}`}>
                                                             <option value="">Vehicle</option>
@@ -1934,34 +2968,64 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
                                     </div>
 
                                     {/* Row 2: Route */}
-                                    <div className="lg:col-span-3 lg:row-start-2 min-w-0">
-                                        <FormSection title="Route">
-                                            <div className="space-y-2">
+                                    <div className="lg:col-span-7 lg:col-start-1 lg:row-start-2 min-w-0 overflow-visible">
+                                        <FormSection title="" overflowVisible>
+                                            <div className="space-y-3">
+                                                {showNearbySearchControls && (
+                                                    <div className="rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] px-3 py-2.5">
+                                                        <MapNearbySearchControls
+                                                            nearbySearch={mapSearchPreferences.nearbySearch}
+                                                            boundaryCountry={mapSearchPreferences.boundaryCountry || ""}
+                                                            onNearbySearchChange={handleNearbySearchCheckboxChange}
+                                                            onBoundaryCountryChange={handleBoundaryCountrySelectChange}
+                                                            loading={mapSearchPreferencesLoading}
+                                                            disabled={mapSearchPreferencesLoading}
+                                                            compact
+                                                            showNearbyToggle={false}
+                                                        />
+                                                    </div>
+                                                )}
                                                 <div className="flex flex-col gap-2 lg:flex-row lg:items-start">
                                                     <div className="flex-1">
-                                                        <InputBox label="Pickup" value={values.pickup_point} plot={pickupPlotData?.name || ""}
-                                                            suggestions={pickupSuggestions} show={showPickup} placeholder="Pickup..."
-                                                            hasError={!!(calculateErrors.pickup_point || bookingErrors.pickup_point)}
+                                                        <InputBox label="Pickup" value={values.pickup_location} plot={pickupPlotData?.name || ""}
+                                                            suggestions={pickupSuggestions} show={showPickup} placeholder="Search pickup..."
+                                                            loading={pickupSearchLoading} error={pickupSearchError}
+                                                            requireInputForDropdown
+                                                            hasError={!!(calculateErrors.pickup_location || bookingErrors.pickup_location)}
                                                             onChange={(v) => {
-                                                                setFieldValue("pickup_point", v);
-                                                                if (!v) { setStablePickupCoords(null); setFieldValue("pickup_latitude", ""); setFieldValue("pickup_longitude", ""); }
-                                                                searchLocation(v, "pickup"); clearFieldErrors("pickup_point");
+                                                                setFieldValue("pickup_location", v);
+                                                                if (!v) {
+                                                                    setStablePickupCoords(null);
+                                                                    setFieldValue("pickup_latitude", "");
+                                                                    setFieldValue("pickup_longitude", "");
+                                                                    setPickupSearchError("");
+                                                                    if (locationSidebar.field === "pickup") closeLocationSidebar();
+                                                                }
+                                                                searchLocation(v, "pickup");
+                                                                clearFieldErrors("pickup_location");
                                                             }}
-                                                            onSelect={(i) => selectLocation(i, "pickup", setFieldValue)} />
-                                                        <FieldError message={calculateErrors.pickup_point || bookingErrors.pickup_point} />
+                                                            onSelect={(item) => selectLocation(item, "pickup", setFieldValue)}
+                                                            onEnterSearch={() => runSidebarLocationSearch("pickup", values.pickup_location)}
+                                                            onDismiss={() => {
+                                                                setShowPickup(false);
+                                                                setPickupSearchLoading(false);
+                                                                cancelPendingSearch("pickup");
+                                                            }} />
+                                                        <FieldError message={calculateErrors.pickup_location || bookingErrors.pickup_location} />
                                                     </div>
                                                     {values.via_points.length < 2 && (
                                                         <button type="button" onClick={() => {
                                                             if (values.via_points.length < 2) { setFieldValue("via_points", [...values.via_points, ""]); invalidateFare(); }
                                                             else toast.error("Maximum 2 via stops allowed");
-                                                        }} className="lg:mt-5 rounded border border-[#BFDBFE] bg-[#EFF6FF] px-2 py-1.5 text-xs font-medium text-[#1F41BB]">+ Via</button>
+                                                        }} className="lg:mt-[26px] rounded-lg border border-[#BFDBFE] bg-[#EFF6FF] px-3 py-2 text-[11px] font-medium text-[#1F41BB]">+ Via</button>
                                                     )}
                                                 </div>
                                                 {values.via_points.map((_, i) => (
                                                     <div key={i} className="flex flex-col gap-2 lg:flex-row lg:items-start">
                                                         <div className="flex-1">
                                                             <InputBox label={`Via ${i + 1}`} value={values.via_points[i]} plot={viaPlotData[i]?.name || ""}
-                                                                suggestions={viaSuggestions[i] || []} placeholder="Via..." show={showVia[i]}
+                                                                suggestions={viaSuggestions[i] || []} placeholder="Search via..." show={showVia[i]}
+                                                                loading={Boolean(viaSearchLoading[i])} error={viaSearchError[i] || ""}
                                                                 hasError={!!(calculateErrors[`via_points_${i}`] || bookingErrors[`via_points_${i}`])}
                                                                 onChange={(v) => {
                                                                     setFieldValue(`via_points[${i}]`, v);
@@ -1971,13 +3035,13 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
                                                                 onSelect={(i2) => selectLocation(i2, "via", setFieldValue, i)} />
                                                             <FieldError message={calculateErrors[`via_points_${i}`] || bookingErrors[`via_points_${i}`]} />
                                                         </div>
-                                                        <div className="flex gap-1 lg:mt-5">
-                                                            <button type="button" onClick={() => swapLocations(i, setFieldValue, values)} className="rounded border border-[#E5E7EB] px-2 py-1 text-xs">Swap</button>
+                                                        <div className="flex gap-2 lg:mt-[26px]">
+                                                            <button type="button" onClick={() => swapLocations(i, setFieldValue, values)} className="rounded-lg border border-[#E5E7EB] px-3 py-2 text-[11px]">Swap</button>
                                                             <button type="button" onClick={() => {
                                                                 setFieldValue("via_points", values.via_points.filter((_, idx) => idx !== i));
                                                                 const newP = { ...viaPlotData }; delete newP[i]; setViaPlotData(newP);
                                                                 setStableViaCoords(prev => prev.filter((_, idx) => idx !== i)); invalidateFare();
-                                                            }} className="rounded border border-[#FECACA] bg-[#FEF2F2] px-2 py-1 text-xs text-[#DC2626]">Remove</button>
+                                                            }} className="rounded-lg border border-[#FECACA] bg-[#FEF2F2] px-3 py-2 text-[11px] text-[#DC2626]">Remove</button>
                                                         </div>
                                                     </div>
                                                 ))}
@@ -1985,31 +3049,47 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
                                                     <button
                                                         type="button"
                                                         onClick={() => swapPickupAndDestination(setFieldValue, values)}
-                                                        className="inline-flex items-center gap-1.5 rounded border border-[#BFDBFE] bg-[#EFF6FF] px-2.5 py-1.5 text-xs font-medium text-[#1F41BB] hover:bg-[#DBEAFE]"
+                                                        className="inline-flex items-center gap-1.5 rounded-lg border border-[#BFDBFE] bg-[#EFF6FF] px-3 py-2 text-[11px] font-medium text-[#1F41BB] hover:bg-[#DBEAFE]"
                                                         title="Swap pickup and destination"
                                                     >
                                                         <span aria-hidden>⇅</span>
                                                         Reverse route
                                                     </button>
                                                 </div>
-                                                <InputBox label="Destination" value={values.destination} plot={destinationPlotData?.name || ""}
-                                                    suggestions={destinationSuggestions} show={showDestination} placeholder="Destination..."
-                                                    hasError={!!(calculateErrors.destination || bookingErrors.destination)}
+                                                <InputBox label="Destination" value={values.destination_location} plot={destinationPlotData?.name || ""}
+                                                    suggestions={destinationSuggestions} show={showDestination} placeholder="Search destination..."
+                                                    loading={destinationSearchLoading} error={destinationSearchError}
+                                                    requireInputForDropdown
+                                                    dropup
+                                                    hasError={!!(calculateErrors.destination_location || bookingErrors.destination_location)}
                                                     onChange={(v) => {
-                                                        setFieldValue("destination", v);
-                                                        if (!v) { setStableDestinationCoords(null); setFieldValue("destination_latitude", ""); setFieldValue("destination_longitude", ""); }
-                                                        searchLocation(v, "destination"); clearFieldErrors("destination");
+                                                        setFieldValue("destination_location", v);
+                                                        if (!v) {
+                                                            setStableDestinationCoords(null);
+                                                            setFieldValue("destination_latitude", "");
+                                                            setFieldValue("destination_longitude", "");
+                                                            setDestinationSearchError("");
+                                                            if (locationSidebar.field === "destination") closeLocationSidebar();
+                                                        }
+                                                        searchLocation(v, "destination");
+                                                        clearFieldErrors("destination_location");
                                                     }}
-                                                    onSelect={(i) => selectLocation(i, "destination", setFieldValue)} />
-                                                <FieldError message={calculateErrors.destination || bookingErrors.destination} />
+                                                    onSelect={(item) => selectLocation(item, "destination", setFieldValue)}
+                                                    onEnterSearch={() => runSidebarLocationSearch("destination", values.destination_location)}
+                                                    onDismiss={() => {
+                                                        setShowDestination(false);
+                                                        setDestinationSearchLoading(false);
+                                                        cancelPendingSearch("destination");
+                                                    }} />
+                                                <FieldError message={calculateErrors.destination_location || bookingErrors.destination_location} />
                                             </div>
                                         </FormSection>
                                     </div>
 
                                     {/* Row 2: Trip */}
-                                    <div className="lg:col-span-1 lg:row-start-2 min-w-0">
-                                        <FormSection title="Trip">
-                                            <div className="grid grid-cols-3 lg:grid-cols-1 gap-1.5">
+                                    <div className="lg:col-span-7 lg:col-start-1 lg:row-start-5 min-w-0">
+                                        <FormSection title="">
+                                            <div className="grid grid-cols-1 gap-x-3 gap-y-2 md:grid-cols-3">
                                                 {[{ label: "Pax", name: "passenger" }, { label: "Lug", name: "luggage" }, { label: "Hand", name: "hand_luggage" }].map(({ label, name }) => (
                                                     <FormField key={name} label={label}>
                                                         <input type="number" className={formInputClass}
@@ -2032,70 +3112,133 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
                                     </div>
 
                                     {/* Row 2: Map */}
-                                    <div className="lg:col-span-2 lg:row-start-2 min-w-0 space-y-1.5">
-                                        <div className="overflow-hidden rounded-xl border border-[#E5E7EB] bg-white shadow-sm">
-                                            <div className="border-b border-[#F3F4F6] px-2 py-1.5 flex items-center justify-between">
-                                                <h3 className="text-xs font-semibold text-[#111827]">Routes & Maps</h3>
-                                                <span className="text-[10px] text-[#6B7280]">{formatDistanceWithUnit(values.distance) || "—"}</span>
-                                            </div>
-                                            <div className="h-[200px] lg:h-[280px] w-full">
+                                    <div className="lg:col-span-5 lg:col-start-8 lg:row-start-1 lg:row-span-5 min-w-0 space-y-3">
+                                        <div className="overflow-hidden rounded-[8px] border border-[#D1D5DB] bg-[#F8FAFC] shadow-[0_8px_18px_rgba(15,23,42,0.08)]">
+                                            <div className="h-[280px] lg:h-[500px] w-full">
                                                 {memoizedMap}
                                             </div>
+                                        </div>
+                                        <div>
+                                            <label className={formLabelClass}>Distance</label>
+                                            <input
+                                                type="text"
+                                                readOnly
+                                                placeholder="Distance will be shown here"
+                                                value={formatDistanceWithUnit(values.distance) || ""}
+                                                className={`${formInputClass} bg-[#F9FAFB]`}
+                                            />
                                         </div>
                                     </div>
 
                                     {/* Row 3: Fare & Charges + Actions */}
-                                    <div className="lg:col-span-6 lg:row-start-3 min-w-0">
-                                        <FormSection title="Fare & Charges" className="bg-[#F8FAFF] !mb-0">
-                                            <div className="flex flex-wrap items-end gap-2">
-                                                <div className="w-[110px] shrink-0">
-                                                    <FormField label="Payment">
-                                                        <select value={values.payment_method}
+                                    <div className="lg:col-span-12 lg:row-start-6 min-w-0">
+                                        <FormSection title="Charges" className="bg-[#EAF3FF] rounded-[8px] p-3 !mb-0">
+                                            <div className="flex justify-between max-sm:flex-col items-center gap-2">
+                                                <div />
+                                                <Button
+                                                    btnSize="md"
+                                                    type="filled"
+                                                    className="px-4 py-2 text-[10px] text-white rounded"
+                                                    onClick={() => handleCalculateFares(values, setFieldValue)}
+                                                    disabled={fareLoading}
+                                                >
+                                                    {fareLoading ? "Calculating..." : "Calculate Fares"}
+                                                </Button>
+                                            </div>
+
+                                            <div className="mt-3 flex justify-between max-sm:flex-col gap-3">
+                                                <div className="flex gap-3 items-center">
+                                                    <label className="flex items-center gap-2 text-[10px]">Quoted</label>
+                                                    <div className="w-28">
+                                                        <select
+                                                            value={values.payment_method}
                                                             onChange={(e) => { setFieldValue("payment_method", e.target.value); clearBookingError("payment_method"); }}
-                                                            className={`${formSelectClass} ${bookingErrors.payment_method ? formInputErrorClass : ""}`}>
-                                                            <option value="">Method</option>
+                                                            className={`${formSelectClass} ${bookingErrors.payment_method ? formInputErrorClass : ""}`}
+                                                        >
+                                                            <option value="">Select Method</option>
                                                             <option value="cash">Cash</option>
                                                             <option value="online">Online</option>
                                                         </select>
-                                                    </FormField>
-                                                </div>
-                                                <div className="w-[90px] shrink-0">
-                                                    <ChargeInput label="Bk Fee" name="booking_fee_charges" value={values.booking_fee_charges} onChange={handleChargeChange} />
-                                                </div>
-                                                {chargeFields.map(field => (
-                                                    <div key={field} className="w-[80px] shrink-0">
-                                                        <ChargeInput label={field.replaceAll("_", " ").replace("fares", "fare").replace("charges", "").replace("waiting time", "wait").replace("congestion toll", "toll")} name={field} value={values[field]} onChange={handleChargeChange} />
                                                     </div>
+                                                </div>
+                                                <div className="md:w-56">
+                                                    <ChargeInput
+                                                        label="Booking Fees Charges"
+                                                        name="booking_fee_charges"
+                                                        value={values.booking_fee_charges}
+                                                        onChange={handleChargeChange}
+                                                    />
+                                                </div>
+                                            </div>
+
+                                            <div className="mt-3 grid md:grid-cols-4 grid-cols-1 gap-3">
+                                                {chargeFields.map((field) => (
+                                                    <ChargeInput
+                                                        key={field}
+                                                        label={field.replaceAll("_", " ").toUpperCase()}
+                                                        name={field}
+                                                        value={values[field]}
+                                                        onChange={handleChargeChange}
+                                                    />
                                                 ))}
-                                                <div className="w-[100px] shrink-0 rounded-lg border border-[#BBF7D0] bg-[#F0FDF4] px-2 py-1">
-                                                    <ChargeInput label="Total" name="total_charges" value={values.total_charges} onChange={handleChargeChange} />
+                                                <div className="font-bold text-[#10B981]">
+                                                    <ChargeInput
+                                                        label="TOTAL CHARGES"
+                                                        name="total_charges"
+                                                        value={values.total_charges}
+                                                        onChange={handleChargeChange}
+                                                    />
                                                 </div>
-                                                <div className="flex flex-wrap items-center gap-2 ml-auto shrink-0">
-                                                    {!fareCalculated && (
-                                                        <span className="text-[10px] font-medium text-red-600 whitespace-nowrap">Calc fares first</span>
-                                                    )}
-                                                    {bookingErrors.fare && (
-                                                        <span className="text-[10px] font-medium text-red-600">{bookingErrors.fare}</span>
-                                                    )}
-                                                    <Button btnSize="md" type="filled" className="px-3 py-2 text-xs whitespace-nowrap"
-                                                        onClick={() => handleCalculateFares(values, setFieldValue)}
-                                                        disabled={fareLoading}>
-                                                        {fareLoading ? "..." : "Calc Fares"}
-                                                    </Button>
-                                                    <Button btnSize="md" type="filledGray" className="px-3 py-2 text-xs"
-                                                        onClick={() => { unlockBodyScroll(); setIsOpen({ type: "new", isOpen: false, booking: null }); }}>
-                                                        Cancel
-                                                    </Button>
-                                                    <Button btnType="submit" btnSize="md" type="filled" className="px-3 py-2 text-xs"
-                                                        disabled={isBookingLoading || !fareCalculated}
-                                                        title={!fareCalculated ? "Calculate fares first" : ""}>
-                                                        {isBookingLoading ? "..." : isEditMode ? "Update" : "Create"}
-                                                    </Button>
-                                                </div>
+                                            </div>
+
+                                            <div className="mt-3 flex w-full flex-col gap-2 lg:flex-row lg:flex-wrap lg:items-center lg:justify-end">
+                                                {bookingErrors.fare && (
+                                                    <span className="text-[10px] font-medium text-red-600">{bookingErrors.fare}</span>
+                                                )}
+                                                {!fareCalculated && (
+                                                    <span className="text-[10px] font-medium text-red-600 whitespace-nowrap">Please calculate fares first</span>
+                                                )}
+                                                <Button
+                                                    btnSize="md"
+                                                    type="filledGray"
+                                                    className="w-full px-4 py-2 text-[10px] sm:w-auto"
+                                                    onClick={() => { unlockBodyScroll(); setIsOpen({ type: "new", isOpen: false, booking: null }); }}
+                                                >
+                                                    Cancel
+                                                </Button>
+                                                <Button
+                                                    btnType="submit"
+                                                    btnSize="md"
+                                                    type="filled"
+                                                    className="w-full px-4 py-2 text-[10px] sm:w-auto"
+                                                    disabled={isBookingLoading || !fareCalculated}
+                                                    title={!fareCalculated ? "Calculate fares first" : ""}
+                                                >
+                                                    {isBookingLoading ? (isEditMode ? "Updating..." : "Creating...") : isEditMode ? "Update Booking" : "Create Booking"}
+                                                </Button>
                                             </div>
                                         </FormSection>
                                     </div>
                                 </div>
+                                </div>
+                            </div>
+                            {locationSidebar.open && (
+                                <LocationSearchSidebar
+                                    field={locationSidebar.field}
+                                    query={locationSidebar.query}
+                                    results={locationSidebar.results}
+                                    loading={locationSidebar.loading}
+                                    error={locationSidebar.error}
+                                    nearbySearch={mapSearchPreferences.nearbySearch}
+                                    boundaryCountry={
+                                        mapSearchPreferences.nearbySearch
+                                            ? nearbyBoundaryCountry
+                                            : mapSearchPreferences.boundaryCountry
+                                    }
+                                    onClose={closeLocationSidebar}
+                                    onSelect={(item) => selectLocation(item, locationSidebar.field, setFieldValue)}
+                                />
+                            )}
                             </div>
                         </Form>
                     );
@@ -2111,32 +3254,129 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null }) => {
 
 export default AddBooking;
 
-const InputBox = ({ label, value, onChange, suggestions, show, onSelect, plot, placeholder, hasError }) => (
-    <div className="relative w-full">
-        <label className={formLabelClass}>{label}</label>
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr_90px] gap-1.5">
-            <div className="relative">
-                <input value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder}
-                    className={`${formInputClass} ${hasError ? formInputErrorClass : ""}`} />
-                {show && (
-                    <ul className="absolute left-0 right-0 top-full z-50 mt-1 max-h-60 overflow-auto rounded-lg border border-[#E5E7EB] bg-white shadow-lg">
-                        {suggestions.map((i, idx) => (
-                            <li key={idx} onClick={() => onSelect(i)} className="cursor-pointer px-3 py-2 text-sm hover:bg-[#F9FAFB]">{i.label}</li>
-                        ))}
-                    </ul>
-                )}
-            </div>
-            <input readOnly placeholder="Plot" value={plot || ""}
-                className={`${formInputClass} bg-[#F9FAFB] text-[#6B7280]`} />
-        </div>
-    </div>
-);
+const InputBox = ({
+    label,
+    value,
+    onChange,
+    suggestions,
+    show,
+    onSelect,
+    onDismiss,
+    plot,
+    placeholder,
+    hasError,
+    loading = false,
+    error = "",
+    dropup = false,
+    enterKeySearch = false,
+    onEnterSearch,
+    requireInputForDropdown = false,
+}) => {
+    const containerRef = useRef(null);
 
-const ChargeInput = ({ label, name, value, onChange, readOnly = false }) => (
-    <div>
-        <label className={formLabelClass}>{label}</label>
-        <input type="number" step="0.01" value={value === "" || value == null ? "" : value} readOnly={readOnly}
-            onChange={(e) => onChange && onChange(name, e.target.value)}
-            className={`${formInputClass} ${readOnly ? "bg-[#F9FAFB]" : ""}`} />
-    </div>
-);
+    const hasInput = Boolean(String(value ?? "").trim());
+    const dropdownOpen = !enterKeySearch
+        && (!requireInputForDropdown || hasInput)
+        && (show || loading || error);
+
+    useEffect(() => {
+        if (!dropdownOpen) return undefined;
+
+        const handlePointerDown = (event) => {
+            if (!containerRef.current?.contains(event.target)) {
+                onDismiss?.();
+            }
+        };
+
+        document.addEventListener("mousedown", handlePointerDown);
+        return () => document.removeEventListener("mousedown", handlePointerDown);
+    }, [dropdownOpen, onDismiss]);
+
+    return (
+        <div ref={containerRef} className="relative w-full">
+            <div className="flex flex-col gap-1 md:flex-row md:items-start">
+                <label className="pt-2 text-sm font-semibold leading-tight text-[#111827] md:w-[76px] md:min-w-[76px]">{label}</label>
+                <div className="grid flex-1 grid-cols-1 gap-2 md:grid-cols-[minmax(0,1fr)_130px]">
+                    <div className="relative">
+                    <input
+                        value={value}
+                        onChange={(e) => onChange(e.target.value)}
+                        onKeyDown={(event) => {
+                            if (event.key === "Enter" && onEnterSearch) {
+                                event.preventDefault();
+                                onDismiss?.();
+                                onEnterSearch();
+                            }
+                        }}
+                        onBlur={() => {
+                            if (!enterKeySearch) onDismiss?.();
+                        }}
+                        placeholder={placeholder}
+                        className={`${formInputClass} ${hasError ? formInputErrorClass : ""}`}
+                    />
+                    {onEnterSearch && (
+                        <p className="mt-1 text-[10px] text-[#9CA3AF]">Press Enter for full results</p>
+                    )}
+                    {dropdownOpen && (
+                        <ul className={`absolute left-0 right-0 z-[100] max-h-60 overflow-auto rounded-lg border border-[#E5E7EB] bg-white shadow-lg ${dropup ? "bottom-full mb-1" : "top-full mt-1"}`}>
+                            {loading && (
+                                <li className="px-3 py-2 text-sm text-[#6B7280]">Searching...</li>
+                            )}
+                            {!loading && error && (
+                                <li className="px-3 py-2 text-sm text-[#DC2626]">{error}</li>
+                            )}
+                            {!loading && !error && suggestions.length === 0 && show && (
+                                <li className="px-3 py-2 text-sm text-[#6B7280]">No locations found</li>
+                            )}
+                            {!loading && !error && suggestions.map((item, idx) => (
+                                <li
+                                    key={item.id || `${item.label}-${idx}`}
+                                    onMouseDown={(event) => event.preventDefault()}
+                                    onClick={() => onSelect(item)}
+                                    className="cursor-pointer px-3 py-2 text-sm hover:bg-[#F9FAFB]"
+                                >
+                                    <div className="font-medium text-[#111827]">{item.label}</div>
+                                    {item.subtitle ? (
+                                        <div className="text-xs text-[#6B7280]">{item.subtitle}</div>
+                                    ) : null}
+                                </li>
+                            ))}
+                        </ul>
+                    )}
+                    </div>
+                    <input
+                        readOnly
+                        placeholder="Plot Name"
+                        value={plot || ""}
+                        className={`${formInputClass} bg-[#F9FAFB] text-[#6B7280]`}
+                    />
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const ChargeInput = ({ label, name, value, onChange, readOnly = false }) => {
+    const { currencySymbol } = useCompanyDateTime();
+    const chargeInputClass =
+        "h-[30px] w-full rounded-[5px] border border-[#D1D5DB] bg-white py-1 pl-5 pr-2 text-xs text-[#111827] outline-none transition focus:border-[#1F41BB] focus:ring-1 focus:ring-[#1F41BB]/15";
+
+    return (
+        <div className="flex flex-col gap-1 md:flex-row md:items-center">
+            <label className="text-[10px] font-medium text-[#111827] md:w-16 md:min-w-16">{label}</label>
+            <div className="relative flex-1">
+                <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-[#6B7280]">
+                    {currencySymbol}
+                </span>
+                <input
+                    type="number"
+                    step="0.01"
+                    value={value === "" || value == null ? "" : value}
+                    readOnly={readOnly}
+                    onChange={(e) => onChange && onChange(name, e.target.value)}
+                    className={`${chargeInputClass} ${readOnly ? "bg-[#F9FAFB]" : ""}`}
+                />
+            </div>
+        </div>
+    );
+};

@@ -5,7 +5,6 @@ import PageSubTitle from "../../../../components/ui/PageSubTitle/PageSubTitle";
 import PlusIcon from "../../../../components/svg/PlusIcon";
 import Button from "../../../../components/ui/Button/Button";
 import Modal from "../../../../components/shared/Modal/Modal";
-import { useAppSelector } from "../../../../store";
 import CardContainer from "../../../../components/shared/CardContainer";
 import SearchBar from "../../../../components/shared/SearchBar/SearchBar";
 import { PAGE_SIZE_OPTIONS, STATUS_OPTIONS } from "../../../../constants/selectOptions";
@@ -16,6 +15,24 @@ import { apiDeletePlot, apiGetPlot } from "../../../../services/PlotService";
 import _ from "lodash";
 import AppLogoLoader from "../../../../components/shared/AppLogoLoader";
 
+const normalizePlotListResponse = (payload) => {
+  const root = payload?.data ?? payload ?? {};
+  const list = root.list ?? root.data ?? [];
+  const rows = Array.isArray(list)
+    ? list
+    : Array.isArray(list?.data)
+      ? list.data
+      : Array.isArray(root?.data?.data)
+        ? root.data.data
+        : [];
+
+  return {
+    rows,
+    total: Number(list?.total ?? root?.total ?? rows.length),
+    totalPages: Number(list?.last_page ?? root?.last_page ?? root?.total_pages ?? 1),
+  };
+};
+
 const Plots = () => {
   const [isPlotsModelOpen, setIsPlotsModelOpen] = useState({ type: "new", isOpen: false });
   const [searchQuery, setSearchQuery] = useState("");
@@ -25,9 +42,8 @@ const Plots = () => {
   const [_selectedStatus, setSelectedStatus] = useState(
     STATUS_OPTIONS.find((o) => o.value === "all") ?? STATUS_OPTIONS[0]
   );
-  const savedPagination = useAppSelector((state) => state?.app?.app?.pagination?.companies);
-  const [currentPage, setCurrentPage] = useState(Number(savedPagination?.currentPage) || 1);
-  const [itemsPerPage, setItemsPerPage] = useState(Number(savedPagination?.itemsPerPage) || 10);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
   const [totalItems, setTotalItems] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
@@ -146,10 +162,14 @@ const Plots = () => {
       if (debouncedSearchQuery?.trim()) params.search = debouncedSearchQuery.trim();
       const response = await apiGetPlot(params);
       if (response?.data?.success === 1) {
-        const listData = response?.data?.list;
-        setPlotsData(listData?.data || []);
-        setTotalItems(listData?.total || 0);
-        setTotalPages(listData?.last_page || 1);
+        const normalized = normalizePlotListResponse(response);
+        if (currentPage > normalized.totalPages && normalized.total > 0) {
+          setCurrentPage(1);
+          return;
+        }
+        setPlotsData(normalized.rows);
+        setTotalItems(normalized.total);
+        setTotalPages(normalized.totalPages);
       }
     } catch (error) {
       console.error("Error fetching plots:", error);
@@ -497,7 +517,6 @@ export default Plots;
 //   const [mapProvider] = useState(() => getMapType());
 //   const [mapError, setMapError] = useState(false);
 
-//   const googleApiKey = "AIzaSyDTlV1tPVuaRbtvBQu4-kjDhTV54tR4cDU";
 //   const barikoiApiKey = "bkoi_a468389d0211910bd6723de348e0de79559c435f07a17a5419cbe55ab55a890a";
 
 //   const parseCoordinates = useCallback((plot) => {

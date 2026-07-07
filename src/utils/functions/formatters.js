@@ -1,28 +1,50 @@
 import { getTenantData } from "./tokenEncryption";
 import { getTenantCountryIso } from "./tenantSettings";
-import { parseBookingDate, formatDateForInput } from "./bookingDateFilter";
+import { parseBookingDate } from "./bookingDateFilter";
+import {
+    formatCompanyBookingCalendarDate,
+    formatCompanyDateText,
+    formatCompanyDateTime,
+    formatDateForInputInCompanyTimezone,
+    getCompanyNow,
+    getCompanyTimestampIso,
+} from "./appDateTime";
 
-export { formatDateForInput };
+export { formatDateForInputInCompanyTimezone as formatDateForInput };
+
+/** Company-supported ISO currency codes (from company profile / admin settings). */
+export const SUPPORTED_CURRENCY_CODES = ["USD", "EUR", "GBP", "INR", "CAD", "AUD"];
 
 const CURRENCY_SYMBOLS = {
-    INR: "₹",
     USD: "$",
     EUR: "€",
     GBP: "£",
-    AUD: "A$",
-    CAD: "C$",
-    AED: "د.إ",
-    BDT: "৳",
+    INR: "₹",
+    CAD: "$",
+    AUD: "$",
+};
+
+const CURRENCY_LOCALE_MAP = {
+    USD: "en-US",
+    EUR: "en-IE",
+    GBP: "en-GB",
+    INR: "en-IN",
+    CAD: "en-CA",
+    AUD: "en-AU",
 };
 
 const COUNTRY_CURRENCY_MAP = {
-    BD: "BDT",
-    IN: "INR",
     US: "USD",
     GB: "GBP",
-    AU: "AUD",
+    IN: "INR",
     CA: "CAD",
-    AE: "AED",
+    AU: "AUD",
+    IE: "EUR",
+    DE: "EUR",
+    FR: "EUR",
+    ES: "EUR",
+    IT: "EUR",
+    NL: "EUR",
 };
 
 const COUNTRY_LOCALE_MAP = {
@@ -36,9 +58,16 @@ const COUNTRY_LOCALE_MAP = {
 };
 
 const DEFAULT_LOCALE = "en-GB";
-const DEFAULT_CURRENCY = "INR";
+const DEFAULT_CURRENCY = "USD";
 
 let cachedCurrencyCode = null;
+
+export const normalizeCurrencyCode = (code) => {
+    const normalized = String(code ?? "").trim().toUpperCase();
+    if (!normalized) return DEFAULT_CURRENCY;
+    if (SUPPORTED_CURRENCY_CODES.includes(normalized)) return normalized;
+    return normalized;
+};
 
 const normalizeTenant = () => {
     const raw = getTenantData();
@@ -48,8 +77,12 @@ const normalizeTenant = () => {
 
 export const setCachedTenantCurrency = (currency) => {
     if (currency) {
-        cachedCurrencyCode = String(currency).trim().toUpperCase();
+        cachedCurrencyCode = normalizeCurrencyCode(currency);
     }
+};
+
+export const clearCachedTenantCurrency = () => {
+    cachedCurrencyCode = null;
 };
 
 export const getTenantCurrencyCode = () => {
@@ -57,7 +90,7 @@ export const getTenantCurrencyCode = () => {
 
     const tenant = normalizeTenant();
     const currency = tenant?.currency;
-    if (currency) return String(currency).trim().toUpperCase();
+    if (currency) return normalizeCurrencyCode(currency);
 
     const country = getTenantCountryIso();
     if (country && COUNTRY_CURRENCY_MAP[country]) {
@@ -68,8 +101,13 @@ export const getTenantCurrencyCode = () => {
 };
 
 export const getCurrencySymbol = (currencyCode) => {
-    const code = (currencyCode || getTenantCurrencyCode()).toUpperCase();
+    const code = normalizeCurrencyCode(currencyCode || getTenantCurrencyCode());
     return CURRENCY_SYMBOLS[code] || code;
+};
+
+export const getCurrencyLocale = (currencyCode) => {
+    const code = normalizeCurrencyCode(currencyCode || getTenantCurrencyCode());
+    return CURRENCY_LOCALE_MAP[code] || getTenantLocale();
 };
 
 export const getTenantLocale = () => {
@@ -80,11 +118,13 @@ export const getTenantLocale = () => {
     return DEFAULT_LOCALE;
 };
 
-export const formatAmountDecimal = (amount, fallback = "-") => {
+export const formatAmountDecimal = (amount, options = {}) => {
+    const fallback = options.fallback ?? "-";
     if (amount === null || amount === undefined || amount === "") return fallback;
     const num = Number(amount);
     if (Number.isNaN(num)) return String(amount);
-    return num.toLocaleString(getTenantLocale(), {
+    const locale = options.locale || getCurrencyLocale(options.currency);
+    return num.toLocaleString(locale, {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
     });
@@ -97,64 +137,27 @@ export const formatCurrency = (amount, options = {}) => {
     const num = Number(amount);
     if (Number.isNaN(num)) return String(amount);
 
-    const currency = (options.currency || getTenantCurrencyCode()).toUpperCase();
-    const locale = options.locale || getTenantLocale();
+    const currency = normalizeCurrencyCode(options.currency || getTenantCurrencyCode());
+    const symbol = getCurrencySymbol(currency);
+    const formattedAmount = formatAmountDecimal(num, {
+        fallback,
+        currency,
+        locale: options.locale,
+    });
 
     if (options.symbolOnly) {
-        return `${getCurrencySymbol(currency)} ${formatAmountDecimal(num, fallback)}`;
+        return `${symbol} ${formattedAmount}`;
     }
 
-    try {
-        return new Intl.NumberFormat(locale, {
-            style: "currency",
-            currency,
-            minimumFractionDigits: options.minimumFractionDigits ?? 2,
-            maximumFractionDigits: options.maximumFractionDigits ?? 2,
-        }).format(num);
-    } catch {
-        return `${getCurrencySymbol(currency)} ${formatAmountDecimal(num, fallback)}`;
-    }
+    return `${symbol}${options.symbolSpaced === false ? "" : " "}${formattedAmount}`;
 };
 
-export const formatBookingDate = (value, fallback = "—") => {
-    const date = parseBookingDate(value);
-    if (!date) return fallback;
-    return date.toLocaleDateString(getTenantLocale(), {
-        day: "2-digit",
-        month: "2-digit",
-        year: "numeric",
-    });
-};
+export const formatBookingDate = (value, fallback = "—") =>
+    formatCompanyBookingCalendarDate(value, fallback);
 
-export const formatDate = (value, fallback = "-") => {
-    if (!value) return fallback;
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return fallback;
-    return date
-        .toLocaleString(getTenantLocale(), {
-            weekday: "short",
-            day: "2-digit",
-            month: "short",
-            year: "numeric",
-        })
-        .replace(",", "");
-};
+export const formatDate = (value, fallback = "-") => formatCompanyDateText(value, fallback);
 
-export const formatDateTime = (value, fallback = "-") => {
-    if (!value) return fallback;
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return fallback;
-    return date
-        .toLocaleString(getTenantLocale(), {
-            weekday: "short",
-            day: "2-digit",
-            month: "short",
-            year: "numeric",
-            hour: "2-digit",
-            minute: "2-digit",
-        })
-        .replace(",", "");
-};
+export const formatDateTime = (value, fallback = "-") => formatCompanyDateTime(value, fallback);
 
 export const formatTime = (value, fallback = "—") => {
     if (!value) return fallback;
@@ -205,7 +208,7 @@ export const formatRelativeTime = (timestamp) => {
     const date = new Date(timestamp);
     if (Number.isNaN(date.getTime())) return "";
 
-    const now = new Date();
+    const now = getCompanyNow();
     const diffMs = now - date;
     const diffMins = Math.floor(diffMs / 60000);
 
@@ -220,4 +223,6 @@ export const formatRelativeTime = (timestamp) => {
 };
 
 export const toBookingDateInputValue = (value) =>
-    formatDateForInput(parseBookingDate(value));
+    formatDateForInputInCompanyTimezone(parseBookingDate(value));
+
+export { getCompanyTimestampIso };

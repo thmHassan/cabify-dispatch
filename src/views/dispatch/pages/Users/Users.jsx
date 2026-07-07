@@ -5,7 +5,6 @@ import Button from "../../../../components/ui/Button/Button";
 import PlusIcon from "../../../../components/svg/PlusIcon";
 import CardContainer from "../../../../components/shared/CardContainer";
 import SearchBar from "../../../../components/shared/SearchBar/SearchBar";
-import { useAppSelector } from "../../../../store";
 import { PAGE_SIZE_OPTIONS, STATUS_OPTIONS } from "../../../../constants/selectOptions";
 import AddUserModel from "./components/AddUserModel";
 import Modal from "../../../../components/shared/Modal/Modal";
@@ -25,17 +24,10 @@ const Users = () => {
   const [_selectedStatus, setSelectedStatus] = useState(
     STATUS_OPTIONS.find((o) => o.value === "all") ?? STATUS_OPTIONS[0]
   );
-  const savedPagination = useAppSelector(
-    (state) => state?.app?.app?.pagination?.companies
-  );
   const dispatcherId = getDispatcherId();
 
-  const [currentPage, setCurrentPage] = useState(
-    Number(savedPagination?.currentPage) || 1
-  );
-  const [itemsPerPage, setItemsPerPage] = useState(
-    Number(savedPagination?.itemsPerPage) || 10
-  );
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
   const [totalItems, setTotalItems] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
   const [isUserLoading, setIsUserLoading] = useState(false);
@@ -82,9 +74,16 @@ const Users = () => {
       if (result?.status === 200 && result?.data?.users) {
         const list = result?.data?.users?.data;
         const rows = Array.isArray(list) ? list : [];
+        const lastPage = result?.data?.users?.last_page || 1;
+        const total = result?.data?.users?.total || 0;
 
-        setTotalItems(result?.data?.users?.total || 0);
-        setTotalPages(result?.data?.users?.last_page || 1);
+        if (currentPage > lastPage && total > 0) {
+          setCurrentPage(1);
+          return;
+        }
+
+        setTotalItems(total);
+        setTotalPages(lastPage);
         setUserList(rows);
       } else {
         setUserList([]);

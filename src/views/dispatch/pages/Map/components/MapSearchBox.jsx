@@ -1,3 +1,5 @@
+import MapNearbySearchControls from "../../../../../components/map/MapNearbySearchControls";
+
 const MapSearchBox = ({
     value,
     onChange,
@@ -7,26 +9,41 @@ const MapSearchBox = ({
     showResults = false,
     onSelect,
     onClear,
+    nearbySearch = false,
+    boundaryCountry = "",
+    onNearbySearchChange,
+    onBoundaryCountryChange,
+    preferencesLoading = false,
 }) => {
     return (
         <div className="relative w-full sm:w-[420px]">
-            <div className="flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 shadow-sm">
-                <input
-                    type="text"
-                    value={value}
-                    onChange={(e) => onChange(e.target.value)}
-                    placeholder="Search places (hospital, airport, school...)"
-                    className="w-full bg-transparent text-sm outline-none"
+            <div className="flex flex-col gap-2">
+                <div className="flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 shadow-sm">
+                    <input
+                        type="text"
+                        value={value}
+                        onChange={(e) => onChange(e.target.value)}
+                        placeholder="Search places (hospital, airport, school...)"
+                        className="w-full bg-transparent text-sm outline-none"
+                    />
+                    {value && (
+                        <button
+                            type="button"
+                            onClick={onClear}
+                            className="text-xs text-gray-500 hover:text-gray-700"
+                        >
+                            Clear
+                        </button>
+                    )}
+                </div>
+
+                <MapNearbySearchControls
+                    nearbySearch={nearbySearch}
+                    boundaryCountry={boundaryCountry}
+                    onNearbySearchChange={onNearbySearchChange}
+                    onBoundaryCountryChange={onBoundaryCountryChange}
+                    loading={preferencesLoading}
                 />
-                {value && (
-                    <button
-                        type="button"
-                        onClick={onClear}
-                        className="text-xs text-gray-500 hover:text-gray-700"
-                    >
-                        Clear
-                    </button>
-                )}
             </div>
 
             {showResults && (

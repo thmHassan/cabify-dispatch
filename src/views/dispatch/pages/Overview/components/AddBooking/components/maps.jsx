@@ -1,6 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import { getTenantCountryIso } from "../../../../../../../utils/functions/tenantSettings";
-import { MAP_PROVIDER_DEFAULT, MAP_PROVIDER_GOOGLE } from "../../../../../../../services/mapConfigurationService";
+import {
+    MAP_PROVIDER_BARIKOI,
+    MAP_PROVIDER_DEFAULT,
+    MAP_PROVIDER_GOOGLE,
+    createMapifyTransformRequest,
+} from "../../../../../../../services/mapConfigurationService";
+import { buildOsmFallbackStyle, loadMapLibreGl } from "../../../../../../../utils/map/maplibreLoader";
+import { fetchMapifyAddressFromCoords } from "../../../../../../../services/MapSearchService";
+import {
+    renderGoogleMapPlots,
+    scheduleMapLibrePlotRender,
+} from "../../../../../../../utils/functions/plotMapGeometry";
 import AppLogoIcon from "../../../../../../../components/svg/AppLogoIcon";
 
 const MAP_MIN_HEIGHT = "280px";
@@ -39,6 +50,8 @@ const getCountryCenter = () => {
 const getApiKeys = (apiKeys) => ({
     googleKey: apiKeys?.googleKey || null,
     mapifyStyle: apiKeys?.mapifyStyle || null,
+    barikoiStyle: apiKeys?.barikoiStyle || null,
+    barikoiKey: apiKeys?.barikoiKey || null,
 });
 
 const waitForGoogleMapsApi = (maxAttempts = 150) =>
@@ -107,62 +120,60 @@ const useMapResizeObserver = (containerRef, onResize) => {
     }, [containerRef]);
 };
 
-let maplibrePromise = null;
-const loadMaplibre = () => {
-    if (window.maplibregl) return Promise.resolve();
-    if (maplibrePromise) return maplibrePromise;
-    maplibrePromise = new Promise((resolve, reject) => {
-        if (!document.getElementById("maplibre-css")) {
-            const link = document.createElement("link");
-            link.id = "maplibre-css";
-            link.rel = "stylesheet";
-            link.href = "https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css";
-            document.head.appendChild(link);
-        }
-        const s = document.createElement("script");
-        s.id = "maplibre-script";
-        s.src = "https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js";
-        s.async = true;
-        s.onload = () => {
-            if (window.maplibregl) resolve();
-            else reject(new Error("MapLibre failed to initialize"));
-        };
-        s.onerror = () => { maplibrePromise = null; reject(); };
-        document.head.appendChild(s);
-    });
-    return maplibrePromise;
+const formatCoordinateFallback = (lat, lng) => `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+
+const formatCoordPair = (coords) => (
+    coords?.lat != null && coords?.lng != null
+        ? `${Number(coords.lat).toFixed(6)},${Number(coords.lng).toFixed(6)}`
+        : ""
+);
+
+const buildRouteCoordsKey = (pickupCoords, destinationCoords, viaCoords = []) => {
+    const viaPart = (viaCoords || [])
+        .filter((coords) => coords?.lat != null && coords?.lng != null)
+        .map(formatCoordPair)
+        .join("|");
+    return `${formatCoordPair(pickupCoords)}>${formatCoordPair(destinationCoords)}>${viaPart}`;
 };
 
-const buildOsmFallbackStyle = () => ({
-    version: 8,
-    name: "OSM",
-    glyphs: "https://fonts.openmaptiles.org/{fontstack}/{range}.pbf",
-    sources: {
-        "osm-tiles": {
-            type: "raster",
-            tiles: [
-                "https://a.tile.openstreetmap.org/{z}/{x}/{y}.png",
-                "https://b.tile.openstreetmap.org/{z}/{x}/{y}.png",
-                "https://c.tile.openstreetmap.org/{z}/{x}/{y}.png",
-            ],
-            tileSize: 256,
-            attribution: "© OpenStreetMap contributors",
-            maxzoom: 19,
-        },
-    },
-    layers: [
-        { id: "osm-tiles", type: "raster", source: "osm-tiles", minzoom: 0, maxzoom: 22 },
-    ],
-});
+const applyRouteLocationSelection = ({
+    type,
+    label,
+    lat,
+    lng,
+    plotData,
+    setFieldValue,
+    setPickupPlotData,
+    setDestinationPlotData,
+    onPickupConfirmed,
+    onDestinationConfirmed,
+}) => {
+    if (type === "pickup") {
+        setFieldValue("pickup_location", label);
+        setFieldValue("pickup_latitude", lat);
+        setFieldValue("pickup_longitude", lng);
+        setFieldValue("pickup_plot_id", plotData?.id ?? null);
+        setPickupPlotData?.(plotData);
+        onPickupConfirmed?.({ lat, lng });
+        return;
+    }
 
-const parseCoordinates = (plot) => {
-    if (!plot) return [];
+    setFieldValue("destination_location", label);
+    setFieldValue("destination_latitude", lat);
+    setFieldValue("destination_longitude", lng);
+    setFieldValue("destination_plot_id", plotData?.id ?? null);
+    setDestinationPlotData?.(plotData);
+    onDestinationConfirmed?.({ lat, lng });
+};
+
+const createMapifyAddressResolver = () => async (lat, lng) => {
     try {
-        let coords = plot.coordinates;
-        if (typeof coords === "string") coords = JSON.parse(coords);
-        if (!Array.isArray(coords)) return [];
-        return coords.map((c) => ({ lat: Number(c.lat), lng: Number(c.lng) }));
-    } catch { return []; }
+        const address = await fetchMapifyAddressFromCoords({ lat, lon: lng });
+        if (address) return address;
+    } catch (error) {
+        console.warn("Mapify reverse geocoding failed:", error);
+    }
+    return formatCoordinateFallback(lat, lng);
 };
 
 const MapConfigError = ({ message }) => (
@@ -186,6 +197,7 @@ const LoadingPlaceholder = () => (
 );
 
 const GoogleMap = ({
+    mapsApi,
     pickupCoords,
     destinationCoords,
     viaCoords,
@@ -205,11 +217,15 @@ const GoogleMap = ({
     const mapInstanceRef = useRef(null);
     const markersRef = useRef([]);
     const plotPolygons = useRef([]);
+    const plotsDataRef = useRef(plotsData);
     const directionsRendererRef = useRef(null);
     const [isLoaded, setIsLoaded] = useState(false);
+    const [mapReady, setMapReady] = useState(false);
     const [loadError, setLoadError] = useState(false);
     const clickCountRef = useRef(0);
     const mountedRef = useRef(true);
+    const lastRouteCoordsKeyRef = useRef("");
+    const routeCoordsKey = buildRouteCoordsKey(pickupCoords, destinationCoords, viaCoords);
 
     const resizeGoogleMap = () => {
         if (mapInstanceRef.current && window.google?.maps) {
@@ -230,7 +246,7 @@ const GoogleMap = ({
                 if (mountedRef.current) setLoadError(true);
             });
         return () => { mountedRef.current = false; };
-    }, [googleKey]);
+    }, [mapsApi]);
 
     const getAddressFromCoords = async (lat, lng) => {
         if ((SEARCH_API === "google" || SEARCH_API === "both") && window.google?.maps) {
@@ -239,32 +255,29 @@ const GoogleMap = ({
                 geocoder.geocode({ location: { lat, lng } }, (results, status) => {
                     resolve(status === "OK" && results[0]
                         ? results[0].formatted_address
-                        : `${lat.toFixed(6)}, ${lng.toFixed(6)}`);
+                        : formatCoordinateFallback(lat, lng));
                 });
             });
         }
-        return `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
-    };
-
-    const renderPlots = () => {
-        if (!mapInstanceRef.current || !plotsData) return;
-        plotPolygons.current.forEach(p => p.setMap(null));
-        plotPolygons.current = [];
-        plotsData.forEach(plot => {
-            const coords = parseCoordinates(plot);
-            if (coords.length === 0) return;
-            const polygon = new window.google.maps.Polygon({
-                paths: coords, strokeColor: "#1F41BB", strokeOpacity: 0.8, strokeWeight: 2,
-                fillColor: "#1F41BB", fillOpacity: 0.1, map: mapInstanceRef.current,
-                clickable: false
-            });
-            plotPolygons.current.push(polygon);
-        });
+        return formatCoordinateFallback(lat, lng);
     };
 
     useEffect(() => {
-        if (mapInstanceRef.current && plotsData) renderPlots();
-    }, [isLoaded, plotsData]);
+        plotsDataRef.current = plotsData;
+    }, [plotsData]);
+
+    const renderPlots = () => {
+        if (!mapInstanceRef.current) return;
+        plotPolygons.current = renderGoogleMapPlots(
+            mapInstanceRef.current,
+            plotsDataRef.current,
+            plotPolygons.current
+        );
+    };
+
+    useEffect(() => {
+        if (mapReady) renderPlots();
+    }, [mapReady, plotsData]);
 
     useEffect(() => {
         if (!isLoaded || !mapRef.current || mapInstanceRef.current) return;
@@ -306,24 +319,40 @@ const GoogleMap = ({
                     const address = await getAddressFromCoords(lat, lng);
                     const plotData = await fetchPlotName(lat, lng);
                     if (clickCountRef.current === 1) {
-                        setFieldValue("pickup_point", address);
-                        setFieldValue("pickup_latitude", lat);
-                        setFieldValue("pickup_longitude", lng);
-                        setFieldValue("pickup_plot_id", plotData.id);
-                        setPickupPlotData(plotData);
-                        onPickupConfirmed?.({ lat, lng });
+                        applyRouteLocationSelection({
+                            type: "pickup",
+                            label: address,
+                            lat,
+                            lng,
+                            plotData,
+                            setFieldValue,
+                            setPickupPlotData,
+                            setDestinationPlotData,
+                            onPickupConfirmed,
+                            onDestinationConfirmed,
+                        });
                     } else if (clickCountRef.current === 2) {
-                        setFieldValue("destination", address);
-                        setFieldValue("destination_latitude", lat);
-                        setFieldValue("destination_longitude", lng);
-                        setFieldValue("destination_plot_id", plotData.id);
-                        setDestinationPlotData(plotData);
-                        onDestinationConfirmed?.({ lat, lng });
+                        applyRouteLocationSelection({
+                            type: "destination",
+                            label: address,
+                            lat,
+                            lng,
+                            plotData,
+                            setFieldValue,
+                            setPickupPlotData,
+                            setDestinationPlotData,
+                            onPickupConfirmed,
+                            onDestinationConfirmed,
+                        });
                         clickCountRef.current = 0;
                     }
                 });
                 setTimeout(() => {
-                    if (!cancelled) resizeGoogleMap();
+                    if (!cancelled) {
+                        resizeGoogleMap();
+                        setMapReady(true);
+                        renderPlots();
+                    }
                 }, 200);
             } catch (err) {
                 console.error("Google map init error:", err);
@@ -337,13 +366,18 @@ const GoogleMap = ({
             markersRef.current.forEach((m) => { try { m?.setMap(null); } catch (e) { } });
             markersRef.current = [];
             plotPolygons.current.forEach(p => p.setMap(null));
+            plotPolygons.current = [];
             mapInstanceRef.current = null;
             directionsRendererRef.current = null;
+            setMapReady(false);
         };
     }, [isLoaded]);
 
     useEffect(() => {
         if (!mapInstanceRef.current || !isLoaded) return;
+        if (routeCoordsKey === lastRouteCoordsKeyRef.current) return;
+        lastRouteCoordsKeyRef.current = routeCoordsKey;
+
         const id = setTimeout(() => {
             if (!mapInstanceRef.current) return;
             const map = mapInstanceRef.current;
@@ -396,7 +430,7 @@ const GoogleMap = ({
             }
         }, 300);
         return () => clearTimeout(id);
-    }, [pickupCoords, destinationCoords, viaCoords, isLoaded]);
+    }, [routeCoordsKey, isLoaded]);
 
     if (!googleKey || loadError) {
         return (
@@ -416,7 +450,14 @@ const GoogleMap = ({
     );
 };
 
-const BarikoiMap = ({
+const MapLibreBookingMap = ({
+    mapsApi,
+    styleConfig,
+    styleMissingMessage = "Map style is not configured.",
+    styleErrorMessage = "Map failed to load.",
+    mapLabel = "Map",
+    showMapifyBranding = false,
+    resolveAddressFromCoords,
     pickupCoords,
     destinationCoords,
     viaCoords,
@@ -426,93 +467,60 @@ const BarikoiMap = ({
     setDestinationPlotData,
     onPickupConfirmed,
     onDestinationConfirmed,
-    apiKeys,
     plotsData,
 }) => {
-    const { mapifyStyle } = getApiKeys(apiKeys);
     const containerRef = useRef(null);
     const wrapperRef = useRef(null);
     const mapRef = useRef(null);
     const markersRef = useRef([]);
+    const plotsDataRef = useRef(plotsData);
     const [isLoaded, setIsLoaded] = useState(false);
     const [loadError, setLoadError] = useState(false);
-    const [styleConfig, setStyleConfig] = useState(mapifyStyle || null);
-    const [isFullscreen, setIsFullscreen] = useState(false);
     const clickCountRef = useRef(0);
     const mountedRef = useRef(true);
+    const lastRouteCoordsKeyRef = useRef("");
+    const routeCoordsKey = buildRouteCoordsKey(pickupCoords, destinationCoords, viaCoords);
+    const hasStyleConfig = Boolean(styleConfig);
+    const styleConfigRef = useRef(styleConfig);
+    styleConfigRef.current = styleConfig;
 
-    const resizeBarikoiMap = () => {
+    const resizeMap = () => {
         if (mapRef.current?.resize) mapRef.current.resize();
     };
 
-    useMapResizeObserver(wrapperRef, resizeBarikoiMap);
+    useMapResizeObserver(wrapperRef, resizeMap);
 
     useEffect(() => {
         mountedRef.current = true;
-        if (!mapifyStyle) {
-            setLoadError(true);
-            return;
+        if (!hasStyleConfig) {
+            setLoadError(false);
+            return undefined;
         }
-        setStyleConfig(mapifyStyle);
         setLoadError(false);
-        loadMaplibre()
+        loadMapLibreGl()
             .then(() => { if (mountedRef.current) setIsLoaded(true); })
             .catch(() => { if (mountedRef.current) setLoadError(true); });
         return () => { mountedRef.current = false; };
-    }, [mapifyStyle]);
+    }, [mapsApi, hasStyleConfig]);
 
-    const toggleFullscreen = () => {
-        if (!wrapperRef.current) return;
-        if (!document.fullscreenElement) {
-            wrapperRef.current.requestFullscreen?.();
-            setIsFullscreen(true);
-        } else {
-            document.exitFullscreen?.();
-            setIsFullscreen(false);
+    useEffect(() => {
+        plotsDataRef.current = plotsData;
+        if (mapRef.current) {
+            scheduleMapLibrePlotRender(mapRef.current, plotsDataRef.current);
         }
-    };
+    }, [plotsData]);
 
-    const renderPlots = (map) => {
-        if (!map || !plotsData || plotsData.length === 0) return;
-        const doRender = () => {
-            try {
-                ["plots-labels", "plots-outline", "plots-fill"].forEach(id => {
-                    if (map.getLayer(id)) map.removeLayer(id);
-                });
-                if (map.getSource("plots")) map.removeSource("plots");
+    const attachPlotStyleHandlers = (map) => {
+        if (!map || map._plotStyleHandlersAttached) return;
+        map._plotStyleHandlersAttached = true;
 
-                const features = plotsData.map(plot => {
-                    const coords = parseCoordinates(plot);
-                    if (coords.length === 0) return null;
-                    return {
-                        type: "Feature",
-                        properties: { name: plot.plot_name || "Plot" },
-                        geometry: { type: "Polygon", coordinates: [coords.map(c => [c.lng, c.lat])] },
-                    };
-                }).filter(Boolean);
-
-                if (features.length === 0) return;
-
-                map.addSource("plots", { type: "geojson", data: { type: "FeatureCollection", features } });
-                map.addLayer({ id: "plots-fill", type: "fill", source: "plots", paint: { "fill-color": "#1F41BB", "fill-opacity": 0.15 } });
-                map.addLayer({ id: "plots-outline", type: "line", source: "plots", paint: { "line-color": "#1F41BB", "line-width": 2.5, "line-opacity": 0.9 } });
-            } catch (err) {
-                console.warn("Plot render error:", err);
-            }
-        };
-
-        if (map.isStyleLoaded()) doRender();
-        else map.once("idle", doRender);
+        map.on("style.load", () => {
+            scheduleMapLibrePlotRender(map, plotsDataRef.current);
+        });
     };
 
     useEffect(() => {
-        if (isLoaded && mapRef.current && plotsData?.length > 0) {
-            renderPlots(mapRef.current);
-        }
-    }, [isLoaded, plotsData]);
-
-    useEffect(() => {
-        if (!isLoaded || !containerRef.current || mapRef.current || !styleConfig) return;
+        if (!isLoaded || !containerRef.current || mapRef.current || !hasStyleConfig) return;
 
         let cancelled = false;
         const initMap = async () => {
@@ -525,22 +533,12 @@ const BarikoiMap = ({
                 containerRef.current.style.minHeight = MAP_MIN_HEIGHT;
                 mapRef.current = new window.maplibregl.Map({
                     container: containerRef.current,
-                    style: styleConfig,
+                    style: styleConfigRef.current,
                     center: [center.lng, center.lat],
                     zoom: 12,
                     attributionControl: false,
+                    transformRequest: createMapifyTransformRequest(),
                 });
-                mapRef.current.on("load", () => {
-                    if (!mapRef.current) return;
-                    mapRef.current.resize();
-                    setTimeout(() => {
-                        if (mapRef.current) {
-                            mapRef.current.resize();
-                            renderPlots(mapRef.current);
-                        }
-                    }, 150);
-                });
-                mapRef.current.addControl(new window.maplibregl.NavigationControl({ showCompass: true }), "bottom-right");
                 mapRef.current.on("error", (e) => {
                     const msg = e?.error?.message || String(e);
                     const isAuthError = msg.includes("403") || msg.includes("401");
@@ -552,31 +550,55 @@ const BarikoiMap = ({
                         try { mapRef.current.setStyle(buildOsmFallbackStyle()); } catch { }
                     }
                 });
+                attachPlotStyleHandlers(mapRef.current);
+                mapRef.current.on("load", () => {
+                    if (!mapRef.current) return;
+                    mapRef.current.resize();
+                    setTimeout(() => {
+                        if (mapRef.current) {
+                            mapRef.current.resize();
+                            scheduleMapLibrePlotRender(mapRef.current, plotsDataRef.current);
+                        }
+                    }, 150);
+                });
+                mapRef.current.addControl(new window.maplibregl.NavigationControl({ showCompass: true }), "bottom-right");
                 mapRef.current.on("click", async (e) => {
                     const lat = e.lngLat.lat;
                     const lng = e.lngLat.lng;
                     clickCountRef.current += 1;
-                    const address = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+                    const address = await resolveAddressFromCoords(lat, lng);
                     const plotData = await fetchPlotName(lat, lng);
                     if (clickCountRef.current === 1) {
-                        setFieldValue("pickup_point", address);
-                        setFieldValue("pickup_latitude", lat);
-                        setFieldValue("pickup_longitude", lng);
-                        setFieldValue("pickup_plot_id", plotData.id);
-                        setPickupPlotData(plotData);
-                        onPickupConfirmed?.({ lat, lng });
+                        applyRouteLocationSelection({
+                            type: "pickup",
+                            label: address,
+                            lat,
+                            lng,
+                            plotData,
+                            setFieldValue,
+                            setPickupPlotData,
+                            setDestinationPlotData,
+                            onPickupConfirmed,
+                            onDestinationConfirmed,
+                        });
                     } else if (clickCountRef.current === 2) {
-                        setFieldValue("destination", address);
-                        setFieldValue("destination_latitude", lat);
-                        setFieldValue("destination_longitude", lng);
-                        setFieldValue("destination_plot_id", plotData.id);
-                        setDestinationPlotData(plotData);
-                        onDestinationConfirmed?.({ lat, lng });
+                        applyRouteLocationSelection({
+                            type: "destination",
+                            label: address,
+                            lat,
+                            lng,
+                            plotData,
+                            setFieldValue,
+                            setPickupPlotData,
+                            setDestinationPlotData,
+                            onPickupConfirmed,
+                            onDestinationConfirmed,
+                        });
                         clickCountRef.current = 0;
                     }
                 });
             } catch (err) {
-                console.error("Barikoi map init error:", err);
+                console.error(`${mapLabel} init error:`, err);
                 if (!cancelled) setLoadError(true);
             }
         };
@@ -588,8 +610,15 @@ const BarikoiMap = ({
                 try { mapRef.current.remove(); } catch (e) { }
                 mapRef.current = null;
             }
+            markersRef.current.forEach((m) => { try { m.remove(); } catch (e) { } });
+            markersRef.current = [];
         };
-    }, [isLoaded, styleConfig]);
+    }, [isLoaded, mapsApi, hasStyleConfig]);
+
+    useEffect(() => {
+        if (!isLoaded || !mapRef.current) return;
+        scheduleMapLibrePlotRender(mapRef.current, plotsDataRef.current);
+    }, [isLoaded, plotsData]);
 
     const mkEl = (color, text) => {
         const el = document.createElement("div");
@@ -650,6 +679,9 @@ const BarikoiMap = ({
 
     useEffect(() => {
         if (!mapRef.current || !isLoaded) return;
+        if (routeCoordsKey === lastRouteCoordsKeyRef.current) return;
+        lastRouteCoordsKeyRef.current = routeCoordsKey;
+
         const id = setTimeout(() => {
             const doUpdate = () => {
                 if (!mapRef.current) return;
@@ -680,7 +712,7 @@ const BarikoiMap = ({
             else mapRef.current?.once("load", doUpdate);
         }, 300);
         return () => clearTimeout(id);
-    }, [pickupCoords, destinationCoords, viaCoords, isLoaded]);
+    }, [routeCoordsKey, isLoaded]);
 
     const btnBase = {
         background: "#fff", border: "none", cursor: "pointer",
@@ -692,7 +724,7 @@ const BarikoiMap = ({
         return (
             <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", minHeight: MAP_MIN_HEIGHT, background: "#fef2f2", borderRadius: "8px" }}>
                 <p style={{ color: "#dc2626", fontSize: "14px" }}>
-                    {!styleConfig ? "Map style is not configured." : "Default map failed to load."}
+                    {!styleConfig ? styleMissingMessage : styleErrorMessage}
                 </p>
             </div>
         );
@@ -703,7 +735,7 @@ const BarikoiMap = ({
             <div ref={containerRef} style={{ width: "100%", height: "100%", minHeight: MAP_MIN_HEIGHT }} />
             {!isLoaded && <LoadingPlaceholder />}
 
-            {isLoaded && (
+            {isLoaded && showMapifyBranding && (
                 <div style={{
                     position: "absolute", top: "10px", left: "10px", zIndex: 10,
                     display: "flex", background: "#fff",
@@ -716,27 +748,50 @@ const BarikoiMap = ({
                 </div>
             )}
 
-            {isLoaded && (
-                <button onClick={toggleFullscreen} title={isFullscreen ? "Exit fullscreen" : "View fullscreen"}
-                    style={{
-                        position: "absolute", top: "10px", right: "10px", zIndex: 10,
-                        width: "32px", height: "32px", background: "#fff",
-                        border: "none", borderRadius: "2px", cursor: "pointer",
-                        boxShadow: "0 1px 4px rgba(0,0,0,0.3)",
-                        display: "flex", alignItems: "center", justifyContent: "center", padding: 0,
-                    }}>
-                    {isFullscreen ? (
-                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="#666">
-                            <path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z" />
-                        </svg>
-                    ) : (
-                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="#666">
-                            <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z" />
-                        </svg>
-                    )}
-                </button>
+            {isLoaded && !showMapifyBranding && mapLabel && (
+                <div style={{
+                    position: "absolute", top: "10px", left: "10px", zIndex: 10,
+                    display: "flex", background: "#fff",
+                    borderRadius: "2px", boxShadow: "0 1px 4px rgba(0,0,0,0.3)", overflow: "hidden",
+                }}>
+                    <div style={{ ...btnBase, color: "#1a73e8", borderBottom: "2px solid #1a73e8" }}>
+                        {mapLabel}
+                    </div>
+                </div>
             )}
+
+            {/* Fullscreen map control removed — location search uses sidebar in Create Booking */}
         </div>
+    );
+};
+
+const MapifyMap = (props) => {
+    const { mapifyStyle } = getApiKeys(props.apiKeys);
+    return (
+        <MapLibreBookingMap
+            {...props}
+            styleConfig={mapifyStyle}
+            styleMissingMessage="Mapify tiles are not configured."
+            styleErrorMessage="Mapify map failed to load."
+            mapLabel="Mapifyit"
+            showMapifyBranding
+            resolveAddressFromCoords={createMapifyAddressResolver()}
+        />
+    );
+};
+
+const BarikoiMap = (props) => {
+    const { barikoiStyle } = getApiKeys(props.apiKeys);
+    return (
+        <MapLibreBookingMap
+            {...props}
+            styleConfig={barikoiStyle}
+            styleMissingMessage="Barikoi map is not configured."
+            styleErrorMessage="Barikoi map failed to load."
+            mapLabel="Barikoi Map"
+            showMapifyBranding={false}
+            resolveAddressFromCoords={async (lat, lng) => formatCoordinateFallback(lat, lng)}
+        />
     );
 };
 
@@ -766,12 +821,14 @@ export default function Maps({
     }
 
     const sharedProps = {
+        mapsApi,
         pickupCoords, destinationCoords, viaCoords,
         setFieldValue, fetchPlotName,
         setPickupPlotData, setDestinationPlotData,
         onPickupConfirmed, onDestinationConfirmed,
         apiKeys, plotsData,
     };
-    if (mapsApi === MAP_PROVIDER_DEFAULT || mapsApi === "barikoi") return <BarikoiMap {...sharedProps} />;
-    return <GoogleMap {...sharedProps} SEARCH_API={SEARCH_API} />;
+    if (mapsApi === MAP_PROVIDER_DEFAULT) return <MapifyMap key={mapsApi} {...sharedProps} />;
+    if (mapsApi === MAP_PROVIDER_BARIKOI || mapsApi === "barikoi") return <BarikoiMap key={mapsApi} {...sharedProps} />;
+    return <GoogleMap key={mapsApi} {...sharedProps} SEARCH_API={SEARCH_API} />;
 }

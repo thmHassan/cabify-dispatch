@@ -18,12 +18,28 @@ import { REDIRECT_URL_KEY } from "../../constants/app.constant";
 import useQuery from "./useQuery";
 import {
   storeEncryptedToken,
-  clearAllAuthData,
   isAuthenticated,
+  removeTenantData,
   storeTenantId,
   storeTenantData,
 } from "../functions/tokenEncryption";
-import { setCachedTenantCurrency } from "../functions/formatters";
+import { resetMapConfigurationCache } from "../../services/mapConfigCache";
+import {
+    clearSessionState,
+    ensureActiveCompanySession,
+    getCompanyStatusFromLoginResponse,
+    INACTIVE_COMPANY_LOGIN_MESSAGE,
+    isInactiveCompanyStatus,
+} from "../auth/forcedLogout";
+import {
+    ensureCompanyTimezoneLoaded,
+    setCompanyTimezone,
+} from "../functions/appDateTime";
+import {
+    ensureCompanySettingsLoaded,
+    setCompanyCurrency,
+    setCompanyUnits,
+} from "../functions/appCurrency";
 
 const API_ERROR_MAP = {
   "Database header is missing.": "Company ID is missing.",
@@ -31,6 +47,7 @@ const API_ERROR_MAP = {
   "Invalid credentials.":        "Incorrect email or password. Please try again.",
   "User not found.":             "No account found with this email address.",
   "Account is disabled.":        "Your account has been disabled. Please contact support.",
+  "Company account is inactive.": INACTIVE_COMPANY_LOGIN_MESSAGE,
 };
 
 const getFriendlyError = (rawMessage) => {
@@ -51,9 +68,25 @@ function useAuth() {
 
   const signIn = async (values) => {
     const resp = await apiSignIn(values);
+    const data = resp?.data || {};
 
-    const token = resp?.data?.token;
-    const user = resp?.data?.user;
+    if (data?.error === 1 || data?.error === true) {
+      throw new Error(getFriendlyError(data?.message));
+    }
+
+    const companyStatus = getCompanyStatusFromLoginResponse(data);
+    if (isInactiveCompanyStatus(companyStatus)) {
+      clearSessionState();
+      throw new Error(INACTIVE_COMPANY_LOGIN_MESSAGE);
+    }
+
+    const token = data.token;
+    const user = data.user;
+
+    const tenantData = data.tenant_data || data.data?.tenant_data;
+    if (tenantData) {
+      storeTenantData(tenantData);
+    }
 
     if (token && user) {
       dispatch(signInSuccess(token));
@@ -75,9 +108,17 @@ function useAuth() {
   };
 
   const adminSignIn = async (values) => {
+    const companyId = String(values.company_id ?? "").trim();
+    if (!companyId) {
+      throw new Error("Company ID is required.");
+    }
+
+    resetMapConfigurationCache();
+    removeTenantData();
+
     let resp;
     try {
-      resp = await apiAdminSignIn(values);
+      resp = await apiAdminSignIn({ ...values, company_id: companyId });
     } catch (error) {
       const rawMessage =
         error?.response?.data?.message ||
@@ -90,6 +131,12 @@ function useAuth() {
 
     if (data?.error === 1 || data?.error === true) {
       throw new Error(getFriendlyError(data?.message));
+    }
+
+    const companyStatus = getCompanyStatusFromLoginResponse(data);
+    if (isInactiveCompanyStatus(companyStatus)) {
+      clearSessionState();
+      throw new Error(INACTIVE_COMPANY_LOGIN_MESSAGE);
     }
 
     const token =
@@ -119,7 +166,7 @@ function useAuth() {
     const tenantId =
       data.tenant_id ||
       data.data?.tenant_id ||
-      values.company_id ||
+      companyId ||
       null;
 
     if (tenantId) {
@@ -133,8 +180,24 @@ function useAuth() {
 
     if (companyData) {
       storeTenantData(companyData);
-      setCachedTenantCurrency(companyData?.currency || companyData?.data?.currency);
+      const profileCurrency = companyData?.currency || companyData?.data?.currency;
+      if (profileCurrency) {
+        setCompanyCurrency(profileCurrency);
+      }
+      const profileUnits = companyData?.units || companyData?.data?.units;
+      if (profileUnits) {
+        setCompanyUnits(profileUnits);
+      }
+      const profileTimezone =
+        companyData?.company_timezone ||
+        companyData?.data?.company_timezone;
+      if (profileTimezone) {
+        setCompanyTimezone(profileTimezone);
+      }
     }
+
+    ensureCompanyTimezoneLoaded();
+    ensureCompanySettingsLoaded();
 
     navigate(
       query.get(REDIRECT_URL_KEY) || appConfig.authenticatedEntryPath
@@ -147,21 +210,26 @@ function useAuth() {
     } catch (error) {
       console.error("Logout API error:", error);
     } finally {
-      clearAllAuthData();
-      dispatch(signOutSuccess());
-      dispatch(clearUser());
+      clearSessionState();
       navigate(appConfig.unAuthenticatedEntryPath);
     }
   };
 
   React.useEffect(() => {
     if (isAuthenticated() && !signedIn) {
+      if (!ensureActiveCompanySession()) {
+        return;
+      }
+
       dispatch(signInSuccess("restored"));
 
       const storedUser = localStorage.getItem("auth_user");
       if (storedUser) {
         dispatch(setUser(JSON.parse(storedUser)));
       }
+
+      ensureCompanyTimezoneLoaded();
+      ensureCompanySettingsLoaded();
     }
   }, [dispatch, signedIn]);
 

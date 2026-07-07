@@ -1,36 +1,63 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { formatBookingDate, formatReminderMinutes, formatTime } from "../../../../../../utils/functions/formatters";
+import { usePausableAutoDismiss } from "../../../../../../hooks/usePausableAutoDismiss";
 
 const DriverAssignmentModal = ({
     notification,
     onClose,
     autoCloseDuration = 6000,
 }) => {
-    const timerRef = useRef(null);
     const progressRef = useRef(null);
+    const handleDismiss = useCallback(() => {
+        if (notification?.id != null) onClose(notification.id);
+    }, [notification?.id, onClose]);
+
+    const { hoverHandlers, pause, resume, remainingMsRef } = usePausableAutoDismiss(
+        handleDismiss,
+        autoCloseDuration,
+        Boolean(notification)
+    );
+
+    const startProgressAnimation = useCallback((durationMs) => {
+        if (!progressRef.current) return;
+        const el = progressRef.current;
+        el.style.transition = "none";
+        el.style.width = "100%";
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                if (!progressRef.current) return;
+                progressRef.current.style.transition = `width ${durationMs}ms linear`;
+                progressRef.current.style.width = "0%";
+            });
+        });
+    }, []);
+
+    const pauseProgress = useCallback(() => {
+        if (!progressRef.current) return;
+        const el = progressRef.current;
+        const parent = el.parentElement;
+        const pct = parent?.getBoundingClientRect().width
+            ? (el.getBoundingClientRect().width / parent.getBoundingClientRect().width) * 100
+            : 0;
+        el.style.transition = "none";
+        el.style.width = `${pct}%`;
+    }, []);
+
+    const resumeProgress = useCallback(() => {
+        if (!progressRef.current) return;
+        const el = progressRef.current;
+        const remaining = remainingMsRef.current;
+        requestAnimationFrame(() => {
+            if (!progressRef.current) return;
+            progressRef.current.style.transition = `width ${remaining}ms linear`;
+            progressRef.current.style.width = "0%";
+        });
+    }, [remainingMsRef]);
 
     useEffect(() => {
         if (!notification) return;
-
-        timerRef.current = setTimeout(() => {
-            onClose(notification.id);
-        }, autoCloseDuration);
-
-        if (progressRef.current) {
-            progressRef.current.style.transition = "none";
-            progressRef.current.style.width = "100%";
-            requestAnimationFrame(() => {
-                requestAnimationFrame(() => {
-                    if (progressRef.current) {
-                        progressRef.current.style.transition = `width ${autoCloseDuration}ms linear`;
-                        progressRef.current.style.width = "0%";
-                    }
-                });
-            });
-        }
-
-        return () => clearTimeout(timerRef.current);
-    }, [notification, autoCloseDuration, onClose]);
+        startProgressAnimation(autoCloseDuration);
+    }, [notification, autoCloseDuration, startProgressAnimation]);
 
     if (!notification) return null;
 
@@ -39,7 +66,7 @@ const DriverAssignmentModal = ({
         driver_name,
         message,
         type,
-        title: reminderTitle,
+        title: notificationTitle,
         booking_reference,
         pickup_location,
         pickup_time,
@@ -53,7 +80,7 @@ const DriverAssignmentModal = ({
     const theme = {
         reminder: {
             color: "#d97706",
-            label: reminderTitle || "Booking Reminder",
+            label: notificationTitle || "Booking Reminder",
             gradient: "from-amber-600 via-amber-400 to-amber-600",
             dot: "bg-amber-600",
             ping: "bg-amber-600",
@@ -78,6 +105,15 @@ const DriverAssignmentModal = ({
             avatar: "bg-red-600",
             progress: "bg-red-600",
         },
+        no_show: {
+            color: "#4b5563",
+            label: "Customer No Show",
+            gradient: "from-gray-700 via-gray-500 to-gray-700",
+            dot: "bg-gray-700",
+            ping: "bg-gray-700",
+            avatar: "bg-gray-700",
+            progress: "bg-gray-700",
+        },
         failed: {
             color: "#dc2626",
             label: "Dispatch Failed",
@@ -89,7 +125,7 @@ const DriverAssignmentModal = ({
         },
         default: {
             color: "#1F41BB",
-            label: "Driver Assignment",
+            label: notificationTitle || (driver_name ? "Driver Assignment" : "Dispatch In Progress"),
             gradient: "from-[#1F41BB] via-[#4F6FE8] to-[#1F41BB]",
             dot: "bg-[#1F41BB]",
             ping: "bg-[#1F41BB]",
@@ -99,24 +135,41 @@ const DriverAssignmentModal = ({
     };
 
     const t = theme[type] || theme.default;
+    const driverLabel = driver_name || booking?.driverDetail?.name || booking?.driver_detail?.name || "Driver details loading";
+    const shouldShowDriverBlock =
+        !isReminder &&
+        Boolean(driverLabel || ["accepted", "cancelled", "no_show"].includes(type));
 
     const statusBadgeStyle = {
         pending_acceptance: { bg: "bg-amber-100", text: "text-amber-700", label: "Pending Acceptance" },
         ongoing: { bg: "bg-blue-100", text: "text-blue-700", label: "Ongoing" },
         pending: { bg: "bg-gray-100", text: "text-gray-600", label: "Pending" },
         cancelled: { bg: "bg-red-100", text: "text-red-700", label: "Cancelled" },
+        no_show: { bg: "bg-gray-200", text: "text-gray-700", label: "No Show" },
         accepted: { bg: "bg-green-100", text: "text-green-700", label: "Accepted" },
+    };
+
+    const handleMouseEnter = () => {
+        pause();
+        pauseProgress();
+    };
+
+    const handleMouseLeave = () => {
+        resume();
+        resumeProgress();
     };
 
     return (
         <>
             <div
-                className="pointer-events-auto w-full max-w-sm bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden shrink-0"
+                className="pointer-events-auto w-full max-w-[320px] bg-white rounded-xl shadow-xl border border-gray-100 overflow-hidden shrink-0"
                 style={{ animation: "slideInUp 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) forwards" }}
+                onMouseEnter={handleMouseEnter}
+                onMouseLeave={handleMouseLeave}
             >
                 <div className={`h-1 w-full bg-gradient-to-r ${t.gradient}`} />
 
-                <div className="flex items-start justify-between px-5 pt-4 pb-2">
+                <div className="flex items-start justify-between px-4 pt-3 pb-1.5">
                     <div className="flex items-center gap-2">
                         <span className="relative flex h-3 w-3">
                             <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${t.ping} opacity-60`} />
@@ -126,35 +179,40 @@ const DriverAssignmentModal = ({
                             {t.label}
                         </span>
                     </div>
-                    <button onClick={() => onClose(notification.id)} className="text-gray-400 hover:text-gray-600 transition-colors text-xl leading-none ml-2 -mt-0.5">
+                    <button
+                        type="button"
+                        aria-label="Dismiss notification"
+                        onClick={() => onClose(notification.id)}
+                        className="text-gray-400 hover:text-gray-600 transition-colors text-xl leading-none ml-2 -mt-0.5 p-1"
+                    >
                         ×
                     </button>
                 </div>
 
-                <div className="px-5 pb-4 space-y-3">
+                <div className="px-4 pb-3 space-y-2">
 
-                    {!isReminder && (
+                    {shouldShowDriverBlock && (
                         <div className="flex items-center gap-2">
-                            <div className={`flex-shrink-0 w-9 h-9 rounded-full ${t.avatar} flex items-center justify-center`}>
-                                <span className="text-white text-sm font-bold">
-                                    {driver_name?.charAt(0)?.toUpperCase() ?? "D"}
+                            <div className={`flex-shrink-0 w-7 h-7 rounded-full ${t.avatar} flex items-center justify-center`}>
+                                <span className="text-white text-xs font-bold">
+                                    {driverLabel?.charAt(0)?.toUpperCase() ?? "D"}
                                 </span>
                             </div>
                             <div>
                                 <p className="text-xs text-gray-500 leading-none mb-0.5">
-                                    {type === "accepted" ? "Accepted by" : type === "cancelled" ? "Cancelled by" : "Assigned Driver"}
+                                    {type === "accepted" ? "Accepted by" : type === "cancelled" ? "Cancelled by" : type === "no_show" ? "Marked by" : "Assigned Driver"}
                                 </p>
                                 <p className="text-sm font-semibold text-gray-800 leading-tight">
-                                    {driver_name ?? "Unknown Driver"}
+                                    {driverLabel}
                                 </p>
                             </div>
                         </div>
                     )}
 
-                    {message && <p className="text-sm text-gray-600 leading-snug">{message}</p>}
+                    {message && <p className="text-xs text-gray-600 leading-snug line-clamp-2">{message}</p>}
 
                     {(booking || isReminder) && (
-                        <div className="bg-gray-50 rounded-xl px-4 py-3 space-y-1.5 border border-gray-100">
+                        <div className="bg-gray-50 rounded-lg px-3 py-2 space-y-1 border border-gray-100">
                             {(booking_reference || booking?.booking_id || booking?.id || booking_id) && (
                                 <Row
                                     label="Booking"

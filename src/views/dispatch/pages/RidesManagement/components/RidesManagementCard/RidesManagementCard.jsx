@@ -3,6 +3,7 @@ import UserDropdown from "../../../../../../components/shared/UserDropdown/UserD
 import Button from "../../../../../../components/ui/Button/Button";
 import ThreeDotsIcon from "../../../../../../components/svg/ThreeDotsIcon";
 import { formatCurrency } from "../../../../../../utils/functions/formatters";
+import { formatDistanceFromBooking } from "../../../../../../utils/functions/tenantSettings";
 
 const RidesManagementCard = ({ ride, onDelete, distanceUnit }) => {
 
@@ -14,18 +15,17 @@ const RidesManagementCard = ({ ride, onDelete, distanceUnit }) => {
         default: "bg-[#EFEFEF] text-gray-600"
     };
 
-    const formatDistance = (distanceInMeters) => {
-        if (!distanceInMeters) return "-";
-        if (distanceUnit === "Km") {
-            return `${(distanceInMeters / 1000).toFixed(2)} Km`;
-        }
-        return `${(distanceInMeters / 1609.34).toFixed(2)} Miles`;
-    };
-
     const capitalizeFirst = (value) => {
         if (!value) return "-";
         return value.charAt(0).toUpperCase() + value.slice(1);
     };
+
+    const driverName =
+        ride?.driverDetail?.name ||
+        ride?.driver_detail?.name ||
+        ride?.driver_name ||
+        ride?.driverName ||
+        (ride?.driver ? "Driver details loading" : "No driver selected");
 
     const actionOptions = [];
 
@@ -37,12 +37,12 @@ const RidesManagementCard = ({ ride, onDelete, distanceUnit }) => {
     }
 
     return (
-        <div className="bg-white rounded-[15px] p-4 hover:shadow-md w-full overflow-x-auto">
-            <div className="flex items-center gap-3">
+        <div className="bg-white rounded-xl p-4 hover:shadow-md w-full">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-[minmax(130px,1fr)_minmax(90px,.7fr)_minmax(90px,.7fr)_minmax(170px,1.3fr)_minmax(78px,.55fr)_minmax(70px,.5fr)_minmax(85px,.55fr)_44px] items-center gap-3">
 
-                <div className="flex flex-col gap-2 flex-shrink-0">
-                    <div className="w-52">
-                        <p className="font-semibold text-xl">{ride.booking_id}</p>
+                <div className="flex flex-col gap-2 min-w-0">
+                    <div className="min-w-0">
+                        <p className="font-semibold text-base xl:text-sm 2xl:text-base truncate">{ride.booking_id}</p>
                         <p
                             className={`text-[10px] px-4 py-1 font-bold rounded-full inline-block
                             ${statusColors[ride.booking_status] || statusColors.default}`}
@@ -52,17 +52,17 @@ const RidesManagementCard = ({ ride, onDelete, distanceUnit }) => {
                     </div>
                 </div>
 
-                <div className="inline-flex flex-col px-4 py-2 rounded-full bg-[#EFEFEF] flex-shrink-0 w-[165px]">
+                <div className="inline-flex flex-col px-3 py-2 rounded-full bg-[#EFEFEF] min-w-0">
                     <p className="text-xs font-semibold text-[#6C6C6C] text-center">Driver Name</p>
-                    <p className="text-[#333333] text-center font-semibold text-sm">{capitalizeFirst(ride?.driver_detail?.name || "-")}</p>
+                    <p className="text-[#333333] text-center font-semibold text-sm truncate">{capitalizeFirst(driverName)}</p>
                 </div>
 
-                <div className="inline-flex flex-col px-4 py-2 rounded-full bg-[#EFEFEF] flex-shrink-0 w-[165px]">
+                <div className="inline-flex flex-col px-3 py-2 rounded-full bg-[#EFEFEF] min-w-0">
                     <p className="text-xs font-semibold text-[#6C6C6C] text-center">Customer Name</p>
-                    <p className="text-[#333333] text-center font-semibold text-sm">{capitalizeFirst(ride.name)}</p>
+                    <p className="text-[#333333] text-center font-semibold text-sm truncate">{capitalizeFirst(ride.name)}</p>
                 </div>
 
-                <div className="inline-flex flex-col px-4 py-2 rounded-full bg-[#EFEFEF] flex-shrink-0 w-[245px]">
+                <div className="inline-flex flex-col px-3 py-2 rounded-2xl bg-[#EFEFEF] min-w-0">
                     <p className="text-xs font-semibold text-[#6C6C6C] text-center">Route</p>
                     <p className="flex flex-col text-[#333333] text-center font-semibold text-xs">
                         <span className="line-clamp-1">{ride.pickup_location}</span>
@@ -70,28 +70,28 @@ const RidesManagementCard = ({ ride, onDelete, distanceUnit }) => {
                     </p>
                 </div>
 
-                <div className="inline-flex flex-col px-4 py-2 rounded-full bg-[#EFEFEF] flex-shrink-0 w-[210px]">
+                <div className="inline-flex flex-col px-3 py-2 rounded-full bg-[#EFEFEF] min-w-0">
                     <p className="text-xs font-semibold text-[#6C6C6C] text-center">Time</p>
-                    <p className="text-[#333333] text-center font-semibold text-sm">{capitalizeFirst(ride.pickup_time)}</p>
+                    <p className="text-[#333333] text-center font-semibold text-sm truncate">{capitalizeFirst(ride.pickup_time)}</p>
                 </div>
 
-                <div className="inline-flex flex-col px-4 py-2 rounded-full bg-[#EFEFEF] flex-shrink-0 w-[107px]">
+                <div className="inline-flex flex-col px-3 py-2 rounded-full bg-[#EFEFEF] min-w-0">
                     <p className="text-xs font-semibold text-[#6C6C6C] text-center">Fare</p>
-                    <p className="text-[#333333] text-center font-semibold text-sm">
+                    <p className="text-[#333333] text-center font-semibold text-sm truncate">
                         {formatCurrency(ride.booking_amount)}
                     </p>
                 </div>
 
-                <div className="inline-flex flex-col px-4 py-2 rounded-full bg-[#EFEFEF] flex-shrink-0 w-[130px]">
+                <div className="inline-flex flex-col px-3 py-2 rounded-full bg-[#EFEFEF] min-w-0">
                     <p className="text-xs font-semibold text-[#6C6C6C] text-center">Distance</p>
-                    <p className="text-[#333333] text-center font-semibold text-sm">
-                        {formatDistance(ride.distance)}
+                    <p className="text-[#333333] text-center font-semibold text-sm truncate">
+                        {formatDistanceFromBooking(ride, distanceUnit)}
                     </p>
                 </div>
 
                 {ride.booking_status?.toLowerCase() === "pending" && actionOptions.length > 0 && (
                     <UserDropdown options={actionOptions} itemData={ride}>
-                        <Button className="w-10 h-10 bg-[#EFEFEF] rounded-full flex justify-center items-center mr-4">
+                        <Button className="w-10 h-10 bg-[#EFEFEF] rounded-full flex justify-center items-center">
                             <ThreeDotsIcon />
                         </Button>
                     </UserDropdown>

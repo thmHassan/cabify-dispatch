@@ -9,6 +9,8 @@ import ScrollToTop from "./components/shared/ScrollToTop";
 import Loading from "./components/shared/Loading/Loading";
 import { Toaster } from "react-hot-toast";
 import { SocketProvider } from "./components/routes/SocketProvider";
+import { MapConfigurationProvider } from "./contexts/MapConfigurationContext";
+import { CompanyDateTimeProvider } from "./contexts/CompanyDateTimeContext";
 
 const environment = import.meta.env.VITE_NODE_ENV;
 
@@ -23,7 +25,11 @@ function App() {
         <ScrollToTop>
           <Suspense fallback={<Loading />}>
             <SocketProvider>
-              <AllRoutes />
+              <CompanyDateTimeProvider>
+                  <MapConfigurationProvider>
+                    <AllRoutes />
+                  </MapConfigurationProvider>
+                </CompanyDateTimeProvider>
             </SocketProvider>
           </Suspense>
         </ScrollToTop>
@@ -39,6 +45,7 @@ function App() {
           }}
           toastOptions={{
             duration: 3000,
+            pauseOnHover: true,
             style: {
               background: "#fff",
               color: "#363636",

@@ -135,6 +135,38 @@ export const getTenantId = () => {
 };
 
 /**
+ * Resolves tenant/database id for API and tile auth.
+ * Falls back to stored tenant profile when tenant_id key is missing.
+ * @returns {string|null}
+ */
+export const resolveTenantDatabaseId = () => {
+  const direct = getTenantId();
+  if (direct) return direct;
+
+  const tenant = getTenantData();
+  if (!tenant || typeof tenant !== 'object') return null;
+
+  const root = tenant.data && typeof tenant.data === 'object' ? tenant.data : tenant;
+  return (
+    root.tenant_id
+    ?? root.database
+    ?? root.company_id
+    ?? tenant.tenant_id
+    ?? tenant.database
+    ?? tenant.company_id
+    ?? null
+  );
+};
+
+export const canAccessTenantApi = () =>
+  isAuthenticated() && Boolean(resolveTenantDatabaseId());
+
+export const getTenantDatabaseRequestParams = () => {
+  const database = resolveTenantDatabaseId();
+  return database ? { database } : {};
+};
+
+/**
  * Retrieves tenant data from localStorage
  * @returns {object|null}
  */
@@ -170,6 +202,35 @@ export const removeTenantData = () => {
   }
 };
 
+export const OVERVIEW_DRIVER_STORAGE_BASE_KEYS = [
+  'onJobDrivers_persistent',
+  'driverData_persistent',
+  'waitingDrivers_persistent',
+];
+
+/**
+ * Returns a localStorage key scoped to the current tenant.
+ * @param {string} baseKey
+ * @returns {string}
+ */
+export const getTenantScopedStorageKey = (baseKey) => {
+  const tenantId = getTenantId();
+  return tenantId ? `${baseKey}:${tenantId}` : baseKey;
+};
+
+/**
+ * Removes legacy overview driver keys that were not tenant-scoped.
+ */
+export const clearLegacyOverviewDriverStorage = () => {
+  try {
+    OVERVIEW_DRIVER_STORAGE_BASE_KEYS.forEach((key) => {
+      localStorage.removeItem(key);
+    });
+  } catch (error) {
+    console.error('Failed to clear legacy overview driver storage:', error);
+  }
+};
+
 /**
  * Checks if user is authenticated by verifying token existence
  * @returns {boolean} - True if token exists and is valid
@@ -190,6 +251,8 @@ export const isAuthenticated = () => {
  */
 export const clearAllAuthData = () => {
   try {
+    clearLegacyOverviewDriverStorage();
+
     // Remove encrypted token
     localStorage.removeItem('admin_token');
     
