@@ -62,8 +62,17 @@ const statusColor = {
 };
 
 const Col = ({ w, children, className = "" }) => (
-    <div className={`px-3 py-3 flex-shrink-0 ${w} ${className}`}>{children}</div>
+    <div className={`min-w-0 px-3 py-3 flex-shrink-0 ${w} ${className}`}>{children}</div>
 );
+
+const clampActionTextStyle = {
+    display: "-webkit-box",
+    WebkitBoxOrient: "vertical",
+    WebkitLineClamp: 2,
+    overflow: "hidden",
+    overflowWrap: "anywhere",
+    wordBreak: "break-word",
+};
 
 const PENDING_BOOKINGS_STORAGE_KEY = "dispatch_overview_pending_bookings";
 
@@ -1340,8 +1349,8 @@ const OverViewDetails = ({
                                 : "No bookings found"}
                         </div>
                     ) : (
-                        <div className="overflow-x-auto xl:overflow-x-visible min-h-[320px]">
-                            <div className="min-w-[1502px] xl:min-w-0">
+                        <div className="overflow-x-auto min-h-[320px]">
+                            <div className="w-max min-w-[1532px]">
                                 <div className="flex border-b text-sm font-semibold text-gray-700 bg-gray-50">
                                     <Col w="w-[50px]">ID</Col>
                                     <Col w="w-[104px]">Pickup Date</Col>
@@ -1356,7 +1365,7 @@ const OverViewDetails = ({
                                     <Col w="w-[110px]">Sub Company</Col>
                                     {/* <Col w="w-[100px]">OTP</Col> */}
                                     <Col w="w-[128px]">Status</Col>
-                                    <Col w="w-[190px]">Action</Col>
+                                    <Col w="w-[220px]">Action</Col>
                                 </div>
 
                                 {bookings.map((b, index) => {
@@ -1476,8 +1485,12 @@ const OverViewDetails = ({
                                                 </div>
                                             </Col>
 
-                                            <Col w="w-[190px]" className="whitespace-normal">
-                                                <span className="line-clamp-2 text-[12px] leading-snug" title={cleanDispatcherAction(b.dispatcher_action) || "-"}>
+                                            <Col w="w-[220px]" className="max-w-[220px] whitespace-normal overflow-hidden">
+                                                <span
+                                                    className="block max-w-full text-[12px] leading-snug"
+                                                    style={clampActionTextStyle}
+                                                    title={cleanDispatcherAction(b.dispatcher_action) || "-"}
+                                                >
                                                     {cleanDispatcherAction(b.dispatcher_action) || "-"}
                                                 </span>
                                             </Col>

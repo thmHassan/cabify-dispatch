@@ -21,8 +21,17 @@ import {
 import StatusMenu from "./StatusMenu";
 
 const Col = ({ w, children, className = "" }) => (
-    <div className={`px-3 py-3 flex-shrink-0 ${w} ${className}`}>{children}</div>
+    <div className={`min-w-0 px-3 py-3 flex-shrink-0 ${w} ${className}`}>{children}</div>
 );
+
+const clampActionTextStyle = {
+    display: "-webkit-box",
+    WebkitBoxOrient: "vertical",
+    WebkitLineClamp: 2,
+    overflow: "hidden",
+    overflowWrap: "anywhere",
+    wordBreak: "break-word",
+};
 
 export const isEditableOverviewTab = (filter) =>
     filter === "todays_booking" || filter === "pre_bookings";
@@ -183,14 +192,15 @@ const EditableBookingRow = ({
                 </div>
             </Col>
 
-            <Col w="w-[190px]" className="whitespace-normal">
+            <Col w="w-[220px]" className="max-w-[220px] whitespace-normal overflow-hidden">
                 <div className="flex min-w-0 flex-col gap-1.5">
                     {plotBasedDispatchEnabled && progressMessage ? (
                         <button
                             type="button"
                             onClick={() => onOpenPlotDispatchPanel?.(booking, plotStatus)}
                             title={progressMessage}
-                            className={`line-clamp-2 text-left text-[11px] font-medium leading-snug ${
+                            style={clampActionTextStyle}
+                            className={`block max-w-full text-left text-[11px] font-medium leading-snug ${
                                 plotDispatchExhausted
                                     ? "text-amber-700"
                                     : plotDispatchActive
@@ -201,7 +211,11 @@ const EditableBookingRow = ({
                             {progressMessage}
                         </button>
                     ) : (
-                        <span className="line-clamp-2 text-[12px] leading-snug" title={dispatcherAction}>
+                        <span
+                            className="block max-w-full text-[12px] leading-snug"
+                            style={clampActionTextStyle}
+                            title={dispatcherAction}
+                        >
                             {dispatcherAction}
                         </span>
                     )}
