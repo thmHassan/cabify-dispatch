@@ -24,7 +24,15 @@ export const isDriverOnlineFromApi = (driver) =>
 export const isWaitingListDriver = (driver) => {
     const drivingStatus = (driver?.driving_status || "idle").toLowerCase();
     const status = (driver?.status || "").toLowerCase();
-    return drivingStatus !== "busy" && status !== "busy" && status !== "active";
+    const onlineStatus = (driver?.online_status || "").toLowerCase();
+    return (
+        drivingStatus !== "busy"
+        && status !== "busy"
+        && status !== "active"
+        && onlineStatus !== "offline"
+        && onlineStatus !== "reconnecting"
+        && driver?.is_reconnecting !== true
+    );
 };
 
 export const formatWaitingDriverFromSocket = (driver) => ({
@@ -34,7 +42,7 @@ export const formatWaitingDriverFromSocket = (driver) => ({
     plot_id: driver.plot_id ?? driver.plot,
     plot: driver.plot_name || driver.plot || "N/A",
     rank: driver.rank || driver.ranking || 1,
-    online_status: "online",
+    online_status: String(driver?.online_status || "").toLowerCase() || "online",
     updatedAt: Date.now(),
     is_reconnecting: driver.is_reconnecting === true,
     display_name: driver.is_reconnecting === true

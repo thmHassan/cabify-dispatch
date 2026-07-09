@@ -69,10 +69,17 @@ const getPayloadDatabase = (payload) => {
   return data?.database || data?.tenant || data?.tenant_id || data?.db || data?.client_id || null;
 };
 
+const normalizeTenantId = (value) => {
+  if (!value) return null;
+  const normalized = String(value).trim().toLowerCase();
+  return normalized ? normalized.replace(/^tenant[-_]*/i, "") : null;
+};
+
 const isCurrentTenantPayload = (payload) => {
   const payloadDatabase = getPayloadDatabase(payload);
-  const tenantId = getTenantId();
-  return !payloadDatabase || !tenantId || String(payloadDatabase) === String(tenantId);
+  const tenantId = normalizeTenantId(getTenantId());
+  const payloadTenant = normalizeTenantId(payloadDatabase);
+  return !payloadTenant || !tenantId || payloadTenant === tenantId;
 };
 
 const loadFromStorage = (key, fallback) => {
@@ -196,7 +203,15 @@ const isDriverOnlineFromApi = (driver) =>
 const isWaitingListDriver = (driver) => {
   const drivingStatus = (driver?.driving_status || "idle").toLowerCase();
   const status = (driver?.status || "").toLowerCase();
-  return drivingStatus !== "busy" && status !== "busy" && status !== "active";
+  const onlineStatus = (driver?.online_status || "").toLowerCase();
+  return (
+    drivingStatus !== "busy"
+    && status !== "busy"
+    && status !== "active"
+    && onlineStatus !== "offline"
+    && onlineStatus !== "reconnecting"
+    && driver?.is_reconnecting !== true
+  );
 };
 
 const formatWaitingDriverFromSocket = (d) => {
@@ -207,7 +222,7 @@ const formatWaitingDriverFromSocket = (d) => {
     plot_id: d.plot_id ?? d.plot,
     plot: d.plot_name || d.plot || "N/A",
     rank: d.rank || d.ranking || 1,
-    online_status: "online",
+    online_status: String(d?.online_status || "online").toLowerCase(),
     updatedAt: Date.now(),
     is_reconnecting: d.is_reconnecting === true,
     display_name: d.is_reconnecting === true
@@ -1962,7 +1977,22 @@ const Overview = () => {
       }
       if (!isCurrentTenantPayload(data)) return;
 
-      if (!isWaitingListDriver(data)) return;
+      const dataOnlineStatus = String(data?.online_status || "").toLowerCase();
+      if (dataOnlineStatus === "offline") {
+        const offlineDriverId = getOfflineDriverIdFromPayload(data);
+        if (offlineDriverId) {
+          removeDriverFromWaitingAndMap(offlineDriverId);
+        }
+        return;
+      }
+
+      const driverId = getOfflineDriverIdFromPayload(data);
+      if (!isWaitingListDriver(data)) {
+        if (driverId) {
+          removeDriverFromWaitingAndMap(driverId);
+        }
+        return;
+      }
 
       const formatted = formatWaitingDriverFromSocket(data);
       const driverKey = getDriverKey(formatted);

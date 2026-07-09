@@ -24,10 +24,17 @@ const getPayloadDatabase = (payload) => {
     return data?.database || data?.tenant || data?.tenant_id || data?.db || null;
 };
 
+const normalizeTenantId = (value) => {
+    if (!value) return null;
+    const normalized = String(value).trim().toLowerCase();
+    return normalized ? normalized.replace(/^tenant[-_]*/i, "") : null;
+};
+
 const isCurrentTenantPayload = (payload) => {
     const payloadDatabase = getPayloadDatabase(payload);
-    const tenantId = getTenantId();
-    return !payloadDatabase || !tenantId || String(payloadDatabase) === String(tenantId);
+    const tenantId = normalizeTenantId(getTenantId());
+    const payloadTenant = normalizeTenantId(payloadDatabase);
+    return !payloadTenant || !tenantId || payloadTenant === tenantId;
 };
 
 const resolvePlotCentroid = (plot) => {
@@ -97,7 +104,7 @@ const applyDriverToMapData = (prev, driver, plots, status) => {
             ...(position ? { position, latitude: position.lat, longitude: position.lng, lat: position.lat, lng: position.lng } : {}),
             status,
             driving_status: status,
-            online_status: "online",
+            online_status: String(driver.online_status || prev[driverKey]?.online_status || "online").toLowerCase(),
         },
     };
     saveDriverDataToStorage(updated);
@@ -377,7 +384,21 @@ export function useMapDriverSync({ socket, plotsData = [] }) {
             }
             if (!isCurrentTenantPayload(data)) return;
 
-            if (!isWaitingListDriver(data)) return;
+            const dataOnlineStatus = String(data?.online_status || "").toLowerCase();
+            const driverId = getOfflineDriverIdFromPayload(data);
+            if (dataOnlineStatus === "offline") {
+                if (driverId) {
+                    removeDriverFromActiveMap(driverId);
+                }
+                return;
+            }
+
+            if (!isWaitingListDriver(data)) {
+                if (driverId) {
+                    removeDriverFromActiveMap(driverId);
+                }
+                return;
+            }
 
             const formatted = formatWaitingDriverFromSocket(data);
             const driverKey = getDriverKey(formatted);
@@ -472,6 +493,11 @@ export function useMapDriverSync({ socket, plotsData = [] }) {
 
             if (drivingStatus === "idle") {
                 setOnJobDrivers((prev) => prev.filter((d) => getDriverKey(d) !== driverKey));
+            }
+
+            if (!isWaitingListDriver(data)) {
+                removeDriverFromActiveMap(driverKey);
+                return;
             }
 
             const formatted = formatWaitingDriverFromSocket(data);

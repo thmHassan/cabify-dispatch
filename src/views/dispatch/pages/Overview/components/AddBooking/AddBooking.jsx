@@ -358,7 +358,7 @@ const DEFAULT_FORM_VALUES = {
     auto_dispatch: true, bidding: false, bidding_fallback: false, request_for_vehicle: false,
     auto_release: true, dispatch_release_at: "", dispatch_release_mode: "auto_then_bidding", dispatch_release_override: false,
     pickup_time_type: "asap", pickup_time: "", reminder_minutes: "",
-    booking_date: "", booking_type: "outstation",
+    booking_date: "", booking_type: "local",
     name: "", email: "", phone_no: "", tel_no: "",
     passenger: 1, luggage: 0, hand_luggage: 0,
     special_request: "", payment_reference: "", payment_method: "cash",
@@ -1495,7 +1495,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
         setFieldValue("dispatch_release_mode", nextValues.dispatch_release_mode || companyReleaseSettings.mode);
     };
 
-    const validateCreateBooking = (values) => {
+const validateCreateBooking = (values) => {
         const errors = {};
         if (!values.pickup_location?.trim()) errors.pickup_location = "Pickup point is required";
         if (!values.destination_location?.trim()) errors.destination_location = "Destination is required";
@@ -1505,8 +1505,12 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
             errors.booking_system = "Select Auto Dispatch or Bidding";
         }
         if (!values.booking_type || values.booking_type === "outstation") errors.booking_type = "Please select a booking type";
-        if (!isMultiBooking && !values.booking_date) errors.booking_date = "Booking date is required";
-        if (!isMultiBooking && isPastCompanyDate(values.booking_date)) errors.booking_date = "Booking date cannot be in the past";
+        if (!isMultiBooking && values.pickup_time_type !== "asap" && !values.booking_date) {
+            errors.booking_date = "Booking date is required";
+        }
+        if (!isMultiBooking && values.pickup_time_type !== "asap" && isPastCompanyDate(values.booking_date)) {
+            errors.booking_date = "Booking date cannot be in the past";
+        }
         if (values.pickup_time_type === "time" && !values.pickup_time) errors.pickup_time = "Pickup time is required";
         if (values.pickup_time_type === "time" && isPastCompanyPickupTime(values.booking_date, values.pickup_time)) {
             errors.pickup_time = "Pickup time cannot be in the past";
@@ -1968,7 +1972,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
                     multiStartAt: values.multi_start_at,
                     bookingDate: values.booking_date,
                 })
-                : (values.booking_date || "");
+                : (values.booking_date || getCompanyTodayForInput());
             formData.append('booking_date', bookingDate);
             formData.append('booking_type', values.booking_type || '');
             formData.append("dispatcher_id", dispatcherId);
@@ -2615,6 +2619,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
                                                                             setFieldValue("reminder_minutes", "");
                                                                             setFieldValue("dispatch_release_at", "");
                                                                             setFieldValue("dispatch_release_override", false);
+                                                                            setFieldValue("booking_date", getCompanyTodayForInput());
                                                                         } else if (!values.pickup_time) {
                                                                             setFieldValue("pickup_time", "00:00");
                                                                             syncDefaultReleaseAt({ ...values, pickup_time_type: val, pickup_time: "00:00" }, setFieldValue);
@@ -2642,26 +2647,28 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
                                                             </div>
                                                             <FieldError message={bookingErrors.pickup_time} />
                                                         </FormField>
-                                                        <FormField label={isMultiBooking ? "Reference Date" : "Booking Date"}>
-                                                                <input type="date"
-                                                                    min={getCompanyTodayForInput()}
-                                                                    className={`${formInputClass} min-w-0 ${bookingErrors.booking_date ? formInputErrorClass : ""}`}
-                                                                    value={values.booking_date || ""}
-                                                                    disabled={isMultiBooking}
-                                                                    onChange={(e) => {
-                                                                        const nextBookingDate = e.target.value;
-                                                                        setFieldValue("booking_date", nextBookingDate);
-                                                                        syncDefaultReleaseAt({ ...values, booking_date: nextBookingDate }, setFieldValue);
-                                                                        clearBookingError("booking_date");
-                                                                        clearBookingError("dispatch_release_at");
-                                                                    }} />
-                                                                {isMultiBooking && (
-                                                                    <p className="text-[10px] text-[#6B7280] mt-0.5 hidden lg:block">
-                                                                        Auto from start date
-                                                                    </p>
-                                                                )}
-                                                                <FieldError message={bookingErrors.booking_date} />
-                                                        </FormField>
+                                                        {!isMultiBooking && values.pickup_time_type === "asap" ? null : (
+                                                            <FormField label={isMultiBooking ? "Reference Date" : "Booking Date"}>
+                                                                    <input type="date"
+                                                                        min={getCompanyTodayForInput()}
+                                                                        className={`${formInputClass} min-w-0 ${bookingErrors.booking_date ? formInputErrorClass : ""}`}
+                                                                        value={values.booking_date || ""}
+                                                                        disabled={isMultiBooking}
+                                                                        onChange={(e) => {
+                                                                            const nextBookingDate = e.target.value;
+                                                                            setFieldValue("booking_date", nextBookingDate);
+                                                                            syncDefaultReleaseAt({ ...values, booking_date: nextBookingDate }, setFieldValue);
+                                                                            clearBookingError("booking_date");
+                                                                            clearBookingError("dispatch_release_at");
+                                                                        }} />
+                                                                    {isMultiBooking && (
+                                                                        <p className="text-[10px] text-[#6B7280] mt-0.5 hidden lg:block">
+                                                                            Auto from start date
+                                                                        </p>
+                                                                    )}
+                                                                    <FieldError message={bookingErrors.booking_date} />
+                                                            </FormField>
+                                                        )}
                                                         <FormField label="Booking Type">
                                                                 <select
                                                                     className={`${formSelectClass} min-w-0 ${bookingErrors.booking_type ? formInputErrorClass : ""}`}
