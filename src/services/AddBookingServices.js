@@ -160,10 +160,28 @@ export async function apiGetCancelledBooking(params) {
 
 export const getBookings = async (bookingParams) => {
     const params = buildBookingParams(bookingParams);
+    const shouldVerifyEmptyTodayList =
+        params.filter === "todays_booking" &&
+        Number(params.page || 1) === 1 &&
+        !params.search &&
+        !params.status &&
+        !params.sub_company;
 
     try {
         const res = await socketApi.get("/bookings", { params });
         if (isApiSuccess(res?.data)) {
+            const rows = Array.isArray(res?.data?.data) ? res.data.data : [];
+            if (shouldVerifyEmptyTodayList && rows.length === 0) {
+                try {
+                    const fallback = await fetchBookingsFromLaravel(bookingParams);
+                    const fallbackRows = Array.isArray(fallback?.data?.data) ? fallback.data.data : [];
+                    if (fallbackRows.length > 0) {
+                        return fallback;
+                    }
+                } catch (fallbackError) {
+                    console.warn("Laravel verification for empty today's list failed:", fallbackError.message);
+                }
+            }
             return res;
         }
         console.warn("Socket bookings API returned unsuccessful response, falling back to Laravel");

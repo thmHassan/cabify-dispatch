@@ -12,6 +12,7 @@ import {
     mergeBookingsById,
     shouldShowBookingInOverviewTab,
 } from "../../../../../../utils/functions/bookingDateFilter";
+import { ensureCompanyTimezoneLoaded } from "../../../../../../utils/functions/appDateTime";
 import { formatBookingDate, formatCurrency, formatPickupTime, formatReminderLabel } from "../../../../../../utils/functions/formatters";
 import { useNavigate } from "react-router-dom";
 import StatusMenu from "./StatusMenu";
@@ -35,7 +36,6 @@ import {
     formatPlotDispatchProgressMessage,
     getPlotDispatchBookingId,
     inferPhaseFromEvent,
-    isPlotDispatchPhaseActive,
     isPlotDispatchPhaseTerminal,
     isPlotDispatchStatusActive,
     isTerminalBooking,
@@ -256,6 +256,8 @@ const OverViewDetails = ({
     const [subCompanyList, setSubCompanyList] = useState([]);
     const [loadingSubCompanies, setLoadingSubCompanies] = useState(false);
     const [tableLoading, setTableLoading] = useState(false);
+    const [retryingTodayFetch, setRetryingTodayFetch] = useState(false);
+    const [companyTimezoneReady, setCompanyTimezoneReady] = useState(false);
     const [assignmentNotifications, setAssignmentNotifications] = useState([]);
     const [refreshTrigger, setRefreshTrigger] = useState(0);
     const [plotDispatchStatusById, setPlotDispatchStatusById] = useState({});
@@ -264,6 +266,11 @@ const OverViewDetails = ({
     const pendingSeedBookingsRef = useRef(loadPendingBookingsFromStorage());
     const bookingsRef = useRef([]);
     const latestFetchKeyRef = useRef("");
+    const plotDispatchPollCooldownRef = useRef(new Map());
+    const plotDispatchInFlightRef = useRef(new Map());
+    const plotDispatchPhaseRef = useRef({});
+    const plotDispatchNotificationCooldownRef = useRef(new Map());
+    const todayEmptyRetryCountRef = useRef(0);
     const hasCompletedInitialFetchRef = useRef(false);
     const highlightTimeoutRef = useRef(null);
     const refreshTimeoutRef = useRef(null);
@@ -272,6 +279,19 @@ const OverViewDetails = ({
     useEffect(() => {
         bookingsRef.current = bookings;
     }, [bookings]);
+
+    useEffect(() => {
+        let cancelled = false;
+        ensureCompanyTimezoneLoaded().finally(() => {
+            if (!cancelled) {
+                setCompanyTimezoneReady(true);
+            }
+        });
+
+        return () => {
+            cancelled = true;
+        };
+    }, []);
 
     const clearHighlightLater = useCallback((bookingId, delayMs = 12000) => {
         if (highlightTimeoutRef.current) {
@@ -297,6 +317,7 @@ const OverViewDetails = ({
     const clearPlotDispatchForBooking = useCallback((bookingOrId) => {
         const bookingId = typeof bookingOrId === "object" ? bookingOrId?.id : bookingOrId;
         if (bookingId == null) return;
+        const bookingIdKey = String(bookingId);
 
         setPlotDispatchStatusById((prev) => {
             if (!prev?.[bookingId]) return prev;
@@ -312,6 +333,9 @@ const OverViewDetails = ({
         setHighlightedBookingId((current) =>
             Number(current) === Number(bookingId) ? null : current
         );
+        delete plotDispatchPhaseRef.current[bookingIdKey];
+        plotDispatchPollCooldownRef.current.delete(bookingIdKey);
+        plotDispatchInFlightRef.current.delete(bookingIdKey);
     }, []);
 
     const applyBookingEvent = useCallback((payload, fallbackStatus = null, { addIfMissing = false } = {}) => {
@@ -408,6 +432,15 @@ const OverViewDetails = ({
         });
     }, []);
 
+    const shouldShowNotificationForKey = useCallback((key, cooldownMs = 4000) => {
+        if (!key) return true;
+        const now = Date.now();
+        const lastSeen = plotDispatchNotificationCooldownRef.current.get(key) || 0;
+        if (now - lastSeen < cooldownMs) return false;
+        plotDispatchNotificationCooldownRef.current.set(key, now);
+        return true;
+    }, []);
+
     const handleCloseNotification = useCallback((id) => {
         setAssignmentNotifications((prev) => prev.filter((notification) => notification.id !== id));
     }, []);
@@ -423,11 +456,21 @@ const OverViewDetails = ({
         );
         const bookingId = getPlotDispatchBookingId(status);
         if (!bookingId) return null;
+        const bookingIdKey = String(bookingId);
+        const normalizedPhase = String(status?.phase || "").toLowerCase();
+        const previousPhase = String(plotDispatchPhaseRef.current[bookingIdKey] || "").toLowerCase();
+        const shouldNotifyAccepted =
+            normalizedPhase === "accepted" ||
+            eventName === PLOT_DISPATCH_SOCKET_EVENTS.ACCEPTED;
+        const shouldNotifyManualRequired =
+            normalizedPhase === "exhausted" ||
+            eventName === PLOT_DISPATCH_SOCKET_EVENTS.MANUAL_REQUIRED;
 
         const currentBooking = bookingsRef.current.find((b) => Number(b?.id) === Number(bookingId));
         const incomingBooking = status.booking || parsed.booking || null;
         if (isTerminalBooking(currentBooking) || isTerminalBooking(incomingBooking)) {
             clearPlotDispatchForBooking(bookingId);
+            delete plotDispatchPhaseRef.current[bookingIdKey];
             return status;
         }
 
@@ -443,6 +486,9 @@ const OverViewDetails = ({
         const mergedBooking = status.booking
             ? mergePlotDispatchIntoBooking(status.booking, status)
             : null;
+        const normalizedMergedBooking = shouldNotifyAccepted && mergedBooking
+            ? { ...mergedBooking, booking_status: "ongoing" }
+            : mergedBooking;
 
         setBookings((prev) => {
             const safe = prev.filter(Boolean);
@@ -454,21 +500,31 @@ const OverViewDetails = ({
                     return applyTabFilter(
                         safe.map((b) =>
                             Number(b.id) === Number(bookingId)
-                                ? mergeBookingEvent(b, mergedBooking)
+                                ? mergeBookingEvent(b, normalizedMergedBooking || mergedBooking)
                                 : b
                         )
                     );
                 }
 
                 if (!exists) {
-                    return shouldShowBookingInOverviewTab(mergedBooking, filter, overviewTabOptions)
-                        ? applyTabFilter([mergedBooking, ...safe])
+                    return shouldShowBookingInOverviewTab(
+                        normalizedMergedBooking || mergedBooking,
+                        filter,
+                        overviewTabOptions
+                    )
+                        ? applyTabFilter([normalizedMergedBooking || mergedBooking, ...safe])
                         : safe;
                 }
                 return applyTabFilter(
                     safe.map((b) =>
                         Number(b.id) === Number(bookingId)
-                            ? mergeBookingEvent(b, mergePlotDispatchIntoBooking({ ...b, ...mergedBooking }, status))
+                            ? mergeBookingEvent(
+                                b,
+                                mergePlotDispatchIntoBooking(
+                                    { ...b, ...(normalizedMergedBooking || mergedBooking) },
+                                    status
+                                )
+                            )
                             : b
                     )
                 );
@@ -479,7 +535,13 @@ const OverViewDetails = ({
             return applyTabFilter(
                 safe.map((b) =>
                     Number(b.id) === Number(bookingId)
-                        ? mergeBookingEvent(b, mergePlotDispatchIntoBooking(b, status))
+                        ? mergeBookingEvent(
+                            b,
+                            mergePlotDispatchIntoBooking(
+                                shouldNotifyAccepted ? { ...b, booking_status: "ongoing" } : b,
+                                status
+                            )
+                        )
                         : b
                 )
             );
@@ -490,35 +552,64 @@ const OverViewDetails = ({
             clearHighlightLater(status.highlight_booking_id);
         }
 
-        if (phase === "exhausted" || eventName === PLOT_DISPATCH_SOCKET_EVENTS.MANUAL_REQUIRED) {
+        if (shouldNotifyManualRequired && previousPhase !== normalizedPhase) {
             setHighlightedBookingId(bookingId);
             clearHighlightLater(bookingId);
             setRefreshTrigger((prev) => prev + 1);
         }
 
-        if (phase === "accepted" || eventName === PLOT_DISPATCH_SOCKET_EVENTS.ACCEPTED) {
+        const notificationPhaseKey = shouldNotifyManualRequired || shouldNotifyAccepted
+            ? `${bookingIdKey}:${normalizedPhase || eventName}:plot-dispatch`
+            : null;
+        if (notificationPhaseKey && shouldShowNotificationForKey(notificationPhaseKey, 5000) && previousPhase !== normalizedPhase) {
+            if (shouldNotifyAccepted) {
+                showNotification({
+                    booking_id: bookingId,
+                    booking: normalizedMergedBooking || mergedBooking,
+                    driver_name:
+                        normalizedMergedBooking?.driverDetail?.name ||
+                        parsed.driver_name ||
+                        status.pending_drivers?.[0]?.name,
+                    message:
+                        formatPlotDispatchProgressMessage(status) ||
+                        parsed.message ||
+                        "Driver accepted plot dispatch",
+                    type: "accepted",
+                    status: "ongoing",
+                });
+            } else if (shouldNotifyManualRequired) {
+                showNotification({
+                    booking_id: bookingId,
+                    booking: normalizedMergedBooking || mergedBooking,
+                    driver_name:
+                        normalizedMergedBooking?.driverDetail?.name ||
+                        parsed.driver_name ||
+                        status.pending_drivers?.[0]?.name,
+                    message:
+                        parsePlotDispatchPayload(rawPayload)?.message ||
+                        "No driver accepted — available for manual dispatch",
+                    type: "failed",
+                    status: "unassigned",
+                });
+            }
+        }
+
+        if (shouldNotifyAccepted) {
             setPlotDispatchStatusById((prev) => {
                 const next = { ...prev };
                 delete next[bookingId];
                 return next;
             });
-            showNotification({
-                booking_id: bookingId,
-                booking: mergedBooking,
-                driver_name:
-                    mergedBooking?.driverDetail?.name ||
-                    parsed.driver_name ||
-                    status.pending_drivers?.[0]?.name,
-                message:
-                    formatPlotDispatchProgressMessage(status) ||
-                    parsed.message ||
-                    "Driver accepted plot dispatch",
-                type: "accepted",
-                status: "ongoing",
-            });
         }
 
-        if (isPlotDispatchPhaseTerminal(phase) && phase !== "accepted") {
+        if (normalizedPhase) {
+            plotDispatchPhaseRef.current[bookingIdKey] = normalizedPhase;
+            if (isPlotDispatchPhaseTerminal(normalizedPhase) && normalizedPhase !== "accepted") {
+                delete plotDispatchPhaseRef.current[bookingIdKey];
+            }
+        }
+
+        if (isPlotDispatchPhaseTerminal(normalizedPhase) && normalizedPhase !== "accepted") {
             setPlotDispatchPanel((current) =>
                 current?.booking?.id === bookingId
                     ? { booking: mergedBooking || current.booking, status }
@@ -527,16 +618,39 @@ const OverViewDetails = ({
         }
 
         return status;
-    }, [applyTabFilter, clearHighlightLater, clearPlotDispatchForBooking, filter, overviewTabOptions, showNotification]);
+    }, [
+        applyTabFilter,
+        clearHighlightLater,
+        clearPlotDispatchForBooking,
+        filter,
+        overviewTabOptions,
+        showNotification,
+        shouldShowNotificationForKey,
+    ]);
 
     const syncPlotDispatchStatus = useCallback(async (bookingId, { force = false } = {}) => {
         if (!bookingId || !plotBasedDispatchEnabled) return null;
         if (!force && plotDispatchEndpointUnavailableRef.current) return null;
 
+        const numericBookingId = Number(bookingId);
+        if (!Number.isFinite(numericBookingId) || numericBookingId <= 0) return null;
+        const bookingIdKey = String(numericBookingId);
+
+        const now = Date.now();
+        const lastPoll = plotDispatchPollCooldownRef.current.get(bookingIdKey) || 0;
+        if (!force && now - lastPoll < 8000) return null;
+        if (plotDispatchInFlightRef.current.get(bookingIdKey)) return null;
+
         const booking = bookingsRef.current.find((b) => Number(b.id) === Number(bookingId));
         if (!force && booking && !shouldPollPlotDispatchStatus(booking, plotDispatchStatusById)) {
+            plotDispatchPollCooldownRef.current.delete(bookingIdKey);
             return null;
         }
+
+        if (!force) {
+            plotDispatchPollCooldownRef.current.set(bookingIdKey, now);
+        }
+        plotDispatchInFlightRef.current.set(bookingIdKey, true);
 
         try {
             const res = await getPlotDispatchStatus(bookingId);
@@ -565,6 +679,8 @@ const OverViewDetails = ({
 
             console.warn(`Plot dispatch status poll failed for booking ${bookingId}:`, error.message);
             return null;
+        } finally {
+            plotDispatchInFlightRef.current.delete(bookingIdKey);
         }
     }, [applyPlotDispatchUpdate, plotBasedDispatchEnabled, plotDispatchStatusById]);
 
@@ -634,6 +750,8 @@ const OverViewDetails = ({
     useEffect(() => {
         hasCompletedInitialFetchRef.current = false;
         bookingsRef.current = [];
+        todayEmptyRetryCountRef.current = 0;
+        setRetryingTodayFetch(false);
         setBookings([]);
         setTotalPages(1);
         setTableLoading(true);
@@ -641,6 +759,11 @@ const OverViewDetails = ({
     }, [filter]);
 
     useEffect(() => {
+        if (!companyTimezoneReady) {
+            setTableLoading(true);
+            return;
+        }
+
         const normalizedStatus = normalizeOverviewSelectValue(selectedStatus);
         const normalizedSubCompany = normalizeOverviewSelectValue(selectedSubCompany);
         const requestKey = JSON.stringify({
@@ -656,6 +779,7 @@ const OverViewDetails = ({
         latestFetchKeyRef.current = requestKey;
         setTableLoading(!hasCompletedInitialFetchRef.current && bookingsRef.current.length === 0);
         const fetchBookings = async () => {
+            let keepLoadingForTodayRetry = false;
             try {
                 const params = { page, limit };
                 if (search) params.search = search;
@@ -672,22 +796,34 @@ const OverViewDetails = ({
                     setPage(1);
                     return;
                 }
-                const hadPendingSeeds = (pendingSeedBookingsRef.current || []).length > 0;
-                const { relevantSeeds, remainingSeeds } = splitPendingSeeds(fetchedBookings);
-                const fetchedWithSeeds = mergeBookingsById(fetchedBookings, relevantSeeds);
-                const shouldPreserveLiveList =
-                    hasCompletedInitialFetchRef.current &&
+                const shouldRetryEmptyToday =
+                    filter === "todays_booking" &&
                     page === 1 &&
+                    fetchedBookings.length === 0 &&
                     !search &&
                     !normalizedStatus &&
                     !normalizedSubCompany &&
-                    isEditableOverviewTab(filter) &&
-                    (totalRows > 0 || fetchedWithSeeds.length > 0);
+                    todayEmptyRetryCountRef.current < 3;
+
+                if (shouldRetryEmptyToday) {
+                    todayEmptyRetryCountRef.current += 1;
+                    keepLoadingForTodayRetry = true;
+                    setRetryingTodayFetch(true);
+                    scheduleBookingsRefresh(700);
+                    return;
+                }
+
+                if (filter === "todays_booking") {
+                    todayEmptyRetryCountRef.current = 0;
+                    setRetryingTodayFetch(false);
+                }
+
+                const hadPendingSeeds = (pendingSeedBookingsRef.current || []).length > 0;
+                const { relevantSeeds, remainingSeeds } = splitPendingSeeds(fetchedBookings);
+                const fetchedWithSeeds = mergeBookingsById(fetchedBookings, relevantSeeds);
 
                 if (fetchedBookings.length === 0 && totalRows > 0 && bookingsRef.current.length > 0) {
-                    setBookings((prev) => applyTabFilter(mergeBookingCollections(prev, relevantSeeds)));
-                } else if (shouldPreserveLiveList) {
-                    setBookings((prev) => applyTabFilter(mergeBookingCollections(prev, fetchedWithSeeds)));
+                    setBookings((prev) => mergeBookingCollections(prev, relevantSeeds));
                 } else {
                     setBookings(mergeBookingCollections([], fetchedWithSeeds));
                 }
@@ -706,13 +842,17 @@ const OverViewDetails = ({
                 setBookings((prev) => applyTabFilter(mergeBookingCollections(prev, relevantSeeds)));
             } finally {
                 if (latestFetchKeyRef.current === requestKey) {
-                    hasCompletedInitialFetchRef.current = true;
-                    setTableLoading(false);
+                    if (keepLoadingForTodayRetry) {
+                        setTableLoading(true);
+                    } else {
+                        hasCompletedInitialFetchRef.current = true;
+                        setTableLoading(false);
+                    }
                 }
             }
         };
         fetchBookings();
-    }, [page, search, selectedStatus, selectedSubCompany, filter, refreshTrigger, externalRefreshTrigger, applyTabFilter, splitPendingSeeds]);
+    }, [page, search, selectedStatus, selectedSubCompany, filter, refreshTrigger, externalRefreshTrigger, applyTabFilter, splitPendingSeeds, scheduleBookingsRefresh, companyTimezoneReady]);
 
     useEffect(() => {
         if (!plotBasedDispatchEnabled || plotDispatchEndpointUnavailableRef.current) return undefined;
@@ -731,6 +871,10 @@ const OverViewDetails = ({
 
         const activeIds = Object.entries(plotDispatchStatusById)
             .filter(([, status]) => isPlotDispatchStatusActive(status))
+            .filter(([bookingId, status]) => {
+                const booking = bookingsRef.current.find((item) => String(item?.id) === String(bookingId));
+                return shouldPollPlotDispatchStatus(booking, { [bookingId]: status });
+            })
             .map(([bookingId]) => bookingId);
 
         if (!activeIds.length) return undefined;
@@ -751,6 +895,10 @@ const OverViewDetails = ({
         if (refreshTimeoutRef.current) {
             clearTimeout(refreshTimeoutRef.current);
         }
+        plotDispatchPollCooldownRef.current.clear();
+        plotDispatchInFlightRef.current.clear();
+        plotDispatchNotificationCooldownRef.current.clear();
+        plotDispatchPhaseRef.current = {};
     }, []);
 
     useEffect(() => {
@@ -808,10 +956,22 @@ const OverViewDetails = ({
         const handleJobAccepted = (data) => {
             console.log("job-accepted-by-driver:", data);
             if (!data?.booking_id) return;
-            applyBookingEvent(data, "ongoing");
+            const normalizedPayload = {
+                ...data,
+                booking_status: "ongoing",
+                booking: data?.booking
+                    ? { ...data.booking, booking_status: "ongoing" }
+                    : data.booking,
+            };
+
+            applyBookingEvent(normalizedPayload, "ongoing", { addIfMissing: true });
+            const notificationCooldownKey = `job-accepted:${data.database || data?.booking?.database || "tenant"}:${data.booking_id}`;
+            if (!shouldShowNotificationForKey(notificationCooldownKey, 5000)) {
+                return;
+            }
             showNotification({
                 booking_id: data.booking_id,
-                booking: data.booking,
+                booking: normalizedPayload.booking,
                 driver_name: resolveDriverName(data),
                 message: data.message,
                 type: "accepted",
@@ -1201,6 +1361,7 @@ const OverViewDetails = ({
     }, [
         socket,
         showNotification,
+        shouldShowNotificationForKey,
         filter,
         applyTabFilter,
         nearestDriverDispatchEnabled,
@@ -1338,7 +1499,7 @@ const OverViewDetails = ({
                 </div>
 
                 <div className="border-t min-h-[420px]">
-                    {tableLoading ? (
+                    {tableLoading || retryingTodayFetch ? (
                         <div className="min-h-[320px] flex items-center justify-center py-8 text-sm text-gray-500">
                             Loading bookings...
                         </div>

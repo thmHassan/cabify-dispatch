@@ -59,10 +59,12 @@ import {
 const ON_JOB_STORAGE_BASE = "onJobDrivers_persistent";
 const DRIVER_DATA_STORAGE_BASE = "driverData_persistent";
 const WAITING_DRIVERS_STORAGE_BASE = "waitingDrivers_persistent";
+const ACTIVE_BOOKING_FILTER_STORAGE_BASE = "overviewActiveBookingFilter";
 
 const getOnJobStorageKey = () => getTenantScopedStorageKey(ON_JOB_STORAGE_BASE);
 const getDriverDataStorageKey = () => getTenantScopedStorageKey(DRIVER_DATA_STORAGE_BASE);
 const getWaitingDriversStorageKey = () => getTenantScopedStorageKey(WAITING_DRIVERS_STORAGE_BASE);
+const getActiveBookingFilterStorageKey = () => getTenantScopedStorageKey(ACTIVE_BOOKING_FILTER_STORAGE_BASE);
 
 const getPayloadDatabase = (payload) => {
   const data = payload?.data && typeof payload.data === "object" ? payload.data : payload;
@@ -712,11 +714,24 @@ const COUNTRY_CENTERS = {
 const CARD_CONFIG = [
   { label: "TODAY'S BOOKING", filter: "todays_booking", countKey: "todaysBooking", icon: TodayBookingIcon },
   { label: "PRE BOOKINGS", filter: "pre_bookings", countKey: "preBookings", icon: PreBookingIcon },
+  { label: "PENDING", filter: "pending", countKey: "pending", icon: TodayBookingIcon },
+  { label: "ONGOING", filter: "ongoing", countKey: "ongoing", icon: TodayBookingIcon },
   { label: "RECENT JOBS", filter: "recent_jobs", countKey: "recentJobs", icon: TodayBookingIcon },
   { label: "COMPLETED", filter: "completed", countKey: "completed", icon: TodayBookingIcon },
   { label: "NO SHOW", filter: "no_show", countKey: "noShow", icon: NoShowIcon },
   { label: "CANCELLED", filter: "cancelled", countKey: "cancelled", icon: CancelledIcon },
 ];
+
+const OVERVIEW_BOOKING_FILTERS = new Set(CARD_CONFIG.map((card) => card.filter));
+
+const loadActiveBookingFilter = () => {
+  try {
+    const stored = localStorage.getItem(getActiveBookingFilterStorageKey());
+    return OVERVIEW_BOOKING_FILTERS.has(stored) ? stored : "todays_booking";
+  } catch {
+    return "todays_booking";
+  }
+};
 
 const getMapType = (data) => {
   if (!data) return "google";
@@ -1338,7 +1353,7 @@ const Overview = () => {
   const [selectedMessageDriver, setSelectedMessageDriver] = useState(null);
   const [isDriverMessageOpen, setIsDriverMessageOpen] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
-  const [activeBookingFilter, setActiveBookingFilter] = useState("todays_booking");
+  const [activeBookingFilter, setActiveBookingFilter] = useState(loadActiveBookingFilter);
   const [seedBookings, setSeedBookings] = useState([]);
   const {
     mapType,
@@ -1360,7 +1375,16 @@ const Overview = () => {
   const plotsDataRef = useRef(allPlots);
   useEffect(() => { plotsDataRef.current = allPlots; }, [allPlots]);
 
-  const [dashboardCounts, setDashboardCounts] = useState({ todaysBooking: 0, preBookings: 0, recentJobs: 0, completed: 0, noShow: 0, cancelled: 0 });
+  const [dashboardCounts, setDashboardCounts] = useState({
+    todaysBooking: 0,
+    preBookings: 0,
+    pending: 0,
+    ongoing: 0,
+    recentJobs: 0,
+    completed: 0,
+    noShow: 0,
+    cancelled: 0,
+  });
 
   const [driverData, setDriverData] = usePersistedDriverData();
   const [onJobDrivers, setOnJobDrivers] = usePersistedOnJobDrivers();
@@ -1468,10 +1492,12 @@ const Overview = () => {
 
   const fetchDashboardCards = useCallback(async () => {
     try {
-      const [cardsRes, todaysRes, preBookingsRes] = await Promise.all([
+      const [cardsRes, todaysRes, preBookingsRes, pendingRes, ongoingRes] = await Promise.all([
         getDashboardCards(),
         getBookings({ filter: "todays_booking", page: 1, limit: 1 }),
         getBookings({ filter: "pre_bookings", page: 1, limit: 1 }),
+        getBookings({ filter: "pending", page: 1, limit: 1 }),
+        getBookings({ filter: "ongoing", page: 1, limit: 1 }),
       ]);
 
       if (cardsRes?.data?.success) {
@@ -1479,6 +1505,8 @@ const Overview = () => {
           ...cardsRes.data.data,
           todaysBooking: todaysRes?.data?.pagination?.total ?? cardsRes?.data?.data?.todaysBooking ?? 0,
           preBookings: preBookingsRes?.data?.pagination?.total ?? cardsRes?.data?.data?.preBookings ?? 0,
+          pending: pendingRes?.data?.pagination?.total ?? cardsRes?.data?.data?.pending ?? 0,
+          ongoing: ongoingRes?.data?.pagination?.total ?? cardsRes?.data?.data?.ongoing ?? 0,
         });
       }
     } catch (err) {
@@ -1491,6 +1519,14 @@ const Overview = () => {
   useEffect(() => {
     fetchDashboardCards();
   }, [activeBookingFilter, fetchDashboardCards]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(getActiveBookingFilterStorageKey(), activeBookingFilter);
+    } catch {
+      // Tab persistence is best-effort only.
+    }
+  }, [activeBookingFilter]);
 
   const handleBookingCreated = useCallback((meta) => {
     const createdBookings = Array.isArray(meta?.createdBookings) ? meta.createdBookings.filter(Boolean) : [];
@@ -2697,15 +2733,17 @@ const Overview = () => {
       </div>
 
       <div className="sticky bottom-0 left-0 right-0 z-30 bg-white shadow-lg">
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-0.5 overflow-hidden rounded-lg shadow">
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-0.5 lg:overflow-visible overflow-x-auto rounded-lg shadow">
           {CARD_CONFIG.map((card) => {
             const isActive = activeBookingFilter === card.filter;
             const Icon = card.icon;
             return (
-              <button key={card.filter} onClick={() => setActiveBookingFilter(card.filter)}
-                className={`flex items-center justify-center gap-2 px-3 py-2.5 font-semibold text-white text-[11px] transition-colors ${isActive ? "bg-[#1F41BB]" : "bg-blue-500 hover:bg-blue-600"}`}
+              <button
+                key={card.filter}
+                onClick={() => setActiveBookingFilter(card.filter)}
+                className={`min-w-0 w-full flex items-center justify-center gap-1 px-2 py-2 text-[10px] md:text-[11px] whitespace-nowrap font-semibold text-white transition-colors ${isActive ? "bg-[#1F41BB]" : "bg-blue-500 hover:bg-blue-600"}`}
               >
-                {Icon && <Icon className="w-4 h-4" />}
+                {Icon && <Icon className="w-4 h-4 flex-shrink-0" />}
                 <span>{card.label}</span>
                 <span>({dashboardCounts[card.countKey] ?? 0})</span>
               </button>

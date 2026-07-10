@@ -208,6 +208,12 @@ export const filterBookingsForOverviewTab = (bookings, filter, options = {}) => 
         );
     }
 
+    if (filter === "pending") {
+        return bookings.filter((booking) =>
+            shouldShowBookingInOverviewTab(booking, filter, options)
+        );
+    }
+
     return bookings;
 };
 
@@ -351,13 +357,22 @@ export const extractUpdatedBookingFromResponse = (responseData, fallbackBooking 
     return { ...fallbackBooking, ...booking };
 };
 
+const normalizeBookingStatus = (booking) =>
+    String(booking?.booking_status || "").toLowerCase();
+
 export const shouldShowBookingInOverviewTab = (booking, filter, options = {}) => {
     const {
         nearestDriverDispatchEnabled = false,
         plotBasedDispatchEnabled = false,
     } = options;
+    const bookingStatus = normalizeBookingStatus(booking);
 
-    if (!filter || filter === "recent_jobs" || filter === "completed" || filter === "no_show" || filter === "cancelled") {
+    if (!filter || filter === "recent_jobs" || filter === "ongoing" || filter === "completed" || filter === "no_show" || filter === "cancelled") {
+        if (filter === "ongoing") return ["ongoing", "started"].includes(bookingStatus);
+        if (filter === "completed") return bookingStatus === "completed";
+        if (filter === "no_show") return bookingStatus === "no_show";
+        if (filter === "cancelled") return bookingStatus === "cancelled";
+        if (filter === "recent_jobs") return !isTerminalOverviewStatus({ booking_status: bookingStatus || null });
         return true;
     }
 
@@ -379,6 +394,10 @@ export const shouldShowBookingInOverviewTab = (booking, filter, options = {}) =>
         }
 
         return !shouldHideFromTodaysBookingForPlotDispatch(booking, plotBasedDispatchEnabled);
+    }
+
+    if (filter === "pending") {
+        return ["pending", "pending_acceptance"].includes(bookingStatus);
     }
 
     return true;

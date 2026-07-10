@@ -106,6 +106,10 @@ export const normalizePlotDispatchStatus = (payload, { eventName } = {}) => {
         ""
     ).toLowerCase();
 
+    const explicitActive = typeof parsed.active === "boolean"
+        ? parsed.active
+        : (parsed.active == null ? null : Boolean(Number(parsed.active)));
+
     const expiresInSeconds = Number(
         parsed.expires_in_seconds ??
         parsed.expiresInSeconds ??
@@ -126,6 +130,7 @@ export const normalizePlotDispatchStatus = (payload, { eventName } = {}) => {
 
     return {
         booking_id: bookingId,
+        active: explicitActive ?? null,
         phase,
         eventName: eventName || parsed.eventName || null,
         current_plot_id: parsed.current_plot_id ?? parsed.currentPlotId ?? null,
@@ -175,6 +180,16 @@ export const isPlotDispatchStatusActive = (status) => {
     if (isPlotDispatchPhaseActive(status.phase)) return true;
     const action = status.dispatcher_action || "";
     return typeof action === "string" && action.startsWith(PLOT_DISPATCH_ACTIVE_PREFIX);
+};
+
+const normalizePollDispatchStatusForPolling = (status) => {
+    if (!status) return null;
+    if (typeof status.active === "boolean") return status;
+    if (status.active === false) return { ...status, active: false };
+    const normalized = normalizePlotDispatchStatus(status);
+    return normalized && typeof normalized.active === "boolean"
+        ? normalized
+        : { ...normalized, active: null };
 };
 
 export const isPlotDispatchStatusExhausted = (status) => {
@@ -249,8 +264,13 @@ export const formatPlotDispatchProgressMessage = (status, { now = Date.now() } =
 export const mergePlotDispatchIntoBooking = (booking, status) => {
     if (!booking || !status) return booking;
 
+    const normalizedPhase = String(status?.phase || "").toLowerCase();
     const incomingBooking = status.booking || {};
-    const mergedBase = { ...booking, ...incomingBooking };
+    const mergedBase = {
+        ...booking,
+        ...incomingBooking,
+        ...(normalizedPhase === "accepted" ? { booking_status: "ongoing" } : {}),
+    };
     if (isTerminalBooking(mergedBase)) {
         return {
             ...mergedBase,
@@ -288,18 +308,30 @@ export const mergePlotDispatchIntoBooking = (booking, status) => {
 
 export const shouldPollPlotDispatchStatus = (booking, statusById = {}) => {
     if (!booking?.id) return false;
-
-    const tracked = statusById[booking.id];
-    if (tracked && isPlotDispatchStatusActive(tracked)) {
-        return true;
+    const bookingStatus = String(booking?.booking_status || "").toLowerCase();
+    if (["ongoing", "pending_acceptance", "arrived", "started", "completed", "cancelled", "no_show"].includes(bookingStatus)) {
+        return false;
     }
 
-    if (booking.plot_dispatch_status) {
-        return true;
+    const tracked = normalizePollDispatchStatusForPolling(statusById[booking.id]);
+    if (tracked) {
+        if (tracked.active === false) return false;
+        if (isPlotDispatchPhaseTerminal(tracked.phase)) return false;
+        if (isPlotDispatchStatusExhausted(tracked)) return false;
+        return isPlotDispatchStatusActive(tracked) || false;
+    }
+
+    const known = normalizePollDispatchStatusForPolling(booking.plot_dispatch_status);
+    if (known) {
+        if (known.active === false) return false;
+        if (isPlotDispatchPhaseTerminal(known.phase)) return false;
+        if (isPlotDispatchStatusExhausted(known)) return false;
+        if (isPlotDispatchStatusActive(known)) return true;
+        return isPlotDispatchPhaseActive(known.phase) || false;
     }
 
     if (isPlotDispatchInProgress(booking)) {
-        return true;
+        return !isTerminalBooking(booking);
     }
 
     if (isPlotDispatchExhausted(booking)) {
