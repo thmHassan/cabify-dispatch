@@ -63,7 +63,6 @@ import {
     syncMultiBookingReferenceDate,
 } from "../../../../../../utils/functions/bookingDateFilter";
 import {
-    formatCompanyTimeForApi,
     getCompanyNowParts,
     getCompanyTodayForInput,
     isCompanyFutureDateTime,
@@ -1958,7 +1957,7 @@ const validateCreateBooking = (values) => {
             }
             formData.append('pickup_time_type', values.pickup_time_type === "time" ? "time" : "asap");
             if (values.pickup_time_type === "asap") {
-                formData.append("pickup_time", formatCompanyTimeForApi());
+                formData.append("pickup_time", "asap");
             } else {
                 const tv = values.pickup_time || "";
                 formData.append("pickup_time", tv ? `${tv}:00` : "");
@@ -1972,7 +1971,7 @@ const validateCreateBooking = (values) => {
                     multiStartAt: values.multi_start_at,
                     bookingDate: values.booking_date,
                 })
-                : (values.booking_date || getCompanyTodayForInput());
+                : (values.pickup_time_type === "asap" ? getCompanyTodayForInput() : (values.booking_date || getCompanyTodayForInput()));
             formData.append('booking_date', bookingDate);
             formData.append('booking_type', values.booking_type || '');
             formData.append("dispatcher_id", dispatcherId);
@@ -2146,7 +2145,7 @@ const validateCreateBooking = (values) => {
                         bookingDate,
                         pickupTime: values.pickup_time_type === "time" && values.pickup_time
                             ? `${values.pickup_time}:00`
-                            : null,
+                            : "asap",
                         pickupLocation: pickupLocationLabel || null,
                         destinationLocation: destinationLocationLabel || null,
                         dispatchReleaseAt: values.dispatch_release_at || null,
@@ -2196,7 +2195,7 @@ const validateCreateBooking = (values) => {
             formData.append("pickup_time_type", values.pickup_time_type === "time" ? "time" : "asap");
 
             if (values.pickup_time_type === "asap") {
-                formData.append("pickup_time", formatCompanyTimeForApi());
+                formData.append("pickup_time", "asap");
             } else {
                 const tv = values.pickup_time || "";
                 formData.append("pickup_time", tv ? `${tv}:00` : "");
@@ -2205,7 +2204,7 @@ const validateCreateBooking = (values) => {
                 }
             }
 
-            formData.append("booking_date", values.booking_date || "");
+            formData.append("booking_date", values.pickup_time_type === "asap" ? getCompanyTodayForInput() : (values.booking_date || ""));
             formData.append("booking_type", values.booking_type || "");
             formData.append("dispatcher_id", dispatcherId);
 
@@ -2647,28 +2646,29 @@ const validateCreateBooking = (values) => {
                                                             </div>
                                                             <FieldError message={bookingErrors.pickup_time} />
                                                         </FormField>
-                                                        {!isMultiBooking && values.pickup_time_type === "asap" ? null : (
-                                                            <FormField label={isMultiBooking ? "Reference Date" : "Booking Date"}>
-                                                                    <input type="date"
-                                                                        min={getCompanyTodayForInput()}
-                                                                        className={`${formInputClass} min-w-0 ${bookingErrors.booking_date ? formInputErrorClass : ""}`}
-                                                                        value={values.booking_date || ""}
-                                                                        disabled={isMultiBooking}
-                                                                        onChange={(e) => {
-                                                                            const nextBookingDate = e.target.value;
-                                                                            setFieldValue("booking_date", nextBookingDate);
-                                                                            syncDefaultReleaseAt({ ...values, booking_date: nextBookingDate }, setFieldValue);
-                                                                            clearBookingError("booking_date");
-                                                                            clearBookingError("dispatch_release_at");
-                                                                        }} />
-                                                                    {isMultiBooking && (
-                                                                        <p className="text-[10px] text-[#6B7280] mt-0.5 hidden lg:block">
-                                                                            Auto from start date
-                                                                        </p>
-                                                                    )}
-                                                                    <FieldError message={bookingErrors.booking_date} />
-                                                            </FormField>
-                                                        )}
+                                                        <FormField label={isMultiBooking ? "Reference Date" : "Booking Date"}>
+                                                                <input type="date"
+                                                                    min={getCompanyTodayForInput()}
+                                                                    max={values.pickup_time_type === "asap" ? getCompanyTodayForInput() : undefined}
+                                                                    className={`${formInputClass} min-w-0 ${bookingErrors.booking_date ? formInputErrorClass : ""}`}
+                                                                    value={values.pickup_time_type === "asap" ? getCompanyTodayForInput() : (values.booking_date || "")}
+                                                                    disabled={isMultiBooking}
+                                                                    onChange={(e) => {
+                                                                        const nextBookingDate = values.pickup_time_type === "asap"
+                                                                            ? getCompanyTodayForInput()
+                                                                            : e.target.value;
+                                                                        setFieldValue("booking_date", nextBookingDate);
+                                                                        syncDefaultReleaseAt({ ...values, booking_date: nextBookingDate }, setFieldValue);
+                                                                        clearBookingError("booking_date");
+                                                                        clearBookingError("dispatch_release_at");
+                                                                    }} />
+                                                                {isMultiBooking && (
+                                                                    <p className="text-[10px] text-[#6B7280] mt-0.5 hidden lg:block">
+                                                                        Auto from start date
+                                                                    </p>
+                                                                )}
+                                                                <FieldError message={bookingErrors.booking_date} />
+                                                        </FormField>
                                                         <FormField label="Booking Type">
                                                                 <select
                                                                     className={`${formSelectClass} min-w-0 ${bookingErrors.booking_type ? formInputErrorClass : ""}`}
