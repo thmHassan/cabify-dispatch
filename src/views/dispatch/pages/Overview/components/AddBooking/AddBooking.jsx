@@ -78,6 +78,7 @@ import { requestBrowserGeolocation } from "../../../../../../utils/functions/geo
 import History from "./components/History";
 import LocationSearchSidebar from "./components/LocationSearchSidebar";
 import successSound from "../../../../../../assets/audio/meldix-success-340660.mp3";
+import { useSocket, useSocketStatus } from "../../../../../../components/routes/SocketProvider";
 
 const LOCATION_SEARCH_DEBOUNCE_MS = 400;
 
@@ -101,6 +102,7 @@ const SEARCH_COUNTRY_CENTERS = {
 };
 
 const BARIKOI_KEY = import.meta.env.VITE_BARIKOI_API_KEY || DEFAULT_BARIKOI_KEY;
+const DRIVER_LIST_POLL_INTERVAL_MS = 30000;
 
 const loadGoogleScript = (apiKey) =>
     new Promise((resolve, reject) => {
@@ -160,6 +162,24 @@ const formInputClass =
 const formSelectClass = formInputClass;
 const formInputErrorClass = "border-red-500 focus:border-red-500 focus:ring-red-500/20";
 const formLabelClass = "text-sm font-semibold leading-tight text-[#111827]";
+const resolveDriverOnlineStatus = (status) => {
+    const normalized = (status || "").toString().trim().toLowerCase();
+    return ["online", "1", "true", "yes", "active", "available"].includes(normalized) ? "Online" : "Offline";
+};
+const resolveDriverStatusColor = (status) => {
+    return resolveDriverOnlineStatus(status) === "Online" ? "#16A34A" : "#DC2626";
+};
+const resolveDriverWorkStatus = (driver) => {
+    const status = (driver?.driving_status || driver?.status || "").toString().trim().toLowerCase();
+    return ["busy", "active", "on_job", "onjob"].includes(status) ? "Busy" : "Idle";
+};
+const buildDriverLabel = (driver) => {
+    const name = driver?.name || `Driver ${driver?.id || "Unknown"}`;
+    const onlineStatus = resolveDriverOnlineStatus(driver?.online_status_label || driver?.online_status);
+    const workStatus = resolveDriverWorkStatus(driver);
+
+    return `${name} (${onlineStatus} - ${workStatus})`;
+};
 
 const REMINDER_TIME_OPTIONS = [
     { value: "5", label: "5 minutes" },
@@ -353,8 +373,8 @@ const DEFAULT_FORM_VALUES = {
     destination_latitude: "", destination_longitude: "",
     pickup_plot_id: null, destination_plot_id: null, via_plot_id: [],
     sub_company: "", account: "", vehicle: "", driver: "",
-    journey_type: "one_way", booking_system: "auto_dispatch",
-    auto_dispatch: true, bidding: false, bidding_fallback: false, request_for_vehicle: false,
+    journey_type: "one_way", booking_system: "",
+    auto_dispatch: false, bidding: false, bidding_fallback: false, request_for_vehicle: false,
     auto_release: true, dispatch_release_at: "", dispatch_release_mode: "auto_then_bidding", dispatch_release_override: false,
     pickup_time_type: "asap", pickup_time: "", reminder_minutes: "",
     booking_date: "", booking_type: "local",
@@ -375,6 +395,16 @@ const hasEnabledDispatchStep = (items, systemKey, stepKey = null) =>
     items.some((item) =>
         item?.dispatch_system === systemKey &&
         (!stepKey || item?.steps === stepKey) &&
+        isEnabledDispatchStep(item)
+    );
+
+const hasImmediateBiddingEnabled = (items) =>
+    hasEnabledDispatchStep(items, "bidding", "immediately_show_on_dispatcher_panel") ||
+    hasEnabledDispatchStep(items, "bidding_fixed_fare_plot_base", "immediately_show_on_dispatcher_panel");
+
+const hasAnyBiddingEnabled = (items) =>
+    items.some((item) =>
+        ["bidding", "bidding_fixed_fare_plot_base", "bidding_fixed_fare_nearest_driver"].includes(item?.dispatch_system) &&
         isEnabledDispatchStep(item)
     );
 
@@ -452,6 +482,9 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
     const [driverList, setDriverList] = useState([]);
     const [accountList, setAccountList] = useState([]);
     const [loadingSubCompanies, setLoadingSubCompanies] = useState(false);
+    const socket = useSocket();
+    const isSocketConnected = useSocketStatus();
+    const driverSyncTimerRef = useRef(null);
     const [searchApi, setSearchApi] = useState(SEARCH_API);
     const [googleService, setGoogleService] = useState(null);
     const [pickupSuggestions, setPickupSuggestions] = useState([]);
@@ -526,6 +559,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
         }
         return DEFAULT_FORM_VALUES;
     });
+    const [dispatchDefaultValues, setDispatchDefaultValues] = useState({});
     const [newBookingFormKey, setNewBookingFormKey] = useState(0);
 
     const chargeFields = [
@@ -536,7 +570,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
 
     const handlePickupConfirmed = useCallback((coords) => {
         setStablePickupCoords(coords);
-    }, []);
+    }, [isModalOpen, isEditMode]);
 
     const handleDestinationConfirmed = useCallback((coords) => {
         setStableDestinationCoords(coords);
@@ -656,19 +690,21 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
                 const autoDispatchEnabled =
                     hasEnabledDispatchStep(data, "auto_dispatch_plot_base") ||
                     hasEnabledDispatchStep(data, "auto_dispatch_nearest_driver");
-                const biddingOnlyEnabled = hasEnabledDispatchStep(data, "bidding") || hasEnabledDispatchStep(data, "bidding_fixed_fare_plot_base");
+                const immediateBiddingEnabled = hasImmediateBiddingEnabled(data);
+                const biddingOnlyEnabled = immediateBiddingEnabled || hasAnyBiddingEnabled(data);
                 const biddingFallbackEnabled =
-                    hasEnabledDispatchStep(data, "auto_dispatch_plot_base", "put_in_bidding_panel") ||
-                    hasEnabledDispatchStep(data, "auto_dispatch_nearest_driver", "put_in_bidding_panel");
+                    !immediateBiddingEnabled && (
+                        hasEnabledDispatchStep(data, "auto_dispatch_plot_base", "put_in_bidding_panel") ||
+                        hasEnabledDispatchStep(data, "auto_dispatch_nearest_driver", "put_in_bidding_panel")
+                    );
 
                 setIsPlotBasedDispatchEnabled(plotBasedDispatchEnabled);
                 setIsManualDispatchOnly(manualDispatchOnlyEnabled);
                 setCompanyBiddingFallbackEnabled(biddingFallbackEnabled);
                 if (!isEditMode) {
-                    const nextAutoDispatch = !manualDispatchOnlyEnabled && (autoDispatchEnabled || !biddingOnlyEnabled);
+                    const nextAutoDispatch = !manualDispatchOnlyEnabled && !immediateBiddingEnabled && (autoDispatchEnabled || !biddingOnlyEnabled);
                     const nextBidding = !manualDispatchOnlyEnabled && (biddingOnlyEnabled || biddingFallbackEnabled);
-                    setInitialFormValues((prev) => ({
-                        ...prev,
+                    const nextDispatchDefaults = {
                         auto_dispatch: nextAutoDispatch,
                         bidding: nextBidding,
                         bidding_fallback: !manualDispatchOnlyEnabled && biddingFallbackEnabled,
@@ -677,6 +713,11 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
                         dispatch_release_mode: releaseSettings.mode,
                         dispatch_release_at: "",
                         dispatch_release_override: false,
+                    };
+                    setDispatchDefaultValues(nextDispatchDefaults);
+                    setInitialFormValues((prev) => ({
+                        ...prev,
+                        ...nextDispatchDefaults,
                         driver: (biddingOnlyEnabled && !autoDispatchEnabled) || manualDispatchOnlyEnabled ? "" : prev.driver,
                     }));
                     setNewBookingFormKey((key) => key + 1);
@@ -687,13 +728,14 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
                 setIsManualDispatchOnly(false);
                 setIsPlotBasedDispatchEnabled(false);
                 setCompanyBiddingFallbackEnabled(false);
+                setDispatchDefaultValues({});
                 setCompanyReleaseSettings(DEFAULT_RELEASE_SETTINGS);
                 await fetchPlotsForDispatch(false);
             }
             finally { setLoadingDispatchSystem(false); }
         };
         checkDispatchSystem();
-    }, []);
+    }, [isModalOpen, isEditMode]);
 
     useEffect(() => {
         const fetch = async () => {
@@ -719,22 +761,74 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
         fetch();
     }, []);
 
+    const mapDriverToSelectOption = useCallback((driver) => ({
+        label: buildDriverLabel(driver),
+        value: driver?.id?.toString() || "",
+        online_status: (driver?.online_status || "").toString(),
+        driving_status: driver?.driving_status || driver?.status || "",
+        online_status_label: driver?.online_status_label,
+        assigned_vehicle: driver?.assigned_vehicle,
+        vehicle_type: driver?.vehicle_type,
+    }), []);
+
+    const fetchDrivers = useCallback(async () => {
+        setLoadingSubCompanies(true);
+        try {
+            const r = await apiGetDriverManagement({ status: "accepted", page: 1, perPage: 1000 });
+            if (r?.data?.success === 1) {
+                const drivers = r?.data?.list?.data || r?.data?.list || [];
+                setDriverRawList(drivers);
+                setDriverList(drivers.map(mapDriverToSelectOption));
+            }
+        } catch {
+            setDriverList([]);
+            setDriverRawList([]);
+        } finally {
+            setLoadingSubCompanies(false);
+        }
+    }, [mapDriverToSelectOption]);
+
+    const scheduleDriverRefresh = useCallback(() => {
+        if (driverSyncTimerRef.current) return;
+        driverSyncTimerRef.current = setTimeout(() => {
+            driverSyncTimerRef.current = null;
+            fetchDrivers();
+        }, 350);
+    }, [fetchDrivers]);
+
     useEffect(() => {
-        const fetch = async () => {
-            setLoadingSubCompanies(true);
-            try {
-                const r = await apiGetDriverManagement({ status: "accepted", page: 1, perPage: 1000 });
-                if (r?.data?.success === 1) {
-                    const drivers = r?.data?.list?.data || r?.data?.list || [];
-                    setDriverRawList(drivers);
-                    setDriverList(drivers.map(d => ({
-                        label: d.name, value: d.id.toString(),
-                        assigned_vehicle: d.assigned_vehicle, vehicle_type: d.vehicle_type,
-                    })));
-                }
-            } catch { } finally { setLoadingSubCompanies(false); }
+        fetchDrivers();
+    }, [fetchDrivers]);
+
+    useEffect(() => {
+        if (!isSocketConnected || !socket) return;
+
+        const handleDriverEvent = () => scheduleDriverRefresh();
+        const events = [
+            "waiting-driver-event",
+            "on-job-driver-event",
+            "job-accepted-by-driver",
+            "job-cancelled-by-driver",
+            "driver-location-update",
+            "driver-offline-event",
+            "driver-offline",
+        ];
+        events.forEach((eventName) => socket.on(eventName, handleDriverEvent));
+        return () => {
+            events.forEach((eventName) => socket.off(eventName, handleDriverEvent));
         };
-        fetch();
+    }, [isSocketConnected, socket, scheduleDriverRefresh]);
+
+    useEffect(() => {
+        const pollInterval = setInterval(() => fetchDrivers(), DRIVER_LIST_POLL_INTERVAL_MS);
+        return () => clearInterval(pollInterval);
+    }, [fetchDrivers]);
+
+    useEffect(() => () => {
+        if (driverSyncTimerRef.current) {
+            clearTimeout(driverSyncTimerRef.current);
+            driverSyncTimerRef.current = null;
+        }
     }, []);
 
     useEffect(() => {
@@ -1034,7 +1128,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
         Object.keys(searchAbortRef.via || {}).forEach((key) => cancelPendingSearch("via", key));
         closeLocationSidebar();
 
-        setInitialFormValues(DEFAULT_FORM_VALUES);
+        setInitialFormValues({ ...DEFAULT_FORM_VALUES, ...dispatchDefaultValues });
         setNewBookingFormKey((key) => key + 1);
         setPickupSuggestions([]);
         setDestinationSuggestions([]);
@@ -1069,7 +1163,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
         setShowHistoryModal(false);
         setIsBookingLoading(false);
         activeLocationQueriesRef.current = { pickup: "", destination: "", via: {} };
-    }, [closeLocationSidebar]);
+    }, [closeLocationSidebar, dispatchDefaultValues]);
 
     const wasModalOpenRef = useRef(false);
     useEffect(() => {
@@ -1502,12 +1596,18 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
 const validateCreateBooking = (values) => {
         const errors = {};
         const totalCharges = toPositiveMoneyAmount(values.total_charges);
+        if (loadingDispatchSystem) {
+            errors.booking_system = "Dispatch settings are still loading";
+        }
         if (!values.pickup_location?.trim()) errors.pickup_location = "Pickup point is required";
         if (!values.destination_location?.trim()) errors.destination_location = "Destination is required";
         if (values.request_for_vehicle && !values.vehicle) errors.vehicle = "Vehicle type is required";
         if (!values.journey_type) errors.journey_type = "Journey type is required";
         if (!isManualDispatchOnly && !values.auto_dispatch && !values.bidding) {
             errors.booking_system = "Select Auto Dispatch or Bidding";
+        }
+        if (isManualDispatchOnly && !values.driver) {
+            errors.driver = "Driver is required in Manual Dispatch mode";
         }
         if (!values.booking_type || values.booking_type === "outstation") errors.booking_type = "Please select a booking type";
         if (!isMultiBooking && values.pickup_time_type !== "asap" && !values.booking_date) {
@@ -2809,12 +2909,12 @@ const validateCreateBooking = (values) => {
                                                     </select>
                                                 </FormField>
                                             </div>
-                                            <div className={`grid grid-cols-1 gap-2 rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] p-2 w-full mt-1 sm:grid-cols-2 ${isManualDispatchOnly ? "opacity-50" : ""}`}>
+                                            <div className={`grid grid-cols-1 gap-2 rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] p-2 w-full mt-1 sm:grid-cols-2 ${(isManualDispatchOnly || loadingDispatchSystem) ? "opacity-50" : ""}`}>
                                                 <label className="flex cursor-pointer items-center gap-2 rounded-md bg-white px-3 py-2 text-xs font-medium text-[#111827] shadow-sm">
                                                     <input
                                                         type="checkbox"
                                                         checked={Boolean(values.auto_dispatch)}
-                                                        disabled={isManualDispatchOnly}
+                                                        disabled={isManualDispatchOnly || loadingDispatchSystem}
                                                         onChange={(e) => {
                                                             const checked = e.target.checked;
                                                             setFieldValue("auto_dispatch", checked);
@@ -2833,7 +2933,7 @@ const validateCreateBooking = (values) => {
                                                     <input
                                                         type="checkbox"
                                                         checked={Boolean(values.bidding)}
-                                                        disabled={isManualDispatchOnly}
+                                                        disabled={isManualDispatchOnly || loadingDispatchSystem}
                                                         onChange={(e) => {
                                                             const checked = e.target.checked;
                                                             setFieldValue("bidding", checked);
@@ -2954,7 +3054,15 @@ const validateCreateBooking = (values) => {
                                                             disabled={loadingSubCompanies}
                                                             className={`${formSelectClass} ${bookingErrors.driver ? formInputErrorClass : ""}`}>
                                                             <option value="">Driver</option>
-                                                            {visibleDriverList?.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}
+                                                            {visibleDriverList?.map(item => (
+                                                                <option
+                                                                    key={item.value}
+                                                                    value={item.value}
+                                                                    style={{ color: resolveDriverStatusColor(item.online_status_label || item.online_status) }}
+                                                                >
+                                                                    {item.label}
+                                                                </option>
+                                                            ))}
                                                         </select>
                                                         <FieldError message={bookingErrors.driver} />
                                                     </FormField>
@@ -3245,10 +3353,10 @@ const validateCreateBooking = (values) => {
                                                     btnSize="md"
                                                     type="filled"
                                                     className="w-full px-4 py-2 text-[10px] sm:w-auto"
-                                                    disabled={isBookingLoading || !fareCalculated || !toPositiveMoneyAmount(values.total_charges)}
-                                                    title={!fareCalculated || !toPositiveMoneyAmount(values.total_charges) ? "Calculate valid fares first" : ""}
+                                                    disabled={loadingDispatchSystem || isBookingLoading || !fareCalculated || !toPositiveMoneyAmount(values.total_charges)}
+                                                    title={loadingDispatchSystem ? "Dispatch settings are still loading" : (!fareCalculated || !toPositiveMoneyAmount(values.total_charges) ? "Calculate valid fares first" : "")}
                                                 >
-                                                    {isBookingLoading ? (isEditMode ? "Updating..." : "Creating...") : isEditMode ? "Update Booking" : "Create Booking"}
+                                                    {loadingDispatchSystem ? "Loading dispatch settings..." : isBookingLoading ? (isEditMode ? "Updating..." : "Creating...") : isEditMode ? "Update Booking" : "Create Booking"}
                                                 </Button>
                                             </div>
                                         </FormSection>

@@ -1433,6 +1433,8 @@ const Overview = () => {
   );
   const waitingDriversRef = useRef(waitingDrivers);
   useEffect(() => { waitingDriversRef.current = waitingDrivers; }, [waitingDrivers]);
+  const activeDriverIdsRef = useRef(null);
+  const removedDriverIdsRef = useRef(new Set());
   const [editingRanks, setEditingRanks] = useState({});
   const [updatingRankId, setUpdatingRankId] = useState(null);
   const [loggingOutDriverId, setLoggingOutDriverId] = useState(null);
@@ -1449,6 +1451,30 @@ const Overview = () => {
     nearestDriverDispatchEnabledRef.current = hidePlotAndRank;
     plotBasedDispatchEnabledRef.current = plotBasedDispatchEnabled;
   }, [hidePlotAndRank, plotBasedDispatchEnabled]);
+
+  const setAuthoritativeActiveDriverIds = useCallback((drivers) => {
+    const next = new Set((drivers || []).map((driver) => getDriverKey(driver)).filter(Boolean));
+    activeDriverIdsRef.current = next;
+    next.forEach((id) => removedDriverIdsRef.current.delete(id));
+    return next;
+  }, []);
+
+  const markDriverRemoved = useCallback((driverId) => {
+    const key = String(driverId || "");
+    if (!key) return;
+    removedDriverIdsRef.current.add(key);
+    if (activeDriverIdsRef.current) {
+      activeDriverIdsRef.current.delete(key);
+    }
+  }, []);
+
+  const shouldAcceptDriverSocketEvent = useCallback((driverId) => {
+    const key = String(driverId || "");
+    if (!key) return false;
+    if (removedDriverIdsRef.current.has(key)) return false;
+    if (!activeDriverIdsRef.current) return true;
+    return activeDriverIdsRef.current.has(key);
+  }, []);
 
   useEffect(() => {
     const fetchDispatchSystem = async () => {
@@ -1676,7 +1702,7 @@ const Overview = () => {
           setWaitingDrivers(rankedIdle);
           setOnJobDrivers(busy);
 
-          const activeIds = new Set([...rankedIdle, ...busy].map((d) => getDriverKey(d)).filter(Boolean));
+          const activeIds = setAuthoritativeActiveDriverIds([...rankedIdle, ...busy]);
           setDriverData((prev) => {
             const updated = { ...prev };
             Object.keys(updated).forEach((id) => {
@@ -1752,13 +1778,14 @@ const Overview = () => {
 
       setOnJobDrivers(busy);
 
+      const authoritativeIds = setAuthoritativeActiveDriverIds([...rankedIdle, ...busy]);
       const waitingIds = new Set(rankedIdle.map((d) => getDriverKey(d)).filter(Boolean));
       const onJobIds = new Set(busy.map((d) => getDriverKey(d)).filter(Boolean));
 
       setDriverData((prev) => {
         const updated = { ...prev };
         Object.keys(updated).forEach((id) => {
-          if (!waitingIds.has(id) && !onJobIds.has(id)) delete updated[id];
+          if (!authoritativeIds.has(id)) delete updated[id];
         });
         [...rankedIdle, ...busy].forEach((driver) => {
           const driverId = String(driver.id || driver.driver_id || "");
@@ -1779,7 +1806,7 @@ const Overview = () => {
     } catch (err) {
       console.error("Sync waiting drivers error:", err);
     }
-  }, [setWaitingDrivers, setOnJobDrivers, setDriverData]);
+  }, [setWaitingDrivers, setOnJobDrivers, setDriverData, setAuthoritativeActiveDriverIds]);
 
   useEffect(() => {
     let cancelled = false;
@@ -2049,6 +2076,7 @@ const Overview = () => {
       const formattedDrivers = driversList
         .map(formatWaitingDriverFromSocket)
         .filter(isWaitingListDriver)
+        .filter((d) => shouldAcceptDriverSocketEvent(getDriverKey(d)))
         .filter((d) => !onJobIds.has(getDriverKey(d)));
 
       const next = plotId != null
@@ -2070,12 +2098,14 @@ const Overview = () => {
       if (dataOnlineStatus === "offline") {
         const offlineDriverId = getOfflineDriverIdFromPayload(data);
         if (offlineDriverId) {
+          markDriverRemoved(offlineDriverId);
           removeDriverFromWaitingAndMap(offlineDriverId);
         }
         return;
       }
 
       const driverId = getOfflineDriverIdFromPayload(data);
+      if (!shouldAcceptDriverSocketEvent(driverId)) return;
       if (!isWaitingListDriver(data)) {
         if (driverId) {
           removeDriverFromWaitingAndMap(driverId);
@@ -2112,7 +2142,9 @@ const Overview = () => {
       }
 
       const driver = buildOnJobDriverFromPayload(data);
-      if (driver) promoteDriverToOnJob(driver);
+      if (driver && shouldAcceptDriverSocketEvent(getDriverKey(driver))) {
+        promoteDriverToOnJob(driver);
+      }
     };
 
     const handleJobAccepted = (rawData) => {
@@ -2240,10 +2272,13 @@ const Overview = () => {
       const now = Date.now();
 
       if ((data.online_status || "").toLowerCase() === "offline") {
+        markDriverRemoved(sId);
         removeDriverFromWaitingAndMap(sId);
         removeDriverFromOnJob(sId);
         return;
       }
+
+      if (!shouldAcceptDriverSocketEvent(sId)) return;
 
       const drivingStatus = (data.driving_status || data.status || "").toLowerCase();
       if (drivingStatus === "busy" || drivingStatus === "active") {
@@ -2356,6 +2391,7 @@ const Overview = () => {
       const driverId = getOfflineDriverIdFromPayload(data);
       if (!driverId) return;
 
+      markDriverRemoved(driverId);
       removeDriverFromWaitingAndMap(driverId);
       removeDriverFromOnJob(driverId);
     };
@@ -2428,7 +2464,7 @@ const Overview = () => {
       socket.off("connect", handleSocketStateRefresh);
       socket.off("reconnect", handleSocketStateRefresh);
     };
-  }, [socket, fetchDashboardCards, syncWaitingDriversFromApi]);
+  }, [socket, fetchDashboardCards, syncWaitingDriversFromApi, markDriverRemoved, shouldAcceptDriverSocketEvent]);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -2476,15 +2512,33 @@ const Overview = () => {
       const response = await apiLogoutDriver({ driver_id: driverId });
 
       if (response?.data?.success === 1) {
+        markDriverRemoved(driverKey);
         setWaitingDrivers((prev) => prev.filter((d) => getDriverKey(d) !== driverKey));
+        setOnJobDrivers((prev) => prev.filter((d) => getDriverKey(d) !== driverKey));
         setDriverData((prev) => removeDriverFromDriverData(prev, driverKey));
         toast.success(`${driverName} logged out.`);
+      } else if ((response?.data?.message || "").toLowerCase().includes("driver not found")) {
+        markDriverRemoved(driverKey);
+        setWaitingDrivers((prev) => prev.filter((d) => getDriverKey(d) !== driverKey));
+        setOnJobDrivers((prev) => prev.filter((d) => getDriverKey(d) !== driverKey));
+        setDriverData((prev) => removeDriverFromDriverData(prev, driverKey));
+        toast.success(`${driverName} removed from online list.`);
       } else {
         toast.error(response?.data?.message || "Failed to logout driver.");
       }
     } catch (err) {
       console.error("Logout driver error:", err);
-      toast.error(err?.response?.data?.message || "Failed to logout driver.");
+      const status = err?.response?.status;
+      const message = err?.response?.data?.message || "";
+      if (status === 404 || message.toLowerCase().includes("driver not found")) {
+        markDriverRemoved(driverKey);
+        setWaitingDrivers((prev) => prev.filter((d) => getDriverKey(d) !== driverKey));
+        setOnJobDrivers((prev) => prev.filter((d) => getDriverKey(d) !== driverKey));
+        setDriverData((prev) => removeDriverFromDriverData(prev, driverKey));
+        toast.success(`${driverName} removed from online list.`);
+      } else {
+        toast.error(message || "Failed to logout driver.");
+      }
     } finally {
       setLoggingOutDriverId(null);
     }

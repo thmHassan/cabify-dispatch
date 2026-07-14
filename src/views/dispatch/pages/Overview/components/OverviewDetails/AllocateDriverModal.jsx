@@ -6,6 +6,21 @@ import { extractUpdatedBookingFromResponse } from "../../../../../../utils/funct
 import Button from "../../../../../../components/ui/Button/Button";
 import { getDispatcherName } from "../../../../../../utils/auth";
 
+const getDriverOnlineStatusValue = (driver) =>
+    (driver?.online_status ?? driver?.driver_status ?? driver?.status ?? "").toString().toLowerCase();
+const resolveDriverWorkStatus = (driver) => {
+    const status = (driver?.driving_status ?? driver?.driver_status ?? "").toString().toLowerCase();
+    return ["busy", "active", "on_job", "onjob"].includes(status) ? "Busy" : "Idle";
+};
+
+const resolveDriverOnlineStatus = (driver) => {
+    const status = getDriverOnlineStatusValue(driver);
+    return status === "online" ? "Online" : "Offline";
+};
+
+const resolveDriverStatusColor = (driver) => (resolveDriverOnlineStatus(driver) === "Online" ? "#16A34A" : "#DC2626");
+const resolveDriverStatusClass = (driver) => (resolveDriverOnlineStatus(driver) === "Online" ? "text-green-600" : "text-red-600");
+
 const AlertModal = ({ isOpen, message, onClose, onConfirm }) => {
     useEffect(() => {
         if (isOpen) {
@@ -181,7 +196,7 @@ const AllocateDriverModal = ({ bookingData, onClose, onSuccess }) => {
         <>
             <AlertModal
                 isOpen={showBusyAlert}
-                message={`${selectedDriver?.name ?? "This driver"} is currently on an active ride. The new booking will be queued and will start only after their current ride is completed. Do you want to proceed?`}
+                message={`${selectedDriver?.name ?? "This driver"} (${resolveDriverOnlineStatus(selectedDriver)}) is currently on an active ride. The new booking will be queued and will start only after their current ride is completed. Do you want to proceed?`}
                 onClose={() => setShowBusyAlert(false)}
                 onConfirm={doAssign}
             />
@@ -232,9 +247,11 @@ const AllocateDriverModal = ({ bookingData, onClose, onSuccess }) => {
                                 <optgroup label="Available (Idle)">
                                     {idleDrivers.map((driver) => {
                                         const driverId = getDriverId(driver);
+                                        const driverStatus = resolveDriverOnlineStatus(driver);
+                                        const driverStatusColor = resolveDriverStatusColor(driver);
                                         return (
-                                            <option key={driverId} value={driverId}>
-                                                {driver.name} – {driver.phone_no}
+                                            <option key={driverId} value={driverId} style={{ color: driverStatusColor }}>
+                                                {driver.name} – {driver.phone_no} ({driverStatus} / {resolveDriverWorkStatus(driver)})
                                             </option>
                                         );
                                     })}
@@ -245,9 +262,11 @@ const AllocateDriverModal = ({ bookingData, onClose, onSuccess }) => {
                                 <optgroup label="Busy (Active Ride)">
                                     {busyDrivers.map((driver) => {
                                         const driverId = getDriverId(driver);
+                                        const driverStatus = resolveDriverOnlineStatus(driver);
+                                        const driverStatusColor = resolveDriverStatusColor(driver);
                                         return (
-                                            <option key={driverId} value={driverId}>
-                                                {driver.name} – {driver.phone_no}
+                                            <option key={driverId} value={driverId} style={{ color: driverStatusColor }}>
+                                                {driver.name} – {driver.phone_no} ({driverStatus} / {resolveDriverWorkStatus(driver)})
                                             </option>
                                         );
                                     })}
@@ -268,8 +287,13 @@ const AllocateDriverModal = ({ bookingData, onClose, onSuccess }) => {
                         </div>
                     )} */}
 
-                    {drivers.length === 0 && !loading && (
+                {drivers.length === 0 && !loading && (
                         <p className="text-sm text-red-500 mt-2">No drivers available</p>
+                    )}
+                    {selectedDriver && (
+                            <p className={`mt-2 text-sm font-medium ${resolveDriverStatusClass(selectedDriver)}`}>
+                                Current driver status: {resolveDriverOnlineStatus(selectedDriver)} / {resolveDriverWorkStatus(selectedDriver)}
+                            </p>
                     )}
                 </div>
 
