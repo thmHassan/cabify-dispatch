@@ -415,6 +415,11 @@ const computeReleaseDateTimeLocal = (bookingDate, pickupTime, leadMinutes = DEFA
 
 const toApiDateTime = (value) => (value ? String(value).replace("T", " ") : "");
 
+const toPositiveMoneyAmount = (value) => {
+    const amount = Number(value);
+    return Number.isFinite(amount) && amount > 0 ? amount : 0;
+};
+
 const releaseModeLabels = {
     auto_dispatch: "Auto Dispatch",
     bidding: "Bidding",
@@ -1496,6 +1501,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
 
 const validateCreateBooking = (values) => {
         const errors = {};
+        const totalCharges = toPositiveMoneyAmount(values.total_charges);
         if (!values.pickup_location?.trim()) errors.pickup_location = "Pickup point is required";
         if (!values.destination_location?.trim()) errors.destination_location = "Destination is required";
         if (values.request_for_vehicle && !values.vehicle) errors.vehicle = "Vehicle type is required";
@@ -1552,7 +1558,11 @@ const validateCreateBooking = (values) => {
                 errors.multi_days = `${todayWeekday} is selected but the date range does not include today`;
             }
         }
-        if (!fareCalculated) errors.fare = "Please calculate fares before creating booking";
+        if (!fareCalculated) {
+            errors.fare = "Please calculate fares before creating booking";
+        } else if (!totalCharges) {
+            errors.fare = "Please calculate a valid fare before creating booking";
+        }
         return errors;
     };
 
@@ -1813,6 +1823,15 @@ const validateCreateBooking = (values) => {
             appendAccountFields(formData, values.account);
             const response = await apiCreateCalculateFares(formData);
             if (response?.data?.success === 1) {
+                const calculatedFare = toPositiveMoneyAmount(response.data.calculate_fare);
+                if (!calculatedFare) {
+                    setFareData(null);
+                    setFareCalculated(false);
+                    const msg = response?.data?.message || "Calculated fare is zero. Please check vehicle, locations, and fare settings.";
+                    toast.error(msg);
+                    setFareError(msg);
+                    return;
+                }
                 setFareData(response.data);
                 setFareCalculated(true);
                 if (response.data.distance_value != null) {
@@ -1937,6 +1956,13 @@ const validateCreateBooking = (values) => {
     const handleCreateBooking = async (values) => {
         const errors = validateCreateBooking(values);
         if (Object.keys(errors).length > 0) { setBookingErrors(errors); return; }
+        const bookingAmount = toPositiveMoneyAmount(values.total_charges);
+        if (!bookingAmount) {
+            const nextErrors = { fare: "Please calculate a valid fare before creating booking" };
+            setBookingErrors(nextErrors);
+            toast.error(nextErrors.fare);
+            return;
+        }
         setBookingErrors({});
         setIsBookingLoading(true);
         try {
@@ -2114,7 +2140,7 @@ const validateCreateBooking = (values) => {
             formData.append('ac_waiting_charge', values.ac_waiting_charges || '');
             formData.append('extra_charge', values.extra_charges || '');
             formData.append('toll', values.congestion_toll || '');
-            formData.append('booking_amount', values.total_charges?.toString() || '0');
+            formData.append('booking_amount', bookingAmount.toFixed(2));
             const distanceMeters = resolveBookingDistanceMeters(fareData?.distance, values.distance);
             formData.append("distance", distanceMeters != null ? String(distanceMeters) : "");
             const response = await apiCreateBooking(formData);
@@ -2433,10 +2459,11 @@ const validateCreateBooking = (values) => {
                     setFieldValueRef.current = setFieldValue;
 
                     useEffect(() => {
-                        if (fareData?.calculate_fare) {
-                            setFieldValue('base_fare', fareData.calculate_fare);
+                        const calculatedFare = toPositiveMoneyAmount(fareData?.calculate_fare);
+                        if (calculatedFare) {
+                            setFieldValue('base_fare', calculatedFare);
                             const additionalCharges = chargeFields.reduce((sum, key) => sum + Number(values[key] || 0), 0);
-                            setFieldValue("total_charges", parseFloat((fareData.calculate_fare + additionalCharges).toFixed(2)));
+                            setFieldValue("total_charges", parseFloat((calculatedFare + additionalCharges).toFixed(2)));
                         }
                     }, [fareData]);
 
@@ -3218,8 +3245,8 @@ const validateCreateBooking = (values) => {
                                                     btnSize="md"
                                                     type="filled"
                                                     className="w-full px-4 py-2 text-[10px] sm:w-auto"
-                                                    disabled={isBookingLoading || !fareCalculated}
-                                                    title={!fareCalculated ? "Calculate fares first" : ""}
+                                                    disabled={isBookingLoading || !fareCalculated || !toPositiveMoneyAmount(values.total_charges)}
+                                                    title={!fareCalculated || !toPositiveMoneyAmount(values.total_charges) ? "Calculate valid fares first" : ""}
                                                 >
                                                     {isBookingLoading ? (isEditMode ? "Updating..." : "Creating...") : isEditMode ? "Update Booking" : "Create Booking"}
                                                 </Button>

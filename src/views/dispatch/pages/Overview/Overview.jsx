@@ -96,7 +96,8 @@ const saveToStorage = (key, value) => {
   try { localStorage.setItem(key, JSON.stringify(value)); } catch { }
 };
 
-const getDriverKey = (driver) => String(driver?.id || driver?.driver_id || "");
+const getDriverKey = (driver) =>
+  String(driver?.id || driver?.driver_id || driver?.dispatcher_id || driver?.client_id || "");
 
 const getDriverPlotId = (driver) => {
   const plotId = driver?.plot_id ?? driver?.assigned_plot_id ?? driver?.default_plot_id;
@@ -164,8 +165,40 @@ const assignDefaultRanks = (drivers) => {
   return sortWaitingDrivers(ranked);
 };
 
+const dedupeWaitingDrivers = (drivers) => {
+  const byDriver = new Map();
+  const withoutKey = [];
+
+  (drivers || []).forEach((driver) => {
+    const key = getDriverKey(driver);
+    if (!key) {
+      withoutKey.push(driver);
+      return;
+    }
+
+    const existing = byDriver.get(key);
+    if (!existing) {
+      byDriver.set(key, driver);
+      return;
+    }
+
+    const existingIsReconnect = existing.is_reconnecting === true;
+    const nextIsReconnect = driver.is_reconnecting === true;
+    const shouldPreferNext =
+      (existingIsReconnect && !nextIsReconnect)
+      || Number(driver.updatedAt || 0) >= Number(existing.updatedAt || 0);
+
+    byDriver.set(key, shouldPreferNext
+      ? { ...existing, ...driver }
+      : { ...driver, ...existing }
+    );
+  });
+
+  return [...byDriver.values(), ...withoutKey];
+};
+
 const sortWaitingDrivers = (drivers) =>
-  [...drivers].sort((a, b) => {
+  dedupeWaitingDrivers(drivers).sort((a, b) => {
     const plotA = String(getDriverPlotId(a) ?? "");
     const plotB = String(getDriverPlotId(b) ?? "");
     if (plotA !== plotB) return plotA.localeCompare(plotB, undefined, { numeric: true });
@@ -240,7 +273,10 @@ const mergeWaitingDriversByPlot = (prev, plotId, incomingDrivers) => {
     return sortWaitingDrivers(incomingDrivers);
   }
   const plotKey = String(plotId);
-  const others = prev.filter((d) => String(getDriverPlotId(d) ?? "") !== plotKey);
+  const incomingKeys = new Set((incomingDrivers || []).map(getDriverKey).filter(Boolean));
+  const others = prev.filter((d) =>
+    String(getDriverPlotId(d) ?? "") !== plotKey && !incomingKeys.has(getDriverKey(d))
+  );
   return sortWaitingDrivers([...others, ...incomingDrivers]);
 };
 
@@ -1341,7 +1377,7 @@ const usePersistedWaitingDrivers = () => {
   const setWaitingDrivers = useCallback((updater) => {
     setRaw((prev) => {
       const next = typeof updater === "function" ? updater(prev) : updater;
-      return next;
+      return sortWaitingDrivers(Array.isArray(next) ? next : []);
     });
   }, []);
   return [waitingDrivers, setWaitingDrivers];
@@ -1391,6 +1427,10 @@ const Overview = () => {
   const onJobDriversRef = useRef(onJobDrivers);
   useEffect(() => { onJobDriversRef.current = onJobDrivers; }, [onJobDrivers]);
   const [waitingDrivers, setWaitingDrivers] = usePersistedWaitingDrivers();
+  const visibleWaitingDrivers = React.useMemo(
+    () => sortWaitingDrivers(waitingDrivers),
+    [waitingDrivers]
+  );
   const waitingDriversRef = useRef(waitingDrivers);
   useEffect(() => { waitingDriversRef.current = waitingDrivers; }, [waitingDrivers]);
   const [editingRanks, setEditingRanks] = useState({});
@@ -1473,8 +1513,10 @@ const Overview = () => {
   // }, [socket, isSocketConnected]);
 
   const driverCounts = React.useMemo(() => ({
-    busy: onJobDrivers.length, idle: waitingDrivers.length, total: onJobDrivers.length + waitingDrivers.length,
-  }), [onJobDrivers, waitingDrivers]);
+    busy: onJobDrivers.length,
+    idle: visibleWaitingDrivers.length,
+    total: onJobDrivers.length + visibleWaitingDrivers.length,
+  }), [onJobDrivers, visibleWaitingDrivers]);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -1531,15 +1573,24 @@ const Overview = () => {
   const handleBookingCreated = useCallback((meta) => {
     const createdBookings = Array.isArray(meta?.createdBookings) ? meta.createdBookings.filter(Boolean) : [];
     const createdCount = createdBookings.length || (Number(meta?.createdCount) || 0);
-    const scheduledCount = createdBookings.filter((booking) => (
-      booking?.pickup_time_type === "time"
-      || booking?.pre_booking === true
-      || booking?.pre_booking === 1
-      || booking?.pre_booking === "1"
-      || booking?.is_scheduled === true
-      || booking?.is_scheduled === 1
-      || booking?.is_scheduled === "1"
-    )).length;
+    const isUnreleasedScheduledBooking = (booking) => {
+      const isReleased =
+        booking?.dispatch_released === true ||
+        booking?.dispatch_released === 1 ||
+        booking?.dispatch_released === "1";
+      if (isReleased) return false;
+
+      return (
+        booking?.pickup_time_type === "time"
+        || booking?.pre_booking === true
+        || booking?.pre_booking === 1
+        || booking?.pre_booking === "1"
+        || booking?.is_scheduled === true
+        || booking?.is_scheduled === 1
+        || booking?.is_scheduled === "1"
+      );
+    };
+    const scheduledCount = createdBookings.filter(isUnreleasedScheduledBooking).length;
     const todaysCount = Math.max(createdCount - scheduledCount, 0);
 
     setRefreshTrigger((prev) => prev + 1);
@@ -1561,7 +1612,9 @@ const Overview = () => {
       setSeedBookings(createdBookings);
     }
 
-    if (meta?.isScheduled || meta?.pickupTimeType === "time") {
+    const hasUnreleasedScheduledBooking = createdBookings.some(isUnreleasedScheduledBooking);
+
+    if (hasUnreleasedScheduledBooking || ((meta?.isScheduled || meta?.pickupTimeType === "time") && !createdBookings.length)) {
       setActiveBookingFilter("pre_bookings");
     } else if (meta?.isMultiBooking) {
       setActiveBookingFilter(meta.includesToday ? "todays_booking" : "pre_bookings");
@@ -2583,7 +2636,7 @@ const Overview = () => {
           <div className="w-full lg:w-[20.5%] bg-orange-50 rounded-2xl shadow p-3 max-h-[500px] overflow-y-auto [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-gray-200">
             <div className="flex items-center justify-between mb-2">
               <h3 className="font-semibold">Drivers Waiting</h3>
-              <span className="font-semibold">{waitingDrivers.length}</span>
+              <span className="font-semibold">{visibleWaitingDrivers.length}</span>
             </div>
             <table className="w-full text-xs rounded-xl">
               <thead className="text-gray-500">
@@ -2597,17 +2650,18 @@ const Overview = () => {
                 </tr>
               </thead>
               <tbody>
-                {waitingDrivers.length > 0 ? waitingDrivers.map((driver, i) => {
+                {visibleWaitingDrivers.length > 0 ? visibleWaitingDrivers.map((driver, i) => {
                   const driverKey = getDriverKey(driver);
                   const plotId = getDriverPlotId(driver);
                   const maxRank = (plotId != null
-                    ? waitingDrivers.filter((d) => String(getDriverPlotId(d)) === String(plotId))
-                    : waitingDrivers
+                    ? visibleWaitingDrivers.filter((d) => String(getDriverPlotId(d)) === String(plotId))
+                    : visibleWaitingDrivers
                   ).length;
                   const isOutsidePlot = isDriverOutsideAssignedPlot(driver, allPlots, driverData);
+                  const rowKey = `${driverKey || "driver"}-${plotId ?? "no-plot"}-${i}`;
 
                   return (
-                  <tr key={driver.id || driver.driver_id || i} className="border-t">
+                  <tr key={rowKey} className="border-t">
                     <td className="py-1">{i + 1}</td>
                     <td>
                       {driver.is_reconnecting ? (

@@ -38,6 +38,7 @@ export const isFutureDate = (dateValue) => isCompanyFutureDate(dateValue);
 
 export const TERMINAL_BOOKING_STATUSES = ["completed", "no_show", "cancelled"];
 export const TODAY_HIDDEN_BOOKING_STATUSES = ["completed", "cancelled"];
+export const ACTIVE_BOOKING_STATUSES = ["ongoing", "started", "arrived"];
 
 export const isTerminalOverviewStatus = (booking) =>
     TERMINAL_BOOKING_STATUSES.includes(String(booking?.booking_status || "").toLowerCase());
@@ -45,6 +46,9 @@ export const isTerminalOverviewStatus = (booking) =>
 export const isUpcomingScheduledPreBooking = (booking) => {
     if (!booking?.booking_date) return false;
     if (isTerminalOverviewStatus(booking)) return false;
+    if (ACTIVE_BOOKING_STATUSES.includes(String(booking?.booking_status || "").toLowerCase())) {
+        return false;
+    }
 
     return isFutureDate(booking.booking_date);
 };
