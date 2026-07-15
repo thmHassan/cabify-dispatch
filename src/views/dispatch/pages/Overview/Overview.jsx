@@ -106,6 +106,35 @@ const getDriverPlotId = (driver) => {
   return plotId;
 };
 
+const hasDriverRank = (driver) =>
+  driver?.rank != null && driver?.rank !== "" && driver?.rank !== "-"
+  || driver?.ranking != null && driver?.ranking !== "" && driver?.ranking !== "-";
+
+const LIVE_PLOT_GUARD_MS = 10000;
+
+const hasFreshLivePlot = (driver, now = Date.now()) => {
+  const locationUpdatedAt = Number(driver?.locationUpdatedAt || 0);
+  return Boolean(
+    locationUpdatedAt
+    && now - locationUpdatedAt <= LIVE_PLOT_GUARD_MS
+    && getDriverPlotId(driver) != null
+  );
+};
+
+const isStalePlotOverwrite = (existing, incoming, fallbackPlotId = null) => {
+  if (!existing || incoming?.locationUpdatedAt) return false;
+  if (!hasFreshLivePlot(existing)) return false;
+
+  const existingPlotId = getDriverPlotId(existing);
+  const incomingPlotId = getDriverPlotId(incoming) ?? fallbackPlotId;
+
+  return (
+    existingPlotId != null
+    && incomingPlotId != null
+    && String(existingPlotId) !== String(incomingPlotId)
+  );
+};
+
 const normalizeDispatchSystemList = (response) => {
   let data = response?.data?.data || response?.data || response;
   if (!Array.isArray(data)) {
@@ -256,14 +285,17 @@ const formatWaitingDriverFromSocket = (d) => {
     name: d.driver_name || d.name || d.driverName,
     plot_id: d.plot_id ?? d.plot,
     plot: d.plot_name || d.plot || "N/A",
-    rank: d.rank || d.ranking || 1,
     online_status: String(d?.online_status || "online").toLowerCase(),
     updatedAt: Date.now(),
     is_reconnecting: d.is_reconnecting === true,
     display_name: d.is_reconnecting === true
-      ? `Reconnecting... ${d.driver_name || d.name || d.driverName || "Driver"} - Rank ${d.rank || 1}`
+      ? `Reconnecting... ${d.driver_name || d.name || d.driverName || "Driver"}${hasDriverRank(d) ? ` - Rank ${d.rank ?? d.ranking}` : ""}`
       : (d.display_name || d.driver_name || d.name || d.driverName || "Driver"),
   };
+  if (hasDriverRank(d)) {
+    formatted.rank = d.rank ?? d.ranking;
+    formatted.ranking = d.ranking ?? d.rank;
+  }
   formatted.plot_id = getDriverPlotId(formatted) ?? formatted.plot_id;
   return formatted;
 };
@@ -273,11 +305,27 @@ const mergeWaitingDriversByPlot = (prev, plotId, incomingDrivers) => {
     return sortWaitingDrivers(incomingDrivers);
   }
   const plotKey = String(plotId);
-  const incomingKeys = new Set((incomingDrivers || []).map(getDriverKey).filter(Boolean));
+  const incomingForPlot = (incomingDrivers || [])
+    .filter((driver) => {
+      const driverPlotId = getDriverPlotId(driver);
+      if (driverPlotId != null && String(driverPlotId) !== plotKey) {
+        return false;
+      }
+
+      const key = getDriverKey(driver);
+      const existing = key ? prev.find((d) => getDriverKey(d) === key) : null;
+      return !isStalePlotOverwrite(existing, driver, plotId);
+    })
+    .map((driver) => (
+      getDriverPlotId(driver) == null
+        ? { ...driver, plot_id: plotId }
+        : driver
+    ));
+  const incomingKeys = new Set(incomingForPlot.map(getDriverKey).filter(Boolean));
   const others = prev.filter((d) =>
     String(getDriverPlotId(d) ?? "") !== plotKey && !incomingKeys.has(getDriverKey(d))
   );
-  return sortWaitingDrivers([...others, ...incomingDrivers]);
+  return sortWaitingDrivers([...others, ...incomingForPlot]);
 };
 
 const upsertWaitingDriver = (prev, driver) => {
@@ -285,7 +333,16 @@ const upsertWaitingDriver = (prev, driver) => {
   if (!key) return prev;
   const exists = prev.some((d) => getDriverKey(d) === key);
   const next = exists
-    ? prev.map((d) => (getDriverKey(d) === key ? { ...d, ...driver, updatedAt: Date.now() } : d))
+    ? prev.map((d) => {
+      if (getDriverKey(d) !== key) return d;
+      if (isStalePlotOverwrite(d, driver)) return d;
+      const merged = { ...d, ...driver, updatedAt: Date.now() };
+      if (!hasDriverRank(driver) && hasDriverRank(d)) {
+        merged.rank = d.rank ?? d.ranking;
+        merged.ranking = d.ranking ?? d.rank;
+      }
+      return merged;
+    })
     : [...prev, driver];
   return sortWaitingDrivers(next);
 };
@@ -870,10 +927,18 @@ const parseDriverData = (rawData) => {
 
 const parseCoordinates = parsePlotCoordinates;
 
+const LIVE_LOCATION_MAX_AGE_MS = 2 * 60 * 1000;
+
 const getDriverCoordinates = (driver, driverData = {}) => {
-  const merged = { ...driverData[getDriverKey(driver)], ...driver };
-  const lat = merged.position?.lat ?? merged.latitude ?? merged.lat;
-  const lng = merged.position?.lng ?? merged.longitude ?? merged.lng;
+  const driverKey = getDriverKey(driver);
+  const stored = driverData[driverKey] || {};
+  const driverUpdatedAt = Number(driver?.updatedAt || 0);
+  const merged = { ...driver, ...stored };
+  const locationUpdatedAt = Number(merged.locationUpdatedAt || 0);
+  if (!locationUpdatedAt || Date.now() - locationUpdatedAt > LIVE_LOCATION_MAX_AGE_MS) return null;
+  if (driverUpdatedAt && locationUpdatedAt + 1000 < driverUpdatedAt) return null;
+  const lat = merged.latitude ?? merged.lat;
+  const lng = merged.longitude ?? merged.lng;
   if (lat == null || lng == null || Number.isNaN(Number(lat)) || Number.isNaN(Number(lng))) return null;
   return { lat: Number(lat), lng: Number(lng) };
 };
@@ -1059,8 +1124,9 @@ const GoogleMapSection = ({ mapRef, mapInstance, markers, driverData, setDriverD
       if (!data) return;
       const id = getDriverId(data);
       if (!id) return;
+      const locationUpdatedAt = Date.now();
       setDriverData(prev => {
-        const updated = { ...prev, [id]: { ...prev[id], ...data } };
+        const updated = { ...prev, [id]: { ...prev[id], ...data, locationUpdatedAt } };
         saveToStorage(getDriverDataStorageKey(), updated); // persist location update
         return updated;
       });
@@ -1281,7 +1347,7 @@ const DefaultMapSection = ({ mapRef, mapInstance, markers, driverData, setDriver
 
     const handle = (rawData) => {
       const data = parseDriverData(rawData);
-      if (data) updateOrAddMarker(data);
+      if (data) updateOrAddMarker({ ...data, locationUpdatedAt: Date.now() });
     };
 
     if (socketRef.current) socketRef.current.on("driver-location-update", handle);
@@ -2310,6 +2376,7 @@ const Overview = () => {
         const formatted = formatWaitingDriverFromSocket({
           ...data,
           updatedAt: now,
+          locationUpdatedAt: now,
         });
         const next = upsertWaitingDriver(prev, formatted);
         pruneMapForWaitingList(next, true);
@@ -2752,26 +2819,30 @@ const Overview = () => {
                     )}
                     {!hidePlotAndRank && (
                       <td className="text-right">
-                        <input
-                          type="number"
-                          min={1}
-                          max={maxRank || undefined}
-                          title="Click to edit driver rank"
-                          disabled={driver.is_reconnecting || updatingRankId === driverKey}
-                          className="w-12 text-right border border-gray-300 rounded px-1 py-0.5 text-xs bg-white cursor-text focus:outline-none focus:border-[#1F41BB] focus:ring-1 focus:ring-[#1F41BB] disabled:opacity-50 disabled:cursor-not-allowed"
-                          value={editingRanks[driverKey] ?? (driver.rank || driver.ranking || i + 1)}
-                          onChange={(e) => {
-                            setEditingRanks((prev) => ({ ...prev, [driverKey]: e.target.value }));
-                          }}
-                          onBlur={(e) => handleRankChange(driver, e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") e.target.blur();
-                            if (e.key === "Escape") {
-                              clearEditingRank(driver.id || driver.driver_id);
-                              e.target.blur();
-                            }
-                          }}
-                        />
+                        {isOutsidePlot ? (
+                          <span className="text-gray-400">-</span>
+                        ) : (
+                          <input
+                            type="number"
+                            min={1}
+                            max={maxRank || undefined}
+                            title="Click to edit driver rank"
+                            disabled={driver.is_reconnecting || updatingRankId === driverKey}
+                            className="w-12 text-right border border-gray-300 rounded px-1 py-0.5 text-xs bg-white cursor-text focus:outline-none focus:border-[#1F41BB] focus:ring-1 focus:ring-[#1F41BB] disabled:opacity-50 disabled:cursor-not-allowed"
+                            value={editingRanks[driverKey] ?? (driver.rank || driver.ranking || i + 1)}
+                            onChange={(e) => {
+                              setEditingRanks((prev) => ({ ...prev, [driverKey]: e.target.value }));
+                            }}
+                            onBlur={(e) => handleRankChange(driver, e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") e.target.blur();
+                              if (e.key === "Escape") {
+                                clearEditingRank(driver.id || driver.driver_id);
+                                e.target.blur();
+                              }
+                            }}
+                          />
+                        )}
                       </td>
                     )}
                     <td className="text-right py-1">
