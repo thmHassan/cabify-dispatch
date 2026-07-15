@@ -1468,6 +1468,15 @@ const Overview = () => {
     }
   }, []);
 
+  const markDriverActive = useCallback((driverId) => {
+    const key = String(driverId || "");
+    if (!key) return;
+    removedDriverIdsRef.current.delete(key);
+    if (activeDriverIdsRef.current) {
+      activeDriverIdsRef.current.add(key);
+    }
+  }, []);
+
   const shouldAcceptDriverSocketEvent = useCallback((driverId) => {
     const key = String(driverId || "");
     if (!key) return false;
@@ -2075,13 +2084,17 @@ const Overview = () => {
 
       const formattedDrivers = driversList
         .map(formatWaitingDriverFromSocket)
-        .filter(isWaitingListDriver)
+        .filter(isWaitingListDriver);
+
+      formattedDrivers.forEach((d) => markDriverActive(getDriverKey(d)));
+
+      const acceptedDrivers = formattedDrivers
         .filter((d) => shouldAcceptDriverSocketEvent(getDriverKey(d)))
         .filter((d) => !onJobIds.has(getDriverKey(d)));
 
       const next = plotId != null
-        ? mergeWaitingDriversByPlot(waitingDriversRef.current, plotId, formattedDrivers)
-        : formattedDrivers;
+        ? mergeWaitingDriversByPlot(waitingDriversRef.current, plotId, acceptedDrivers)
+        : acceptedDrivers;
       syncWaitingListAndMap(next);
     };
 
@@ -2105,6 +2118,7 @@ const Overview = () => {
       }
 
       const driverId = getOfflineDriverIdFromPayload(data);
+      markDriverActive(driverId);
       if (!shouldAcceptDriverSocketEvent(driverId)) return;
       if (!isWaitingListDriver(data)) {
         if (driverId) {
@@ -2278,6 +2292,7 @@ const Overview = () => {
         return;
       }
 
+      markDriverActive(sId);
       if (!shouldAcceptDriverSocketEvent(sId)) return;
 
       const drivingStatus = (data.driving_status || data.status || "").toLowerCase();
@@ -2464,7 +2479,7 @@ const Overview = () => {
       socket.off("connect", handleSocketStateRefresh);
       socket.off("reconnect", handleSocketStateRefresh);
     };
-  }, [socket, fetchDashboardCards, syncWaitingDriversFromApi, markDriverRemoved, shouldAcceptDriverSocketEvent]);
+  }, [socket, fetchDashboardCards, syncWaitingDriversFromApi, markDriverRemoved, markDriverActive, shouldAcceptDriverSocketEvent]);
 
   useEffect(() => {
     const interval = setInterval(() => {
