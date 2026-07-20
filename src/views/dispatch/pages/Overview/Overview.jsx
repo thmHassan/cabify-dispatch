@@ -932,11 +932,9 @@ const LIVE_LOCATION_MAX_AGE_MS = 2 * 60 * 1000;
 const getDriverCoordinates = (driver, driverData = {}) => {
   const driverKey = getDriverKey(driver);
   const stored = driverData[driverKey] || {};
-  const driverUpdatedAt = Number(driver?.updatedAt || 0);
   const merged = { ...driver, ...stored };
   const locationUpdatedAt = Number(merged.locationUpdatedAt || 0);
   if (!locationUpdatedAt || Date.now() - locationUpdatedAt > LIVE_LOCATION_MAX_AGE_MS) return null;
-  if (driverUpdatedAt && locationUpdatedAt + 1000 < driverUpdatedAt) return null;
   const lat = merged.latitude ?? merged.lat;
   const lng = merged.longitude ?? merged.lng;
   if (lat == null || lng == null || Number.isNaN(Number(lat)) || Number.isNaN(Number(lng))) return null;
@@ -959,6 +957,11 @@ const isPointInPolygon = (point, polygon) => {
 
 const isDriverOutsideAssignedPlot = (driver, plots, driverData = {}) => {
   if (driver?.is_outside_plot === true || driver?.outside_plot === true || driver?.outside_the_plot === true) {
+    return true;
+  }
+  const driverKey = getDriverKey(driver);
+  const stored = driverData[driverKey] || {};
+  if (stored?.is_outside_plot === true || stored?.outside_plot === true || stored?.outside_the_plot === true) {
     return true;
   }
   if (driver?.is_outside_plot === false || driver?.outside_plot === false || driver?.is_inside_plot === true) {
