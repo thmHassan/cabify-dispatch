@@ -78,7 +78,7 @@ import { requestBrowserGeolocation } from "../../../../../../utils/functions/geo
 import History from "./components/History";
 import LocationSearchSidebar from "./components/LocationSearchSidebar";
 import successSound from "../../../../../../assets/audio/meldix-success-340660.mp3";
-import { useSocket, useSocketStatus } from "../../../../../../components/routes/SocketProvider";
+import { useLastCompanySettingsChange, useSocket, useSocketStatus } from "../../../../../../components/routes/SocketProvider";
 
 const LOCATION_SEARCH_DEBOUNCE_MS = 400;
 
@@ -450,6 +450,34 @@ const toPositiveMoneyAmount = (value) => {
     return Number.isFinite(amount) && amount > 0 ? amount : 0;
 };
 
+const getTimezoneOffsetForPayload = (dateValue, timeValue, timezone) => {
+    try {
+        if (!dateValue || !timeValue || !timezone) return "";
+        const [year, month, day] = String(dateValue).split("-").map(Number);
+        const [hour = 0, minute = 0] = String(timeValue).split(":").map(Number);
+        const utcGuess = new Date(Date.UTC(year, month - 1, day, hour, minute, 0));
+        const parts = new Intl.DateTimeFormat("en-US", {
+            timeZone: timezone,
+            timeZoneName: "shortOffset",
+            hour: "2-digit",
+        }).formatToParts(utcGuess);
+        const offsetName = parts.find((part) => part.type === "timeZoneName")?.value || "";
+        if (offsetName === "GMT" || offsetName === "UTC") return "+00:00";
+        const match = offsetName.match(/GMT([+-])(\d{1,2})(?::?(\d{2}))?/);
+        if (!match) return "";
+        const [, sign, hours, minutes = "00"] = match;
+        return `${sign}${hours.padStart(2, "0")}:${minutes.padStart(2, "0")}`;
+    } catch {
+        return "";
+    }
+};
+
+const formatPickupAtForPayload = (dateValue, timeValue, timezone) => {
+    if (!dateValue || !timeValue) return "";
+    const offset = getTimezoneOffsetForPayload(dateValue, timeValue, timezone);
+    return `${dateValue}T${timeValue}:00${offset}`;
+};
+
 const releaseModeLabels = {
     auto_dispatch: "Auto Dispatch",
     bidding: "Bidding",
@@ -459,6 +487,7 @@ const releaseModeLabels = {
 
 const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOpen = false }) => {
     const isEditMode = Boolean(editBooking?.id);
+    const { timezone: companyTimezone } = useCompanyDateTime();
     const todayWeekday = getTodayWeekdayLabel();
     const rawTenant = getTenantData();
     const tenant = rawTenant?.data || rawTenant || {};
@@ -484,6 +513,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
     const [loadingSubCompanies, setLoadingSubCompanies] = useState(false);
     const socket = useSocket();
     const isSocketConnected = useSocketStatus();
+    const lastCompanySettingsChange = useLastCompanySettingsChange();
     const driverSyncTimerRef = useRef(null);
     const [searchApi, setSearchApi] = useState(SEARCH_API);
     const [googleService, setGoogleService] = useState(null);
@@ -671,8 +701,11 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
 
         const checkDispatchSystem = async () => {
             try {
+                if (lastCompanySettingsChange && lastCompanySettingsChange.section !== "dispatch_system") return;
                 setLoadingDispatchSystem(true);
-                const response = await apiGetDispatchSystem();
+                const response = lastCompanySettingsChange
+                    ? { data: lastCompanySettingsChange.data }
+                    : await apiGetDispatchSystem();
                 const releaseSettings = normalizeReleaseSettings(response?.data?.release_settings);
                 setCompanyReleaseSettings(releaseSettings);
                 let data = response?.data?.data || response?.data || response;
@@ -735,7 +768,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
             finally { setLoadingDispatchSystem(false); }
         };
         checkDispatchSystem();
-    }, [isModalOpen, isEditMode]);
+    }, [lastCompanySettingsChange, isModalOpen, isEditMode]);
 
     useEffect(() => {
         const fetch = async () => {
@@ -2099,6 +2132,12 @@ const validateCreateBooking = (values) => {
                 })
                 : (values.pickup_time_type === "asap" ? getCompanyTodayForInput() : (values.booking_date || getCompanyTodayForInput()));
             formData.append('booking_date', bookingDate);
+            if (companyTimezone) {
+                formData.append('pickup_timezone', companyTimezone);
+            }
+            if (values.pickup_time_type === "time" && bookingDate && values.pickup_time) {
+                formData.append('pickup_at', formatPickupAtForPayload(bookingDate, values.pickup_time, companyTimezone));
+            }
             formData.append('booking_type', values.booking_type || '');
             formData.append("dispatcher_id", dispatcherId);
             const dispatcherName = getDispatcherName();
@@ -2330,7 +2369,14 @@ const validateCreateBooking = (values) => {
                 }
             }
 
-            formData.append("booking_date", values.pickup_time_type === "asap" ? getCompanyTodayForInput() : (values.booking_date || ""));
+            const bookingDate = values.pickup_time_type === "asap" ? getCompanyTodayForInput() : (values.booking_date || "");
+            formData.append("booking_date", bookingDate);
+            if (companyTimezone) {
+                formData.append("pickup_timezone", companyTimezone);
+            }
+            if (values.pickup_time_type === "time" && bookingDate && values.pickup_time) {
+                formData.append("pickup_at", formatPickupAtForPayload(bookingDate, values.pickup_time, companyTimezone));
+            }
             formData.append("booking_type", values.booking_type || "");
             formData.append("dispatcher_id", dispatcherId);
 

@@ -7,7 +7,7 @@ import { lockBodyScroll } from "../../../../utils/functions/common.function";
 import Modal from "../../../../components/shared/Modal/Modal";
 import OverViewDetails from "./components/OverviewDetails";
 import AddBooking from "./components/AddBooking";
-import { useSocket } from "../../../../components/routes/SocketProvider";
+import { useLastCompanySettingsChange, useSocket } from "../../../../components/routes/SocketProvider";
 import TodayBookingIcon from "../../../../components/svg/TodayBookingIcon";
 import PreBookingIcon from "../../../../components/svg/PreBookingIcon";
 import NoShowIcon from "../../../../components/svg/NoShowIcon";
@@ -1510,6 +1510,7 @@ const Overview = () => {
   const [hidePlotAndRank, setHidePlotAndRank] = useState(false);
   const [plotBasedDispatchEnabled, setPlotBasedDispatchEnabled] = useState(false);
   const [dispatchSystemLoaded, setDispatchSystemLoaded] = useState(false);
+  const lastCompanySettingsChange = useLastCompanySettingsChange();
   const nearestDriverDispatchEnabledRef = useRef(false);
   const plotBasedDispatchEnabledRef = useRef(false);
   useEffect(() => {
@@ -1557,7 +1558,10 @@ const Overview = () => {
   useEffect(() => {
     const fetchDispatchSystem = async () => {
       try {
-        const response = await apiGetDispatchSystem();
+        if (lastCompanySettingsChange && lastCompanySettingsChange.section !== "dispatch_system") return;
+        const response = lastCompanySettingsChange
+          ? { data: lastCompanySettingsChange.data }
+          : await apiGetDispatchSystem();
         const data = normalizeDispatchSystemList(response);
         setHidePlotAndRank(shouldHidePlotAndRank(data));
         setPlotBasedDispatchEnabled(isPlotBasedDispatchEnabled(data));
@@ -1569,7 +1573,7 @@ const Overview = () => {
       }
     };
     fetchDispatchSystem();
-  }, []);
+  }, [lastCompanySettingsChange]);
 
   useEffect(() => {
     if (!dispatchSystemLoaded) return;

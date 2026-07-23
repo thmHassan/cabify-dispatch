@@ -9,6 +9,8 @@ const SocketContext = createContext(null);
 export const SocketProvider = ({ children }) => {
   const [socket, setSocket] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
+  const [companySettingsRevision, setCompanySettingsRevision] = useState(0);
+  const [lastCompanySettingsChange, setLastCompanySettingsChange] = useState(null);
   const signedIn = useAppSelector((state) => state.auth.session.signedIn);
   const tenantId = getTenantId();
   const dispatcherId = getDispatcherId();
@@ -40,19 +42,26 @@ export const SocketProvider = ({ children }) => {
       setIsConnected(false);
     };
 
+    const handleCompanySettingsChanged = (payload) => {
+      setLastCompanySettingsChange(payload || null);
+      setCompanySettingsRevision((revision) => revision + 1);
+    };
+
     socketInstance.on("connect", handleConnect);
     socketInstance.on("disconnect", handleDisconnect);
+    socketInstance.on("company-settings-changed", handleCompanySettingsChanged);
     setSocket(socketInstance);
     setIsConnected(socketInstance.connected);
 
     return () => {
       socketInstance.off("connect", handleConnect);
       socketInstance.off("disconnect", handleDisconnect);
+      socketInstance.off("company-settings-changed", handleCompanySettingsChanged);
     };
   }, [signedIn, tenantId, dispatcherId]);
 
   return (
-    <SocketContext.Provider value={{ socket, isConnected }}>
+    <SocketContext.Provider value={{ socket, isConnected, companySettingsRevision, lastCompanySettingsChange }}>
       {children}
     </SocketContext.Provider>
   );
@@ -66,4 +75,14 @@ export const useSocket = () => {
 export const useSocketStatus = () => {
   const context = useContext(SocketContext);
   return context?.isConnected || false;
+};
+
+export const useCompanySettingsRevision = () => {
+  const context = useContext(SocketContext);
+  return context?.companySettingsRevision || 0;
+};
+
+export const useLastCompanySettingsChange = () => {
+  const context = useContext(SocketContext);
+  return context?.lastCompanySettingsChange || null;
 };

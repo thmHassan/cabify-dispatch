@@ -3,6 +3,8 @@ import { useAppSelector } from "../store";
 import {
     ensureCompanySettingsLoaded,
     refreshCompanySettings,
+    setCompanyCurrency,
+    setCompanyUnits,
     subscribeCompanyCurrency,
     subscribeCompanyUnits,
 } from "../utils/functions/appCurrency";
@@ -10,6 +12,7 @@ import {
     ensureCompanyTimezoneLoaded,
     getCompanyTimezone,
     refreshCompanyTimezone,
+    setCompanyTimezone,
     subscribeCompanyTimezone,
 } from "../utils/functions/appDateTime";
 import {
@@ -23,6 +26,7 @@ import {
     isAuthenticated,
     resolveTenantDatabaseId,
 } from "../utils/functions/tokenEncryption";
+import { useLastCompanySettingsChange } from "../components/routes/SocketProvider";
 
 const CompanyDateTimeContext = createContext({
     timezone: getCompanyTimezone(),
@@ -36,6 +40,7 @@ const CompanyDateTimeContext = createContext({
 
 export const CompanyDateTimeProvider = ({ children }) => {
     const signedIn = useAppSelector((state) => state.auth.session.signedIn);
+    const lastCompanySettingsChange = useLastCompanySettingsChange();
     const [timezone, setTimezone] = useState(getCompanyTimezone);
     const [currency, setCurrency] = useState(getTenantCurrencyCode);
     const [units, setUnits] = useState(getTenantDistanceUnit);
@@ -126,6 +131,19 @@ export const CompanyDateTimeProvider = ({ children }) => {
             document.removeEventListener("visibilitychange", handleVisibilityChange);
         };
     }, [canLoadTenantSettings]);
+
+    useEffect(() => {
+        if (lastCompanySettingsChange?.section !== "company_profile") return;
+
+        const profile = lastCompanySettingsChange?.data?.data;
+        if (!profile || typeof profile !== "object") return;
+
+        if (profile.company_timezone) setCompanyTimezone(profile.company_timezone);
+        if (profile.company_currency || profile.currency) {
+            setCompanyCurrency(profile.company_currency || profile.currency);
+        }
+        if (profile.units) setCompanyUnits(profile.units);
+    }, [lastCompanySettingsChange]);
 
     const formatCurrency = useCallback(
         (amount, options = {}) =>

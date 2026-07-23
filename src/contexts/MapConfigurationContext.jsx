@@ -11,6 +11,7 @@ import { useAppSelector } from "../store";
 import { getTenantId, getTenantData } from "../utils/functions/tokenEncryption";
 import {
     fetchMapConfiguration,
+    buildConfigFromInfo,
     MAP_PROVIDER_BARIKOI,
     MAP_PROVIDER_DEFAULT,
     MAP_PROVIDER_GOOGLE,
@@ -29,6 +30,7 @@ import {
     normalizeMapSearchPreferences,
     toBoundaryCountryCode,
 } from "../services/MapSearchService";
+import { useLastCompanySettingsChange } from "../components/routes/SocketProvider";
 
 const MapConfigurationContext = createContext(null);
 
@@ -108,6 +110,7 @@ const applyMapConfig = ({
 export function MapConfigurationProvider({ children }) {
     const signedIn = useAppSelector((state) => state.auth.session.signedIn);
     const tenantScope = signedIn ? getTenantId() : null;
+    const lastCompanySettingsChange = useLastCompanySettingsChange();
 
     const [mapType, setMapType] = useState(null);
     const [mapError, setMapError] = useState(null);
@@ -187,6 +190,26 @@ export function MapConfigurationProvider({ children }) {
             cancelled = true;
         };
     }, [tenantScope]);
+
+    useEffect(() => {
+        if (!tenantScope || lastCompanySettingsChange?.section !== "integrations") return;
+
+        try {
+            const mapConfig = buildConfigFromInfo(lastCompanySettingsChange?.data || {});
+            applyMapConfig({
+                mapConfig,
+                preferencesRes: null,
+                fallbackCountry: getInitialCountryOfUse(),
+                currentMapType: mapTypeRef.current,
+                setMapType,
+                setApiKeys,
+                setMapError,
+                setMapSearchPreferences,
+            });
+        } catch (error) {
+            setMapError(error?.message || "Unable to apply updated map configuration");
+        }
+    }, [lastCompanySettingsChange, tenantScope]);
 
     useEffect(() => {
         if (!tenantScope) return undefined;

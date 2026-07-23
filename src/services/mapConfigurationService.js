@@ -484,7 +484,7 @@ const attachMapSearchPreferences = (config, keysRes, ...preferenceSources) => {
     };
 };
 
-const buildConfigFromInfo = (rawInfo) => {
+export const buildConfigFromInfo = (rawInfo) => {
     const info = normalizeMapInfo(rawInfo);
 
     if (shouldUseGoogleMaps(info)) {
