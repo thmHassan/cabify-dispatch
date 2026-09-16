@@ -600,7 +600,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
 
     const handlePickupConfirmed = useCallback((coords) => {
         setStablePickupCoords(coords);
-    }, [isModalOpen, isEditMode]);
+    }, []);
 
     const handleDestinationConfirmed = useCallback((coords) => {
         setStableDestinationCoords(coords);
@@ -1132,6 +1132,27 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
         else setViaSearchError((prev) => ({ ...prev, [index]: message }));
     };
 
+    const setActiveLocationQuery = (type, index, query) => {
+        if (type === "via") {
+            activeLocationQueriesRef.current.via[index] = query;
+            return;
+        }
+        activeLocationQueriesRef.current[type] = query;
+    };
+
+    const getActiveLocationQuery = (type, index) => {
+        if (type === "via") return activeLocationQueriesRef.current.via[index] || "";
+        return activeLocationQueriesRef.current[type] || "";
+    };
+
+    const clearLocationSearchState = (type, index = null) => {
+        cancelPendingSearch(type, index);
+        setActiveLocationQuery(type, index, "");
+        updateSuggestions([], type, index, false);
+        setLocationSearchLoading(type, index, false);
+        setLocationSearchError(type, index, "");
+    };
+
     const updateSuggestions = (list, type, index, shouldShow = true) => {
         if (type === "pickup") {
             setPickupSuggestions(list);
@@ -1347,22 +1368,14 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
         cancelPendingSearch(type, index);
 
         if (cleanedQuery.length < 2) {
-            if (type === "via") {
-                activeLocationQueriesRef.current.via[index] = "";
-            } else {
-                activeLocationQueriesRef.current[type] = "";
-            }
+            setActiveLocationQuery(type, index, "");
             updateSuggestions([], type, index, false);
             setLocationSearchLoading(type, index, false);
             setLocationSearchError(type, index, "");
             return;
         }
 
-        if (type === "via") {
-            activeLocationQueriesRef.current.via[index] = cleanedQuery;
-        } else {
-            activeLocationQueriesRef.current[type] = cleanedQuery;
-        }
+        setActiveLocationQuery(type, index, cleanedQuery);
 
         setLocationSearchLoading(type, index, true);
         setLocationSearchError(type, index, "");
@@ -1375,6 +1388,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
             try {
                 const list = await fetchLocationSearchResults(cleanedQuery, controller.signal);
                 if (controller.signal.aborted) return;
+                if (getActiveLocationQuery(type, index) !== cleanedQuery) return;
                 updateSuggestions(list, type, index, true);
                 if (!list.length) {
                     setLocationSearchError(type, index, "No locations found");
@@ -1389,7 +1403,10 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
                     err?.response?.data?.message || "Failed to search locations"
                 );
             } finally {
-                if (!controller.signal.aborted) {
+                if (
+                    !controller.signal.aborted
+                    && getActiveLocationQuery(type, index) === cleanedQuery
+                ) {
                     setLocationSearchLoading(type, index, false);
                 }
             }
@@ -1478,7 +1495,7 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
             });
         });
 
-    const fetchPlotName = async (lat, lng) => {
+    const fetchPlotName = useCallback(async (lat, lng) => {
         try {
             const formData = new FormData();
             formData.append("latitude", lat);
@@ -1488,10 +1505,12 @@ const AddBooking = ({ setIsOpen, onBookingCreated, editBooking = null, isModalOp
                 return { found: true, id: res.data.record.id, name: res.data.record.name };
         } catch { }
         return { found: false, id: null, name: "Plot Not Found" };
-    };
+    }, []);
 
     const selectLocation = async (item, type, setFieldValue, index = null) => {
         let displayValue = item.inputValue || item.label;
+        clearLocationSearchState(type, index);
+
         if (type === "pickup") {
             setShowPickup(false);
             closeLocationSidebar();
@@ -2560,7 +2579,7 @@ const validateCreateBooking = (values) => {
         closeLocationSidebar();
     }, [closeLocationSidebar]);
 
-    const memoizedMap = (
+    const memoizedMap = useMemo(() => (
         <Maps
             key={mapsApi || "map-loading"}
             mapsApi={mapsApi}
@@ -2578,7 +2597,20 @@ const validateCreateBooking = (values) => {
             onDestinationConfirmed={handleDestinationConfirmed}
             SEARCH_API={searchApi}
         />
-    );
+    ), [
+        apiKeys,
+        applyMapFieldValue,
+        fetchPlotName,
+        handleDestinationConfirmed,
+        handlePickupConfirmed,
+        mapError,
+        mapViaCoords,
+        mapsApi,
+        plotsData,
+        searchApi,
+        stableDestinationCoords,
+        stablePickupCoords,
+    ]);
 
     return (
         <>

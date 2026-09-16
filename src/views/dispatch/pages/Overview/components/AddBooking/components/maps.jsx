@@ -535,7 +535,7 @@ const MapLibreBookingMap = ({
                     container: containerRef.current,
                     style: styleConfigRef.current,
                     center: [center.lng, center.lat],
-                    zoom: 12,
+                    zoom: 10,
                     attributionControl: false,
                     transformRequest: createMapifyTransformRequest(),
                 });
@@ -704,7 +704,7 @@ const MapLibreBookingMap = ({
                 (viaCoords || []).forEach((c, i) => addMarker(c, "#2196F3", `${i + 1}`));
                 addMarker(destinationCoords, "#F44336", "D");
 
-                if (hasCoords) mapRef.current.fitBounds(bounds, { padding: 60, maxZoom: 15 });
+                if (hasCoords) mapRef.current.fitBounds(bounds, { padding: 100, maxZoom: 15 });
                 drawRoute(mapRef.current);
             };
 
