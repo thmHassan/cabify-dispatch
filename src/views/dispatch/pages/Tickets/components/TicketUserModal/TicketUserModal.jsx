@@ -1,125 +1,177 @@
-import React, { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import Button from "../../../../../../components/ui/Button/Button";
 import AppLogoLoader from "../../../../../../components/shared/AppLogoLoader";
 import { apiGetDriverManagementById } from "../../../../../../services/DriverManagementService";
 import { apiGetUserById } from "../../../../../../services/UserService";
+import { formatDateTime } from "../../../../../../utils/functions/formatters";
 import { formatPhoneDisplay } from "../../../../../../utils/functions/tenantSettings";
 
 const DetailRow = ({ label, value }) => (
-    <div className="flex flex-col gap-0.5">
-        <span className="text-xs text-[#6C6C6C]">{label}</span>
-        <span className="text-sm text-[#333333] font-medium break-all">{value || "-"}</span>
+    <div>
+        <p className="text-xs text-gray-500 mb-1">{label}</p>
+        <p className="text-sm font-medium text-gray-900 break-words">{value || "-"}</p>
     </div>
 );
 
-const getUserTypeLabel = (userType) => (userType === "driver" ? "Driver" : "Customer");
+export const getTicketCreatorInfo = (ticket) => {
+    if (!ticket) {
+        return { userId: null, userType: null, displayName: "Unknown", userDetail: null };
+    }
+
+    const userDetail = ticket.user_detail || ticket.customer_detail;
+    const userTypeRaw =
+        ticket.user_type ||
+        userDetail?.user_type ||
+        (ticket.driver_id ? "driver" : ticket.user_id ? "user" : null);
+    const userType = userTypeRaw?.toLowerCase?.() || userTypeRaw;
+
+    const userId =
+        ticket.user_id ||
+        ticket.driver_id ||
+        userDetail?.id ||
+        userDetail?.user_id;
+
+    const displayName =
+        ticket.customer ||
+        userDetail?.name ||
+        userDetail?.full_name ||
+        "Unknown";
+
+    return { userId, userType, displayName, userDetail };
+};
+
+const capitalizeFirst = (value) => {
+    if (!value) return "-";
+    return String(value).charAt(0).toUpperCase() + String(value).slice(1);
+};
 
 const TicketUserModal = ({ ticket, onClose }) => {
+    const [profile, setProfile] = useState(null);
     const [loading, setLoading] = useState(true);
-    const [error, setError] = useState("");
-    const [userData, setUserData] = useState(null);
+    const [error, setError] = useState(null);
 
-    const isDriver = ticket?.user_type === "driver";
+    const { userId, userType, displayName, userDetail } = useMemo(
+        () => getTicketCreatorInfo(ticket),
+        [ticket]
+    );
 
-    const fetchUserDetails = useCallback(async () => {
-        if (!ticket?.user_id) {
-            setError("User information is not available for this ticket.");
+    const isDriver = userType === "driver";
+
+    const fetchProfile = useCallback(async () => {
+        if (!userId) {
+            setProfile(userDetail || null);
+            setError(userDetail ? null : "User details are not available for this ticket.");
             setLoading(false);
             return;
         }
 
         setLoading(true);
-        setError("");
+        setError(null);
 
         try {
             const response = isDriver
-                ? await apiGetDriverManagementById({ id: ticket.user_id })
-                : await apiGetUserById({ id: ticket.user_id });
+                ? await apiGetDriverManagementById({ id: userId })
+                : await apiGetUserById({ id: userId });
 
-            if (response?.data?.success === 1) {
-                const data = isDriver
-                    ? response.data.driver
-                    : response.data.user;
-                setUserData(data || null);
+            if (response?.data?.success === 1 || response?.status === 200) {
+                const data =
+                    response?.data?.driver ||
+                    response?.data?.user ||
+                    response?.data?.data ||
+                    null;
+                setProfile(data || userDetail || null);
             } else {
-                setError("Failed to load user details.");
+                setError(response?.data?.message || "Failed to load user details");
+                setProfile(userDetail || null);
             }
         } catch (err) {
-            console.error("Error fetching ticket user details:", err);
-            setError("Something went wrong while loading user details.");
+            setError(err?.response?.data?.message || "Failed to load user details");
+            setProfile(userDetail || null);
         } finally {
             setLoading(false);
         }
-    }, [isDriver, ticket?.user_id]);
+    }, [isDriver, userDetail, userId]);
 
     useEffect(() => {
-        fetchUserDetails();
-    }, [fetchUserDetails]);
+        fetchProfile();
+    }, [fetchProfile]);
 
-    const phone = userData
-        ? formatPhoneDisplay(userData.country_code, userData.phone_no)
-        : "";
+    const phone = formatPhoneDisplay(
+        profile?.country_code || userDetail?.country_code,
+        profile?.phone_no || profile?.phone || userDetail?.phone_no || userDetail?.phone
+    );
+
+    const title = isDriver ? "Driver Details" : "User Details";
 
     return (
-        <div className="w-[420px] bg-white rounded-2xl p-6 max-h-[85vh] overflow-y-auto">
-            <div className="flex items-start justify-between mb-4">
+        <div className="min-w-[180px] max-w-lg">
+            <div className="flex items-start justify-between gap-4 mb-6">
                 <div>
-                    <h2 className="text-xl font-semibold">Ticket Creator</h2>
-                    <p className="text-sm text-gray-500 mt-1">
-                        #{ticket?.ticket_id} · {getUserTypeLabel(ticket?.user_type)}
-                    </p>
+                    <h2 className="text-xl font-semibold text-gray-900">{title}</h2>
+                    <p className="text-sm text-gray-500 mt-1">#{ticket?.ticket_id || "-"}</p>
                 </div>
-                <span
-                    className={`px-3 py-1 rounded-full text-xs font-medium ${
-                        isDriver
-                            ? "bg-[#EEF2FF] text-[#1F41BB]"
-                            : "bg-[#E4FFF6] text-[#10B981]"
-                    }`}
+                <button
+                    type="button"
+                    onClick={onClose}
+                    className="text-gray-400 hover:text-gray-600 text-2xl leading-none"
+                    aria-label="Close"
                 >
-                    {getUserTypeLabel(ticket?.user_type)}
-                </span>
+                    x
+                </button>
             </div>
 
             {loading ? (
-                <div className="flex justify-center py-10">
+                <div className="flex justify-center py-12">
                     <AppLogoLoader />
                 </div>
-            ) : error ? (
-                <p className="text-sm text-red-500 py-6">{error}</p>
             ) : (
-                <div className="grid grid-cols-1 gap-4">
-                    <DetailRow label="Name" value={userData?.name} />
-                    <DetailRow label="Email" value={userData?.email} />
-                    <DetailRow label="Phone" value={phone} />
-                    <DetailRow
-                        label="Address"
-                        value={
-                            userData?.address
-                                ? `${userData.address}${userData.city ? `, ${userData.city}` : ""}`
-                                : ""
-                        }
-                    />
-                    {isDriver ? (
-                        <>
-                            <DetailRow label="License" value={userData?.driver_license} />
-                            <DetailRow label="Vehicle" value={userData?.vehicle_name} />
-                            <DetailRow label="Status" value={userData?.status} />
-                        </>
-                    ) : (
-                        <>
-                            <DetailRow label="Rating" value={userData?.rating ?? "0"} />
-                            <DetailRow label="Devices" value={userData?.device_count ?? "0"} />
-                        </>
+                <>
+                    {error && !profile && (
+                        <p className="text-red-500 text-sm mb-4">{error}</p>
                     )}
-                </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <DetailRow label="Name" value={profile?.name || displayName} />
+                        <DetailRow label="Type" value={capitalizeFirst(userType || "user")} />
+                        <DetailRow label="ID" value={userId ? `#${userId}` : "-"} />
+                        <DetailRow label="Email" value={profile?.email || userDetail?.email} />
+                        <DetailRow label="Phone" value={phone} />
+                        <DetailRow label="Status" value={capitalizeFirst(profile?.status)} />
+                        {!isDriver && (
+                            <>
+                                <DetailRow label="Address" value={profile?.address || userDetail?.address} />
+                                <DetailRow label="City" value={profile?.city || userDetail?.city} />
+                                <DetailRow label="Rating" value={profile?.rating || userDetail?.rating} />
+                                <DetailRow label="Device Count" value={profile?.device_count || userDetail?.device_count} />
+                            </>
+                        )}
+                        {isDriver && (
+                            <>
+                                <DetailRow label="License" value={profile?.driver_license || userDetail?.driver_license} />
+                                <DetailRow label="Plate No" value={profile?.plate_no || userDetail?.plate_no} />
+                                <DetailRow label="Vehicle" value={profile?.vehicle_name || userDetail?.vehicle_name} />
+                            </>
+                        )}
+                        <div className="sm:col-span-2">
+                            <DetailRow
+                                label="Created At"
+                                value={formatDateTime(profile?.created_at || userDetail?.created_at)}
+                            />
+                        </div>
+                    </div>
+
+                    {error && profile && (
+                        <p className="text-amber-600 text-xs mt-4">
+                            Showing limited details from ticket data. {error}
+                        </p>
+                    )}
+                </>
             )}
 
-            <div className="flex justify-end mt-6">
-                <button
-                    onClick={onClose}
-                    className="px-6 py-2 border border-[#1F41BB] text-[#1F41BB] rounded-lg"
-                >
+            <div className="flex justify-end mt-6 pt-4 border-t border-gray-200">
+                <Button type="filledGray" onClick={onClose} className="px-6">
                     Close
-                </button>
+                </Button>
             </div>
         </div>
     );

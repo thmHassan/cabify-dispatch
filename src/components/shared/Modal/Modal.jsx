@@ -5,15 +5,13 @@ import { useAppSelector } from "../../../store";
 import Base from "../../animations/Base";
 
 const SIZE_CONFIG = {
-  sm: "w-full max-w-[95%] sm:max-w-[520px]",
-  md: "w-full max-w-[95%] sm:max-w-[720px]",
-  lg: "w-full max-w-[95%] lg:max-w-[1280px]",
-  xl: "w-full max-w-[95%] sm:max-w-[1130px]",
-  "2xl": "w-full max-w-[95%] sm:max-w-[1200px]",
-  "3xl": "w-full max-w-[95%] lg:max-w-[95vw] xl:max-w-[1800px]",
+  sm: "max-w-[95%] sm:max-w-[520px]",
+  md: "max-w-[95%] sm:max-w-[720px]",
+  xl: "max-w-[95%] sm:max-w-[1130px]",
+  "2xl": "max-w-[95%] sm:max-w-[1200px]",
 };
 
-const ModalComponent = ({ size = "xl", children, className, isVisible = true }) => {
+const ModalComponent = ({ size = "xl", children, className }) => {
   const parentRef = useRef(null);
   const childRef = useRef(null);
   const [isChildGreater, setIsChildGreater] = useState(false);
@@ -28,7 +26,19 @@ const ModalComponent = ({ size = "xl", children, className, isVisible = true }) 
   useEffect(() => {
     checkHeights();
     window.addEventListener("resize", checkHeights);
-    return () => window.removeEventListener("resize", checkHeights);
+
+    let observer;
+    if (childRef.current) {
+        observer = new ResizeObserver(() => checkHeights());
+        observer.observe(childRef.current);
+    }
+    
+    return () => {
+        window.removeEventListener("resize", checkHeights);
+        if (observer) {
+            observer.disconnect();
+        }
+    };
   }, [tabViewScreen]);
 
   return (
@@ -36,21 +46,19 @@ const ModalComponent = ({ size = "xl", children, className, isVisible = true }) 
       ref={parentRef}
       className={classNames(
         "fixed z-[2000] top-0 left-0 w-full h-full overflow-y-auto bg-[#00000050] flex justify-center",
-        isChildGreater
-          ? "py-2 sm:py-4 lg:py-6 items-start"
-          : "items-start sm:items-center py-2 sm:py-4",
-        !isVisible && "invisible pointer-events-none"
+        isChildGreater 
+          ? "py-4 sm:py-8 md:py-[60px] lg:py-[140px]" 
+          : "items-start sm:items-center py-4 sm:py-8"
       )}
-      aria-hidden={!isVisible}
     >
       <Base
         ref={childRef}
-        initial={isVisible ? { opacity: 0, scale: 0.9, y: 30 } : false}
-        animate={isVisible ? { opacity: 1, scale: 1, y: 0 } : { opacity: 1, scale: 1, y: 0 }}
+        initial={{ opacity: 0, scale: 0.9, y: 30 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.9, y: 30 }}
         transition={{ duration: 0.2, ease: "easeOut" }}
         className={classNames(
-          "w-full bg-white rounded-[15px] sm:rounded-[25px] relative h-fit shadow-xl sm:mx-4 lg:mx-6 my-2 sm:my-0 overflow-hidden",
+          "w-auto bg-white rounded-[15px] sm:rounded-[25px] relative h-fit shadow-xl sm:mx-6 my-4 sm:my-0",
           SIZE_CONFIG[size],
           className
         )}
@@ -61,23 +69,9 @@ const ModalComponent = ({ size = "xl", children, className, isVisible = true }) 
   );
 };
 
-const Modal = ({ isOpen = false, keepMounted = false, ...rest }) => {
-  const wasOpenRef = useRef(isOpen);
-
-  if (isOpen) {
-    wasOpenRef.current = true;
-  }
-
-  if (keepMounted) {
-    if (!wasOpenRef.current) {
-      return null;
-    }
-
-    return <ModalComponent {...rest} isVisible={isOpen} />;
-  }
-
+const Modal = ({ isOpen = false, ...rest }) => {
   return (
-    <AnimatePresence>{isOpen && <ModalComponent {...rest} isVisible />}</AnimatePresence>
+    <AnimatePresence>{isOpen && <ModalComponent {...rest} />}</AnimatePresence>
   );
 };
 

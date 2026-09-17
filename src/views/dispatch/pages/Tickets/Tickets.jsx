@@ -13,6 +13,8 @@ import TicketUserModal from './components/TicketUserModal';
 import AppLogoLoader from '../../../../components/shared/AppLogoLoader';
 import { apiChangeTicketStatus, apiGetTicketList } from '../../../../services/TicketServices';
 import { getDispatcherId } from '../../../../utils/auth';
+import { lockBodyScroll, unlockBodyScroll } from '../../../../utils/functions/common.function';
+import { useSocket } from '../../../../components/routes/SocketProvider';
 
 const Tickets = () => {
   const [isTicketsModelOpen, setIsTicketsModelOpen] = useState({
@@ -45,6 +47,8 @@ const Tickets = () => {
   const [ticketsData, setTicketsData] = useState([]);
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [typingByTicket, setTypingByTicket] = useState({});
+  const socket = useSocket();
 
   // Search debounce
   useEffect(() => {
@@ -81,6 +85,9 @@ const Tickets = () => {
       if (debouncedSearchQuery?.trim()) {
         params.search = debouncedSearchQuery.trim();
       }
+      if (_selectedStatus?.value && _selectedStatus.value !== "all") {
+        params.status = _selectedStatus.value;
+      }
 
       const response = await apiGetTicketList(params);
 
@@ -96,15 +103,128 @@ const Tickets = () => {
     } finally {
       setTableLoading(false);
     }
-  }, [currentPage, itemsPerPage, debouncedSearchQuery]);
+  }, [currentPage, itemsPerPage, debouncedSearchQuery, _selectedStatus?.value, dispatcherId]);
 
   useEffect(() => {
     fetchTickets();
   }, [currentPage, itemsPerPage, debouncedSearchQuery, fetchTickets, refreshTrigger]);
 
-  const filteredTickets = _selectedStatus.value === "all"
-    ? ticketsData
-    : ticketsData.filter(ticket => ticket.status === _selectedStatus.value);
+  const upsertTicketReply = useCallback((ticketId, reply, replyCount) => {
+    if (!ticketId || !reply) return;
+
+    const applyReply = (ticket) => {
+      if (!ticket || Number(ticket.id) !== Number(ticketId)) return ticket;
+
+      const replies = Array.isArray(ticket.replies) ? ticket.replies : [];
+      const hasReply = reply.id
+        ? replies.some((item) => Number(item.id) === Number(reply.id))
+        : replies.some((item) => item.created_at === reply.created_at && item.message === reply.message);
+      const nextReplies = hasReply ? replies : [...replies, reply];
+
+      return {
+        ...ticket,
+        replies: nextReplies,
+        reply_count: replyCount ?? nextReplies.length,
+        reply_message: reply.message,
+        reply_by_type: reply.reply_by_type,
+        reply_by_id: reply.reply_by_id,
+        reply_by_name: reply.reply_by_name,
+        replied_at: reply.created_at,
+      };
+    };
+
+    setTicketsData((prev) => prev.map(applyReply));
+    setSelectedTicket((prev) => applyReply(prev));
+  }, []);
+
+  const prependCreatedTicket = useCallback((ticket) => {
+    if (!ticket?.id) return;
+    if (_selectedStatus?.value && _selectedStatus.value !== "all" && ticket.status !== _selectedStatus.value) {
+      return;
+    }
+
+    setTicketsData((prev) => (
+      prev.some((item) => Number(item.id) === Number(ticket.id))
+        ? prev
+        : [ticket, ...prev]
+    ));
+    setTotalItems((prev) => prev + 1);
+  }, [_selectedStatus?.value]);
+
+  const updateTicketStatus = useCallback((ticketId, status) => {
+    if (!ticketId || !status) return;
+
+    const applyStatus = (ticket) => {
+      if (!ticket || Number(ticket.id) !== Number(ticketId)) return ticket;
+      return { ...ticket, status };
+    };
+
+    setTicketsData((prev) => {
+      const next = prev.map(applyStatus);
+      if (_selectedStatus?.value && _selectedStatus.value !== "all" && status !== _selectedStatus.value) {
+        return next.filter((ticket) => Number(ticket.id) !== Number(ticketId));
+      }
+      return next;
+    });
+    setSelectedTicket((prev) => applyStatus(prev));
+  }, [_selectedStatus?.value]);
+
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleTicketReply = (payload = {}) => {
+      if (!payload.reply) return;
+      upsertTicketReply(payload.ticket_id, payload.reply, payload.reply_count);
+    };
+    const handleTicketCreated = (payload = {}) => {
+      prependCreatedTicket(payload.ticket);
+    };
+    const handleTicketStatusChanged = (payload = {}) => {
+      updateTicketStatus(payload.ticket_id, payload.status);
+    };
+
+    socket.on("ticket-reply", handleTicketReply);
+    socket.on("ticket-updated", handleTicketReply);
+    socket.on("ticket-created", handleTicketCreated);
+    socket.on("ticket-status-changed", handleTicketStatusChanged);
+
+    return () => {
+      socket.off("ticket-reply", handleTicketReply);
+      socket.off("ticket-updated", handleTicketReply);
+      socket.off("ticket-created", handleTicketCreated);
+      socket.off("ticket-status-changed", handleTicketStatusChanged);
+    };
+  }, [socket, upsertTicketReply, prependCreatedTicket, updateTicketStatus]);
+
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleTicketTyping = (payload = {}) => {
+      if (!payload.ticket_id) return;
+
+      setTypingByTicket((prev) => ({
+        ...prev,
+        [payload.ticket_id]: payload.is_typing ? payload : null,
+      }));
+    };
+
+    socket.on("ticket-typing", handleTicketTyping);
+
+    return () => {
+      socket.off("ticket-typing", handleTicketTyping);
+    };
+  }, [socket]);
+
+  useEffect(() => {
+    if (!selectedTicket) return;
+
+    const freshTicket = ticketsData.find((ticket) => ticket.id === selectedTicket.id);
+    if (freshTicket) {
+      setSelectedTicket(freshTicket);
+    }
+  }, [ticketsData, selectedTicket?.id]);
+
+  const filteredTickets = ticketsData;
 
   const handleReplyClick = (ticket) => {
     setSelectedTicket(ticket);
@@ -112,8 +232,15 @@ const Tickets = () => {
   };
 
   const handleUserClick = (ticket) => {
+    lockBodyScroll();
     setSelectedUserTicket(ticket);
     setIsUserModalOpen(true);
+  };
+
+  const handleCloseUserModal = () => {
+    unlockBodyScroll();
+    setIsUserModalOpen(false);
+    setSelectedUserTicket(null);
   };
 
 
@@ -126,7 +253,7 @@ const Tickets = () => {
       const response = await apiChangeTicketStatus(formData);
 
       if (response?.data?.success === 1) {
-        setRefreshTrigger((prev) => prev + 1);
+        updateTicketStatus(ticketId, newStatus);
       }
     } catch (error) {
       console.error("Error changing ticket status:", error);
@@ -205,19 +332,24 @@ const Tickets = () => {
       <Modal isOpen={isTicketsModelOpen.isOpen}>
         <AddTicketModel
           ticket={selectedTicket}
-          onClose={() => setIsTicketsModelOpen({ isOpen: false })}
-          refreshList={() => setRefreshTrigger(prev => prev + 1)}
-          onUserClick={handleUserClick}
+          onClose={() => {
+            setIsTicketsModelOpen({ isOpen: false });
+            setSelectedTicket(null);
+          }}
+          onReplyCreated={(reply, replyCount) => upsertTicketReply(selectedTicket?.id, reply, replyCount)}
+          typingUser={selectedTicket ? typingByTicket[selectedTicket.id] : null}
+          socket={socket}
+          onUserClick={(ticket) => {
+            setIsTicketsModelOpen({ isOpen: false });
+            handleUserClick(ticket);
+          }}
         />
       </Modal>
 
-      <Modal isOpen={isUserModalOpen} size="sm">
+      <Modal isOpen={isUserModalOpen} className="p-4 sm:p-6 lg:p-10">
         <TicketUserModal
           ticket={selectedUserTicket}
-          onClose={() => {
-            setIsUserModalOpen(false);
-            setSelectedUserTicket(null);
-          }}
+          onClose={handleCloseUserModal}
         />
       </Modal>
     </div>

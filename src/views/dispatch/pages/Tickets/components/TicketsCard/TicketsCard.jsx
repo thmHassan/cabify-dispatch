@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { formatDateTime } from "../../../../../../utils/functions/formatters";
+import { getTicketCreatorInfo } from "../TicketUserModal";
 
 const getUserTypeLabel = (userType) => (userType === "driver" ? "Driver" : "Customer");
 
@@ -12,6 +13,8 @@ const TicketsCard = ({ tickets, onReplyClick, onStatusChange, onUserClick }) => 
 
     const statusOptions =
         tickets.status === "open" ? ["closed"] : ["open"];
+    const { displayName, userType } = getTicketCreatorInfo(tickets);
+    const replyCount = tickets.reply_count || tickets.replies?.length || (tickets.reply_message ? 1 : 0);
 
     useEffect(() => {
         const handleClickOutside = (event) => {
@@ -51,13 +54,14 @@ const TicketsCard = ({ tickets, onReplyClick, onStatusChange, onUserClick }) => 
                         <p className="font-semibold text-xl">
                             {tickets.ticket_id}
                         </p>
+                        <p className="text-[10px] text-[#6C6C6C]">Raised by</p>
                         <button
                             type="button"
                             onClick={() => onUserClick?.(tickets)}
-                            className="text-[10px] text-[#1F41BB] hover:underline text-left"
+                            className="text-sm font-medium text-[#1F41BB] hover:underline text-left"
                             title="View user details"
                         >
-                            {tickets.customer || getUserTypeLabel(tickets.user_type) || "View user"}
+                            {displayName || getUserTypeLabel(userType) || "View user"}
                         </button>
                         <p className="text-xs">
                             {formatDateTime(tickets.created_at)}
@@ -109,7 +113,7 @@ const TicketsCard = ({ tickets, onReplyClick, onStatusChange, onUserClick }) => 
                         onClick={() => onReplyClick(tickets)}
                         className="px-4 py-2 rounded-full border border-[#1F41BB] text-xs text-[#1F41BB] text-nowrap"
                     >
-                        {tickets.reply_message === null ? "Reply" : "View Reply"}
+                        {replyCount > 0 ? `Open (${replyCount})` : "Reply"}
                     </button>
                 </div>
             </div>
